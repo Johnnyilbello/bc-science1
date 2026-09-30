@@ -196,6 +196,104 @@ APPUNTI PARZIALI:
 """
 
 
+def _dedupe_exact_blocks(text: str) -> str:
+    """Remove exact repeated Markdown blocks while preserving first occurrence order."""
+    blocks = re.split(r"\n\s*\n", text.strip())
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for block in blocks:
+        normalized = re.sub(r"\s+", " ", block).strip().casefold()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(block.strip())
+    return "\n\n".join(cleaned)
+
+
+def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
+    """Read chapter titles from the deterministic index and pair them with body blocks."""
+    index_match = re.search(
+        r"(?ms)^## Indice degli argomenti\s*$\n(?P<items>.*?)(?:\n---\n|\Z)",
+        text,
+    )
+    if not index_match:
+        return []
+
+    titles = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
+    ]
+    body = text[index_match.end():]
+    blocks = [part.strip() for part in re.split(r"\n---\n", body) if part.strip()]
+
+    chapters: list[tuple[str, str]] = []
+    used: set[int] = set()
+    for title in titles:
+        heading_re = re.compile(rf"(?mi)^##\s+{re.escape(title)}\s*$")
+        selected_index = None
+        for index, block in enumerate(blocks):
+            if index in used:
+                continue
+            if heading_re.search(block):
+                selected_index = index
+                break
+        if selected_index is None:
+            continue
+        used.add(selected_index)
+        chapters.append((title, blocks[selected_index]))
+    return chapters
+
+
+def _refine_chapter_prompt(title: str, chapter: str) -> str:
+    return f"""Riscrivi questo capitolo gia riassunto di BC Science.
+
+OBIETTIVO:
+- renderlo molto semplice da capire;
+- conservare TUTTE le informazioni distinte presenti;
+- eliminare ripetizioni e blocchi duplicati;
+- correggere frasi spezzate, heading incollati nel testo e refusi evidenti;
+- mantenere numeri, definizioni, classificazioni, sequenze, eccezioni e contenuti utili all'esame;
+- NON aggiungere conoscenze che non siano gia presenti nel capitolo;
+- NON correggere scientificamente il contenuto usando conoscenza esterna;
+- se compare una nota "Verifica materiale", conservarla;
+- non ripetere piu volte "Da ricordare per l'esame";
+- termina con frasi complete.
+
+FORMATO:
+## {title}
+[spiegazione ordinata e semplice]
+### Da ricordare per l'esame
+[un'unica sezione finale, 5-15 punti secondo la quantita di contenuto]
+
+CAPITOLO DA RIFINIRE:
+{chapter}
+"""
+
+
+def _refine_overview_prompt(title: str, topic_titles: list[str]) -> str:
+    topics = "\n".join(f"- {item}" for item in topic_titles)
+    return f"""Crea soltanto l'apertura del riassunto rifinito "{title}".
+
+Usa esclusivamente questi titoli di capitolo:
+{topics}
+
+Genera:
+# {title}
+> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
+
+## Come studiare questo riassunto
+Massimo 5 punti.
+
+## Mappa della materia
+Raggruppa logicamente i capitoli senza inventare contenuti.
+
+## Ripasso globale
+15-30 richiami molto brevi, derivabili soltanto dai titoli; niente dettagli non presenti.
+
+Non generare l'indice: verra aggiunto automaticamente.
+"""
+
+
 def _course_overview_prompt(topic_previews: str, title: str) -> str:
     return f"""Crea l'introduzione e il ripasso globale per un unico riassunto eCampus intitolato
 "{title}".
@@ -498,6 +596,70 @@ class Summarizer:
             + "\n".join(toc_lines)
             + separator
             + separator.join(chapters)
+            + "\n"
+        )
+
+    def refine_summary(
+        self,
+        text: str,
+        title: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
+        chapters = _extract_summary_chapters(text)
+        if not chapters:
+            raise ValueError(
+                "Il file non contiene un indice BC Science valido con capitoli rifinibili."
+            )
+
+        refined: list[tuple[str, str]] = []
+        system = _summary_system_prompt("Scienze Motorie")
+
+        for index, (chapter_title, chapter) in enumerate(chapters, start=1):
+            if progress:
+                progress(f"[{index}/{len(chapters)}] Rifinisco {chapter_title}")
+
+            deduped = _dedupe_exact_blocks(chapter)
+            cache_key = _key(
+                PROMPT_VERSION,
+                self.model,
+                "refine-chapter",
+                chapter_title,
+                deduped,
+            )
+            polished = self._cached_chat(
+                cache_key,
+                system,
+                _refine_chapter_prompt(chapter_title, deduped),
+                num_predict=2600,
+            )
+            refined.append(
+                (chapter_title, _normalize_chapter_heading(polished, chapter_title))
+            )
+
+        topic_titles = [chapter_title for chapter_title, _chapter in refined]
+        overview_key = _key(
+            PROMPT_VERSION,
+            self.model,
+            "refine-overview",
+            title,
+            "\n".join(topic_titles),
+        )
+        overview = self._cached_chat(
+            overview_key,
+            system,
+            _refine_overview_prompt(title, topic_titles),
+            num_predict=1200,
+        ).strip()
+
+        toc = ["## Indice degli argomenti", *[f"- {item}" for item in topic_titles]]
+        separator = "\n\n---\n\n"
+        return (
+            overview
+            + "\n\n"
+            + "\n".join(toc)
+            + separator
+            + separator.join(chapter for _title, chapter in refined)
             + "\n"
         )
 
