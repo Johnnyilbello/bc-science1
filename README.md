@@ -47,6 +47,13 @@ I file invariati vengono saltati automaticamente.
 
     bc-science ask "Spiegami in modo semplice il ruolo del calcio nella contrazione muscolare"
 
+La risposta viene mostrata in streaming. Alla fine BC Science indica token/s, token generati,
+dimensione del prompt e tempi di caricamento/generazione restituiti da Ollama.
+
+Per una risposta più lunga e con più fonti:
+
+    bc-science ask "Spiegami tutta la contrazione muscolare" --deep
+
 ### Diagnostica
 
     bc-science doctor

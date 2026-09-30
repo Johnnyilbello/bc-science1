@@ -157,14 +157,56 @@ def ask(
     question: Annotated[str, typer.Argument(help="Domanda sui materiali indicizzati")],
     profile: Annotated[str, typer.Option("--profile", "-p")] = "standard",
     sources: Annotated[bool, typer.Option("--sources/--no-sources")] = True,
+    deep: Annotated[
+        bool,
+        typer.Option("--deep", help="Usa più fonti e una risposta più lunga"),
+    ] = False,
 ) -> None:
     """Interroga localmente i materiali indicizzati."""
     config = _config()
-    _ensure_model(config, profile)
+    model = _ensure_model(config, profile)
     client = _require_ollama(config)
     ensure_model_with_progress(client, config.embedding_model, console)
-    response, hits = answer(question, config, profile)
-    console.print(response)
+
+    console.print(
+        f"[dim]BC Science · {model} · "
+        f"{'approfondita' if deep else 'rapida'}[/]"
+    )
+    streamed = False
+
+    def emit(piece: str) -> None:
+        nonlocal streamed
+        streamed = True
+        console.print(piece, end="", markup=False, highlight=False)
+
+    result, hits = answer(
+        question,
+        config,
+        profile,
+        deep=deep,
+        on_token=emit,
+    )
+    if streamed:
+        console.print()
+    elif result.content:
+        console.print(result.content)
+
+    console.print(
+        "\n[dim]"
+        f"Performance: {result.tokens_per_second:.1f} token/s · "
+        f"{result.eval_count} token generati · "
+        f"{result.prompt_eval_count} token prompt · "
+        f"load {result.load_seconds:.2f}s · "
+        f"prompt {result.prompt_seconds:.2f}s · "
+        f"totale Ollama {result.total_seconds:.2f}s"
+        "[/]"
+    )
+    if result.done_reason == "length":
+        console.print(
+            "[yellow]Risposta fermata dal limite token. "
+            "Riprova con --deep per una risposta più lunga.[/]"
+        )
+
     if sources and hits:
         console.print("\n[dim]Fonti recuperate:[/]")
         for hit in hits:
