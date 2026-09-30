@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v3-course"
+PROMPT_VERSION = "summary-v4-source-safe"
 
 
 @dataclass(slots=True)
@@ -21,6 +21,10 @@ class SummaryStats:
     cache_hits: int = 0
     source_files: int = 0
     topic_groups: int = 0
+    continuation_calls: int = 0
+    generated_tokens: int = 0
+    prompt_tokens: int = 0
+    ollama_seconds: float = 0.0
 
 
 @dataclass(slots=True)
@@ -64,6 +68,34 @@ def group_course_files(files: list[Path]) -> list[TopicGroup]:
     return [grouped[key] for key in order]
 
 
+def _summary_system_prompt(domain: str) -> str:
+    return (
+        system_prompt(domain)
+        + """
+MODALITA RIASSUNTO SOURCE-ONLY:
+- Le dispense fornite sono l'unica fonte ammessa.
+- NON aggiungere conoscenza generale, neppure in sezioni chiamate "Chiarimento".
+- NON correggere scientificamente le dispense usando conoscenze esterne.
+- Puoi correggere solo refusi ortografici evidenti quando il significato e inequivocabile.
+- Se il contenuto dei documenti non corrisponde al titolo del gruppo, segnalalo in una breve
+  nota "Verifica materiale" e riassumi comunque il contenuto realmente presente, senza chiedere
+  conferma all'utente.
+- Non lasciare mai una frase, una lista o una parola incompleta.
+"""
+    )
+
+
+def _normalize_chapter_heading(chapter: str, title: str) -> str:
+    lines = chapter.strip().splitlines()
+    if not lines:
+        return f"## {title}"
+    if lines[0].lstrip().startswith("#"):
+        lines[0] = f"## {title}"
+    else:
+        lines.insert(0, f"## {title}")
+    return "\n".join(lines).strip()
+
+
 def _chunk_prompt(text: str, domain: str) -> str:
     return f"""Trasforma il seguente estratto di {domain} in appunti da esame eCampus.
 
@@ -102,6 +134,10 @@ PRIORITA ASSOLUTE:
 7. Non aggiungere conoscenze esterne e non correggere silenziosamente le dispense.
 8. Non citare i nomi dei file nel corpo del capitolo.
 9. Non inventare "domande ufficiali eCampus".
+10. NON creare sezioni "Chiarimento" basate su conoscenza generale.
+11. Se titolo e contenuto non corrispondono, usa una breve nota "Verifica materiale" e poi
+    riassumi il contenuto effettivamente presente: non chiedere conferma all'utente.
+12. Termina sempre il capitolo con una frase completa.
 
 STRUTTURA:
 ## {title}
@@ -127,7 +163,9 @@ REGOLE:
 - se due appunti sono in tensione, non inventare una riconciliazione: esponi entrambe
   le formulazioni in modo chiaro;
 - mantieni numeri, definizioni, classificazioni, sequenze ed eccezioni;
-- niente conoscenze esterne.
+- niente conoscenze esterne;
+- non creare sezioni "Chiarimento" esterne alle fonti;
+- termina sempre con una frase completa.
 
 FORMATO:
 ## {title}
@@ -194,20 +232,50 @@ class Summarizer:
             self.stats.cache_hits += 1
             return hit
 
-        result = self.client.chat(
-            self.model,
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            num_ctx=self.config.num_ctx,
-            num_predict=num_predict or self.config.num_predict,
-            keep_alive=self.config.keep_alive,
-        )
-        self.db.set_summary(cache_key, result)
-        self.stats.generated_calls += 1
-        return result
+        budget = num_predict or self.config.num_predict
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        pieces: list[str] = []
+
+        for attempt in range(3):
+            result = self.client.chat_stream(
+                self.model,
+                messages,
+                on_token=None,
+                num_ctx=self.config.num_ctx,
+                num_predict=budget,
+                keep_alive=self.config.keep_alive,
+            )
+            self.stats.generated_calls += 1
+            self.stats.generated_tokens += result.eval_count
+            self.stats.prompt_tokens += result.prompt_eval_count
+            self.stats.ollama_seconds += result.total_seconds
+
+            pieces.append(result.content)
+            if result.done_reason != "length":
+                break
+
+            self.stats.continuation_calls += 1
+            messages.append({"role": "assistant", "content": result.content})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Continua ESATTAMENTE dal punto in cui il testo si e interrotto. "
+                        "Non ripetere contenuti gia scritti, non aggiungere conoscenza esterna "
+                        "e completa tutte le sezioni e le frasi rimaste aperte."
+                    ),
+                }
+            )
+        merged = "".join(pieces).strip()
+        self.db.set_summary(cache_key, merged)
+        return merged
 
     def summarize_text(self, text: str, title: str = "Riassunto") -> str:
         _, domain = classify_domain(text)
-        system = system_prompt(domain)
+        system = _summary_system_prompt(domain)
         chunks = chunk_text(
             text,
             chunk_chars=self.config.chunk_chars,
@@ -271,7 +339,7 @@ class Summarizer:
             return ""
 
         _, domain = classify_domain(source_text)
-        system = system_prompt(domain)
+        system = _summary_system_prompt(domain)
 
         # Topic bundles are intentionally larger than ordinary RAG chunks:
         # repeated lesson variants are summarized together before any global synthesis.
@@ -367,7 +435,7 @@ class Summarizer:
             previews.append(f"{heading}\n{body[:900]}")
 
         preview_text = "\n\n".join(previews)
-        overview_system = system_prompt("Scienze Motorie")
+        overview_system = _summary_system_prompt("Scienze Motorie")
         overview_key = _key(
             PROMPT_VERSION,
             self.model,
