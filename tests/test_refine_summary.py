@@ -69,8 +69,7 @@ Il testo termina con tatto/
 def test_quality_gate_accepts_well_formed_chapter():
     chapter = """## Tatto
 
-Spiegazione semplice e completa.
-
+""" + ("Spiegazione semplice e completa del sistema somatosensoriale. " * 10) + """
 ### Da ricordare per l'esame
 - Punto importante.
 """
