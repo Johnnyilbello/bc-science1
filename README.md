@@ -49,8 +49,7 @@ Output predefinito:
 
     %LOCALAPPDATA%\BCScience\outputs\<corso>-riassunto-unico.md
 
-Durante la generazione BC Science mostra l'argomento in elaborazione e, alla fine, il numero
-di documenti coperti, argomenti ottenuti, generazioni eseguite e risultati riutilizzati dalla cache.
+Durante la generazione BC Science mostra l'argomento in elaborazione. La versione 0.4 recupera automaticamente le risposte fermate dal limite token, impedisce aggiunte di conoscenza esterna nei capitoli, costruisce indice e mappa da titoli deterministici e, alla fine, mostra documenti coperti, argomenti, generazioni, cache, tempo totale, tempo Ollama, token generati, token/s medi e continuazioni anti-troncamento.
 
 ### Indicizzare i materiali
 
@@ -175,4 +174,4 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.3.0**.
+Versione corrente: **0.4.0**.
