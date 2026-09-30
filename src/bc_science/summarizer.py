@@ -246,7 +246,83 @@ def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
     return chapters
 
 
-def _refine_chapter_prompt(title: str, chapter: str) -> str:
+def _chapter_title_supported(title: str, chapter: str) -> bool:
+    body = re.sub(r"(?m)^#{1,6}\\s+.*$", "", chapter).casefold()
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ]+", title.casefold())
+        if len(token) >= 5
+    ]
+    return not tokens or any(token in body for token in tokens)
+
+
+def _chapter_quality_issues(
+    chapter: str,
+    title: str,
+    *,
+    require_source_warning: bool = False,
+) -> list[str]:
+    issues: list[str] = []
+    h2_lines = re.findall(r"(?m)^##\\s+(.+?)\\s*$", chapter)
+    if len(h2_lines) != 1 or h2_lines[0].strip().casefold() != title.strip().casefold():
+        issues.append("deve contenere esattamente un titolo H2 corretto")
+
+    exam_sections = len(
+        re.findall(r"(?mi)^###\\s+Da ricordare per l['’]esame\\s*$", chapter)
+    )
+    if exam_sections != 1:
+        issues.append("deve contenere una sola sezione Da ricordare per l'esame")
+
+    if require_source_warning and "Verifica materiale" not in chapter:
+        issues.append("manca la nota obbligatoria Verifica materiale")
+
+    forbidden_placeholders = (
+        "[spiegazione ordinata e semplice]",
+        "[un'unica sezione finale",
+        "Massimo 5 punti.",
+    )
+    if any(item.casefold() in chapter.casefold() for item in forbidden_placeholders):
+        issues.append("contiene testo-placeholder del prompt")
+
+    last_line = next(
+        (line.strip() for line in reversed(chapter.splitlines()) if line.strip()),
+        "",
+    )
+    if (
+        not last_line
+        or last_line.endswith(("/", "->", "→", ":", ";", ","))
+        or last_line[-1:] not in ".!?)]"
+    ):
+        issues.append("il capitolo sembra terminare con una frase incompleta")
+
+    if len(chapter.strip()) < 500:
+        issues.append("capitolo anormalmente corto")
+    return issues
+
+
+def _extract_exam_recap(chapter: str, limit: int = 650) -> str:
+    match = re.search(
+        r"(?mis)^###\\s+Da ricordare per l['’]esame\\s*$\\n(?P<body>.*)$",
+        chapter,
+    )
+    if not match:
+        return ""
+    body = re.sub(r"\\s+", " ", match.group("body")).strip()
+    if len(body) <= limit:
+        return body
+    return body[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _refine_chapter_prompt(title: str, chapter: str, source_warning: bool = False) -> str:
+    warning = ""
+    if source_warning:
+        warning = """
+NOTA OBBLIGATORIA:
+Subito dopo il titolo inserisci:
+> Verifica materiale: il titolo del capitolo non e supportato chiaramente dal testo sorgente.
+> Il contenuto seguente riassume soltanto cio che e realmente presente nel riassunto di partenza.
+"""
+
     return f"""Riscrivi questo capitolo gia riassunto di BC Science.
 
 OBIETTIVO:
@@ -257,42 +333,62 @@ OBIETTIVO:
 - mantenere numeri, definizioni, classificazioni, sequenze, eccezioni e contenuti utili all'esame;
 - NON aggiungere conoscenze che non siano gia presenti nel capitolo;
 - NON correggere scientificamente il contenuto usando conoscenza esterna;
-- se compare una nota "Verifica materiale", conservarla;
+- non ripetere il titolo dentro il capitolo;
 - non ripetere piu volte "Da ricordare per l'esame";
-- termina con frasi complete.
-
-FORMATO:
-## {title}
-[spiegazione ordinata e semplice]
-### Da ricordare per l'esame
-[un'unica sezione finale, 5-15 punti secondo la quantita di contenuto]
+- termina con una frase completa.
+{warning}
+VINCOLI STRUTTURALI:
+- esattamente UN heading H2: "## {title}", solo come prima riga;
+- nessun altro heading H2 nel capitolo;
+- esattamente UNA sezione finale "### Da ricordare per l'esame";
+- dopo "Da ricordare per l'esame" usa punti brevi, senza riscrivere tutto il capitolo.
 
 CAPITOLO DA RIFINIRE:
 {chapter}
 """
 
 
-def _refine_overview_prompt(title: str, topic_titles: list[str]) -> str:
+def _repair_refined_chapter_prompt(
+    title: str,
+    chapter: str,
+    issues: list[str],
+    source_warning: bool,
+) -> str:
+    issue_text = "\n".join(f"- {item}" for item in issues)
+    return (
+        _refine_chapter_prompt(title, chapter, source_warning)
+        + f"""
+
+La precedente generazione non ha superato il controllo qualita per questi motivi:
+{issue_text}
+
+Rigenera l'intero capitolo da zero rispettando rigorosamente tutti i vincoli.
+"""
+    )
+
+
+def _refine_overview_prompt(
+    title: str,
+    topic_titles: list[str],
+    recap_source: str,
+) -> str:
     topics = "\n".join(f"- {item}" for item in topic_titles)
-    return f"""Crea soltanto l'apertura del riassunto rifinito "{title}".
-
-Usa esclusivamente questi titoli di capitolo:
-{topics}
-
-Genera:
-# {title}
-> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
-
-## Come studiare questo riassunto
-Massimo 5 punti.
+    return f"""Crea SOLO queste due sezioni per il riassunto rifinito "{title}":
 
 ## Mappa della materia
-Raggruppa logicamente i capitoli senza inventare contenuti.
+Raggruppa logicamente i capitoli e mostra i collegamenti principali. Sii breve.
 
 ## Ripasso globale
-15-30 richiami molto brevi, derivabili soltanto dai titoli; niente dettagli non presenti.
+Crea 20-35 punti ad alta resa realmente utili al ripasso. Ogni punto deve contenere
+un concetto, una definizione, una sequenza, una differenza o un numero presente negli
+estratti "Da ricordare" riportati sotto. NON limitarti a elencare i titoli.
+Non aggiungere conoscenza esterna.
 
-Non generare l'indice: verra aggiunto automaticamente.
+TITOLI:
+{topics}
+
+ESTRATTI "DA RICORDARE":
+{recap_source}
 """
 
 
