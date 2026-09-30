@@ -718,42 +718,112 @@ class Summarizer:
                 progress(f"[{index}/{len(chapters)}] Rifinisco {chapter_title}")
 
             deduped = _dedupe_exact_blocks(chapter)
+            source_warning = not _chapter_title_supported(chapter_title, deduped)
+            if source_warning:
+                self.stats.source_warnings += 1
+
             cache_key = _key(
                 PROMPT_VERSION,
                 self.model,
                 "refine-chapter",
                 chapter_title,
+                str(source_warning),
                 deduped,
             )
             polished = self._cached_chat(
                 cache_key,
                 system,
-                _refine_chapter_prompt(chapter_title, deduped),
-                num_predict=2600,
+                _refine_chapter_prompt(chapter_title, deduped, source_warning),
+                num_predict=2800,
             )
-            refined.append(
-                (chapter_title, _normalize_chapter_heading(polished, chapter_title))
+            polished = _normalize_chapter_heading(polished, chapter_title)
+            issues = _chapter_quality_issues(
+                polished,
+                chapter_title,
+                require_source_warning=source_warning,
             )
 
+            if issues:
+                self.stats.quality_repairs += 1
+                if progress:
+                    progress(
+                        f"    controllo qualita: rigenero {chapter_title} "
+                        f"({'; '.join(issues)})"
+                    )
+                repair_key = _key(
+                    PROMPT_VERSION,
+                    self.model,
+                    "refine-repair",
+                    chapter_title,
+                    str(source_warning),
+                    deduped,
+                    "|".join(issues),
+                )
+                polished = self._cached_chat(
+                    repair_key,
+                    system,
+                    _repair_refined_chapter_prompt(
+                        chapter_title,
+                        deduped,
+                        issues,
+                        source_warning,
+                    ),
+                    num_predict=3800,
+                )
+                polished = _normalize_chapter_heading(polished, chapter_title)
+                remaining = _chapter_quality_issues(
+                    polished,
+                    chapter_title,
+                    require_source_warning=source_warning,
+                )
+                if remaining:
+                    raise ValueError(
+                        f"Il capitolo '{chapter_title}' non supera il controllo qualita: "
+                        + "; ".join(remaining)
+                    )
+
+            refined.append((chapter_title, polished))
+
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
+        recap_parts = []
+        for chapter_title, chapter in refined:
+            recap = _extract_exam_recap(chapter)
+            if recap:
+                recap_parts.append(f"{chapter_title}: {recap}")
+        recap_source = "\n".join(recap_parts)
+
         overview_key = _key(
             PROMPT_VERSION,
             self.model,
             "refine-overview",
             title,
             "\n".join(topic_titles),
+            recap_source,
         )
         overview = self._cached_chat(
             overview_key,
             system,
-            _refine_overview_prompt(title, topic_titles),
-            num_predict=1200,
+            _refine_overview_prompt(title, topic_titles, recap_source),
+            num_predict=1800,
         ).strip()
+
+        header = f"""# {title}
+> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
+
+## Come studiare questo riassunto
+1. Leggi prima la Mappa della materia per capire l'ordine logico degli argomenti.
+2. Studia un capitolo alla volta cercando di spiegare i meccanismi con parole semplici.
+3. Memorizza definizioni, classificazioni, sequenze e valori presenti in "Da ricordare per l'esame".
+4. Usa il Ripasso globale senza guardare i capitoli e verifica cio che non ricordi.
+5. Se compare "Verifica materiale", controlla quel punto sui PDF originali prima dell'esame.
+"""
 
         toc = ["## Indice degli argomenti", *[f"- {item}" for item in topic_titles]]
         separator = "\n\n---\n\n"
         return (
-            overview
+            header
+            + "\n"
+            + overview
             + "\n\n"
             + "\n".join(toc)
             + separator
