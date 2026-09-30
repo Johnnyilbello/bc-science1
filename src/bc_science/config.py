@@ -7,6 +7,7 @@ from pathlib import Path
 
 APP_NAME = "BCScience"
 DEFAULT_EMBED_MODEL = "qwen3-embedding:0.6b"
+VALID_PROFILES = {"turbo", "standard", "quality"}
 
 
 def app_home() -> Path:
@@ -60,3 +61,13 @@ class AppConfig:
         if selected == "quality":
             return self.quality_model
         return self.generation_model
+
+
+def resolve_ask_profile(requested: str, *, deep: bool) -> str:
+    selected = requested.lower().strip()
+    if selected == "auto":
+        return "standard" if deep else "turbo"
+    if selected not in VALID_PROFILES:
+        allowed = ", ".join(["auto", *sorted(VALID_PROFILES)])
+        raise ValueError(f"Profilo non valido: {requested}. Usa: {allowed}.")
+    return selected

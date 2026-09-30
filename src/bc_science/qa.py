@@ -33,6 +33,18 @@ def answer(
     _, domain = classify_domain(context)
     system = system_prompt(domain)
 
+    selected_profile = (profile or config.profile).lower()
+    turbo_guard = ""
+    if selected_profile == "turbo":
+        turbo_guard = """
+VINCOLO TURBO:
+- Usa soltanto informazioni esplicitamente supportate dalle FONTI.
+- Non aggiungere conoscenza generale, deduzioni, esempi, classificazioni o giudizi non presenti.
+- Non rendere una frase più forte della fonte: evita parole come "tossico", "sempre",
+  "principale", "predominante" o equivalenti se la fonte non le sostiene esplicitamente.
+- Se un dettaglio non è nelle fonti, omettilo invece di completarlo a memoria.
+"""
+
     mode = (
         "Approfondita: includi tutti i dettagli rilevanti presenti nelle fonti."
         if deep
@@ -50,6 +62,7 @@ Non inventare dettagli per riempire sezioni.
 
 MODALITA:
 {mode}
+{turbo_guard}
 
 DOMANDA:
 {question}
@@ -66,7 +79,7 @@ Concludi con "Da ricordare" in massimo 5 punti.
         [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         on_token=on_token,
         num_ctx=config.num_ctx,
-        num_predict=1500 if deep else 1200,
+        num_predict=1500 if deep else (1100 if selected_profile == "turbo" else 1400),
         keep_alive=config.keep_alive,
     )
     return result, hits

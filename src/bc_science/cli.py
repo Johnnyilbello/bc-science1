@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .cache import CacheDB
-from .config import AppConfig, app_home
+from .config import AppConfig, app_home, resolve_ask_profile
 from .documents import extract_document, iter_source_files
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
@@ -156,7 +156,10 @@ def summarize(
 @app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Domanda sui materiali indicizzati")],
-    profile: Annotated[str, typer.Option("--profile", "-p")] = "standard",
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="auto, turbo, standard o quality"),
+    ] = "auto",
     sources: Annotated[bool, typer.Option("--sources/--no-sources")] = True,
     deep: Annotated[
         bool,
@@ -165,12 +168,18 @@ def ask(
 ) -> None:
     """Interroga localmente i materiali indicizzati."""
     config = _config()
-    model = _ensure_model(config, profile)
+    try:
+        selected_profile = resolve_ask_profile(profile, deep=deep)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--profile") from exc
+
+    model = _ensure_model(config, selected_profile)
     client = _require_ollama(config)
     ensure_model_with_progress(client, config.embedding_model, console)
 
+    route = f"{profile}->{selected_profile}" if profile == "auto" else selected_profile
     console.print(
-        f"[dim]BC Science · {model} · "
+        f"[dim]BC Science · {model} · {route} · "
         f"{'approfondita' if deep else 'rapida'}[/]"
     )
     streamed = False
@@ -183,7 +192,7 @@ def ask(
     result, hits = answer(
         question,
         config,
-        profile,
+        selected_profile,
         deep=deep,
         on_token=emit,
     )
