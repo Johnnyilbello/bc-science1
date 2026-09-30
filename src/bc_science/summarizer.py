@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v5-retry-whole"
+PROMPT_VERSION = "summary-v6-validated-refine"
 
 
 @dataclass(slots=True)
@@ -26,6 +26,8 @@ class SummaryStats:
     prompt_tokens: int = 0
     ollama_seconds: float = 0.0
     eval_seconds: float = 0.0
+    quality_repairs: int = 0
+    source_warnings: int = 0
 
 
 @dataclass(slots=True)
@@ -92,6 +94,11 @@ def _clean_obvious_typos(text: str) -> str:
         "ricucinata": "ricaptata",
         "fissizione": "fissazione",
         "stto interventricolare": "setto interventricolare",
+        "Esemplo": "Esempio",
+        "cardico": "cardiaco",
+        "Potenzale": "Potenziale",
+        "Nel polmoni": "Nei polmoni",
+        "degli RNA ribosomiale": "dell'RNA ribosomiale",
     }
     cleaned = text
     for wrong, right in replacements.items():
@@ -244,7 +251,83 @@ def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
     return chapters
 
 
-def _refine_chapter_prompt(title: str, chapter: str) -> str:
+def _chapter_title_supported(title: str, chapter: str) -> bool:
+    body = re.sub(r"(?m)^#{1,6}\s+.*$", "", chapter).casefold()
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ]+", title.casefold())
+        if len(token) >= 5
+    ]
+    return not tokens or any(token in body for token in tokens)
+
+
+def _chapter_quality_issues(
+    chapter: str,
+    title: str,
+    *,
+    require_source_warning: bool = False,
+) -> list[str]:
+    issues: list[str] = []
+    h2_lines = re.findall(r"(?m)^##\s+(.+?)\s*$", chapter)
+    if len(h2_lines) != 1 or h2_lines[0].strip().casefold() != title.strip().casefold():
+        issues.append("deve contenere esattamente un titolo H2 corretto")
+
+    exam_sections = len(
+        re.findall(r"(?mi)^###\s+Da ricordare per l['’]esame\s*$", chapter)
+    )
+    if exam_sections != 1:
+        issues.append("deve contenere una sola sezione Da ricordare per l'esame")
+
+    if require_source_warning and "Verifica materiale" not in chapter:
+        issues.append("manca la nota obbligatoria Verifica materiale")
+
+    forbidden_placeholders = (
+        "[spiegazione ordinata e semplice]",
+        "[un'unica sezione finale",
+        "Massimo 5 punti.",
+    )
+    if any(item.casefold() in chapter.casefold() for item in forbidden_placeholders):
+        issues.append("contiene testo-placeholder del prompt")
+
+    last_line = next(
+        (line.strip() for line in reversed(chapter.splitlines()) if line.strip()),
+        "",
+    )
+    if (
+        not last_line
+        or last_line.endswith(("/", "->", "→", ":", ";", ","))
+        or last_line[-1:] not in ".!?)]"
+    ):
+        issues.append("il capitolo sembra terminare con una frase incompleta")
+
+    if len(chapter.strip()) < 500:
+        issues.append("capitolo anormalmente corto")
+    return issues
+
+
+def _extract_exam_recap(chapter: str, limit: int = 650) -> str:
+    match = re.search(
+        r"(?mis)^###\s+Da ricordare per l['’]esame\s*$\n(?P<body>.*)$",
+        chapter,
+    )
+    if not match:
+        return ""
+    body = re.sub(r"\s+", " ", match.group("body")).strip()
+    if len(body) <= limit:
+        return body
+    return body[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _refine_chapter_prompt(title: str, chapter: str, source_warning: bool = False) -> str:
+    warning = ""
+    if source_warning:
+        warning = """
+NOTA OBBLIGATORIA:
+Subito dopo il titolo inserisci:
+> Verifica materiale: il titolo del capitolo non e supportato chiaramente dal testo sorgente.
+> Il contenuto seguente riassume soltanto cio che e realmente presente nel riassunto di partenza.
+"""
+
     return f"""Riscrivi questo capitolo gia riassunto di BC Science.
 
 OBIETTIVO:
@@ -255,42 +338,62 @@ OBIETTIVO:
 - mantenere numeri, definizioni, classificazioni, sequenze, eccezioni e contenuti utili all'esame;
 - NON aggiungere conoscenze che non siano gia presenti nel capitolo;
 - NON correggere scientificamente il contenuto usando conoscenza esterna;
-- se compare una nota "Verifica materiale", conservarla;
+- non ripetere il titolo dentro il capitolo;
 - non ripetere piu volte "Da ricordare per l'esame";
-- termina con frasi complete.
-
-FORMATO:
-## {title}
-[spiegazione ordinata e semplice]
-### Da ricordare per l'esame
-[un'unica sezione finale, 5-15 punti secondo la quantita di contenuto]
+- termina con una frase completa.
+{warning}
+VINCOLI STRUTTURALI:
+- esattamente UN heading H2: "## {title}", solo come prima riga;
+- nessun altro heading H2 nel capitolo;
+- esattamente UNA sezione finale "### Da ricordare per l'esame";
+- dopo "Da ricordare per l'esame" usa punti brevi, senza riscrivere tutto il capitolo.
 
 CAPITOLO DA RIFINIRE:
 {chapter}
 """
 
 
-def _refine_overview_prompt(title: str, topic_titles: list[str]) -> str:
+def _repair_refined_chapter_prompt(
+    title: str,
+    chapter: str,
+    issues: list[str],
+    source_warning: bool,
+) -> str:
+    issue_text = "\n".join(f"- {item}" for item in issues)
+    return (
+        _refine_chapter_prompt(title, chapter, source_warning)
+        + f"""
+
+La precedente generazione non ha superato il controllo qualita per questi motivi:
+{issue_text}
+
+Rigenera l'intero capitolo da zero rispettando rigorosamente tutti i vincoli.
+"""
+    )
+
+
+def _refine_overview_prompt(
+    title: str,
+    topic_titles: list[str],
+    recap_source: str,
+) -> str:
     topics = "\n".join(f"- {item}" for item in topic_titles)
-    return f"""Crea soltanto l'apertura del riassunto rifinito "{title}".
-
-Usa esclusivamente questi titoli di capitolo:
-{topics}
-
-Genera:
-# {title}
-> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
-
-## Come studiare questo riassunto
-Massimo 5 punti.
+    return f"""Crea SOLO queste due sezioni per il riassunto rifinito "{title}":
 
 ## Mappa della materia
-Raggruppa logicamente i capitoli senza inventare contenuti.
+Raggruppa logicamente i capitoli e mostra i collegamenti principali. Sii breve.
 
 ## Ripasso globale
-15-30 richiami molto brevi, derivabili soltanto dai titoli; niente dettagli non presenti.
+Crea 20-35 punti ad alta resa realmente utili al ripasso. Ogni punto deve contenere
+un concetto, una definizione, una sequenza, una differenza o un numero presente negli
+estratti "Da ricordare" riportati sotto. NON limitarti a elencare i titoli.
+Non aggiungere conoscenza esterna.
 
-Non generare l'indice: verra aggiunto automaticamente.
+TITOLI:
+{topics}
+
+ESTRATTI "DA RICORDARE":
+{recap_source}
 """
 
 
@@ -620,42 +723,112 @@ class Summarizer:
                 progress(f"[{index}/{len(chapters)}] Rifinisco {chapter_title}")
 
             deduped = _dedupe_exact_blocks(chapter)
+            source_warning = not _chapter_title_supported(chapter_title, deduped)
+            if source_warning:
+                self.stats.source_warnings += 1
+
             cache_key = _key(
                 PROMPT_VERSION,
                 self.model,
                 "refine-chapter",
                 chapter_title,
+                str(source_warning),
                 deduped,
             )
             polished = self._cached_chat(
                 cache_key,
                 system,
-                _refine_chapter_prompt(chapter_title, deduped),
-                num_predict=2600,
+                _refine_chapter_prompt(chapter_title, deduped, source_warning),
+                num_predict=2800,
             )
-            refined.append(
-                (chapter_title, _normalize_chapter_heading(polished, chapter_title))
+            polished = _normalize_chapter_heading(polished, chapter_title)
+            issues = _chapter_quality_issues(
+                polished,
+                chapter_title,
+                require_source_warning=source_warning,
             )
 
+            if issues:
+                self.stats.quality_repairs += 1
+                if progress:
+                    progress(
+                        f"    controllo qualita: rigenero {chapter_title} "
+                        f"({'; '.join(issues)})"
+                    )
+                repair_key = _key(
+                    PROMPT_VERSION,
+                    self.model,
+                    "refine-repair",
+                    chapter_title,
+                    str(source_warning),
+                    deduped,
+                    "|".join(issues),
+                )
+                polished = self._cached_chat(
+                    repair_key,
+                    system,
+                    _repair_refined_chapter_prompt(
+                        chapter_title,
+                        deduped,
+                        issues,
+                        source_warning,
+                    ),
+                    num_predict=3800,
+                )
+                polished = _normalize_chapter_heading(polished, chapter_title)
+                remaining = _chapter_quality_issues(
+                    polished,
+                    chapter_title,
+                    require_source_warning=source_warning,
+                )
+                if remaining:
+                    raise ValueError(
+                        f"Il capitolo '{chapter_title}' non supera il controllo qualita: "
+                        + "; ".join(remaining)
+                    )
+
+            refined.append((chapter_title, polished))
+
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
+        recap_parts = []
+        for chapter_title, chapter in refined:
+            recap = _extract_exam_recap(chapter)
+            if recap:
+                recap_parts.append(f"{chapter_title}: {recap}")
+        recap_source = "\n".join(recap_parts)
+
         overview_key = _key(
             PROMPT_VERSION,
             self.model,
             "refine-overview",
             title,
             "\n".join(topic_titles),
+            recap_source,
         )
         overview = self._cached_chat(
             overview_key,
             system,
-            _refine_overview_prompt(title, topic_titles),
-            num_predict=1200,
+            _refine_overview_prompt(title, topic_titles, recap_source),
+            num_predict=1800,
         ).strip()
+
+        header = f"""# {title}
+> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
+
+## Come studiare questo riassunto
+1. Leggi prima la Mappa della materia per capire l'ordine logico degli argomenti.
+2. Studia un capitolo alla volta cercando di spiegare i meccanismi con parole semplici.
+3. Memorizza definizioni, classificazioni, sequenze e valori presenti in "Da ricordare per l'esame".
+4. Usa il Ripasso globale senza guardare i capitoli e verifica cio che non ricordi.
+5. Se compare "Verifica materiale", controlla quel punto sui PDF originali prima dell'esame.
+"""
 
         toc = ["## Indice degli argomenti", *[f"- {item}" for item in topic_titles]]
         separator = "\n\n---\n\n"
         return (
-            overview
+            header
+            + "\n"
+            + overview
             + "\n\n"
             + "\n".join(toc)
             + separator

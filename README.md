@@ -69,9 +69,7 @@ Per scegliere manualmente un file:
 
     bc-science refine --input "C:\percorso\riassunto.md"
 
-La rifinitura e piu rapida di una nuova analisi dei PDF e corregge ripetizioni, heading incollati,
-frasi poco chiare e refusi. Non puo pero recuperare informazioni che il riassunto sorgente aveva
-omesso: per la massima copertura resta disponibile `summarize ... --single`.
+La rifinitura e piu rapida di una nuova analisi dei PDF. La 0.6 valida ogni capitolo dopo la generazione: rifiuta heading H2 duplicati, sezioni `Da ricordare per l'esame` mancanti o multiple, placeholder e finali sospettamente tronchi. Se trova un problema rigenera quel solo capitolo. Inoltre il Ripasso globale viene costruito dai veri `Da ricordare` dei capitoli invece che dai soli titoli, e i mismatch fra titolo e contenuto vengono marcati come `Verifica materiale`. Non puo pero recuperare informazioni che il riassunto sorgente aveva omesso: per la massima copertura resta disponibile `summarize ... --single`.
 
 ### Indicizzare i materiali
 
@@ -196,4 +194,4 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.5.0**.
+Versione corrente: **0.6.0**.
