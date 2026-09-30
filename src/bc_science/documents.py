@@ -32,7 +32,10 @@ def file_sha256(path: Path) -> str:
 
 
 def normalize_text(text: str) -> str:
-    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    lines = [
+        line.rstrip()
+        for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
     out: list[str] = []
     blank = False
     for line in lines:
@@ -55,14 +58,23 @@ def _extract_pdf(path: Path, ocr: bool = True) -> ExtractedDocument:
         for index, page in enumerate(doc):
             text = page.get_text("text", sort=True).strip()
             if ocr and len(text) < 80:
+                ocr_text = ""
                 try:
-                    textpage = page.get_textpage_ocr(language=os.getenv("BC_SCIENCE_OCR_LANG", "eng"))
-                    ocr_text = page.get_text("text", textpage=textpage, sort=True).strip()
-                    if len(ocr_text) > len(text):
-                        text = ocr_text
-                        ocr_pages += 1
-                except Exception:
-                    pass
+                    textpage = page.get_textpage_ocr(
+                        language=os.getenv("BC_SCIENCE_OCR_LANG", "eng")
+                    )
+                    ocr_text = page.get_text(
+                        "text",
+                        textpage=textpage,
+                        sort=True,
+                    ).strip()
+                except (RuntimeError, OSError):
+                    ocr_text = ""
+
+                if len(ocr_text) > len(text):
+                    text = ocr_text
+                    ocr_pages += 1
+
             if text:
                 parts.append(f"\n--- Pagina {index + 1} ---\n{text}")
     return ExtractedDocument(path, normalize_text("\n".join(parts)), page_count, ocr_pages)
@@ -81,7 +93,10 @@ def extract_document(path: Path, *, ocr: bool = True) -> ExtractedDocument:
     if suffix == ".docx":
         return _extract_docx(path)
     if suffix in {".txt", ".md"}:
-        return ExtractedDocument(path, normalize_text(path.read_text(encoding="utf-8", errors="replace")))
+        return ExtractedDocument(
+            path,
+            normalize_text(path.read_text(encoding="utf-8", errors="replace")),
+        )
     raise ValueError(f"Formato non supportato: {path.suffix}")
 
 
@@ -132,7 +147,8 @@ def iter_source_files(source: Path) -> list[Path]:
         return [source] if source.suffix.lower() in SUPPORTED else []
 
     return sorted(
-        p for p in source.rglob("*")
+        p
+        for p in source.rglob("*")
         if p.is_file() and p.suffix.lower() in SUPPORTED
     )
 
