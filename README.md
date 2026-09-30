@@ -47,12 +47,21 @@ I file invariati vengono saltati automaticamente.
 
     bc-science ask "Spiegami in modo semplice il ruolo del calcio nella contrazione muscolare"
 
+Per impostazione predefinita BC Science usa il routing automatico:
+- domanda rapida: `qwen3.5:2b` (Turbo);
+- `--deep`: `qwen3.5:4b` (Standard);
+- `summarize`: `qwen3.5:4b` (Standard).
+
 La risposta viene mostrata in streaming. Alla fine BC Science indica token/s, token generati,
 dimensione del prompt e tempi di caricamento/generazione restituiti da Ollama.
 
 Per una risposta più lunga e con più fonti:
 
     bc-science ask "Spiegami tutta la contrazione muscolare" --deep
+
+Per forzare manualmente un profilo:
+
+    bc-science ask "Spiegami il sarcomero" --profile standard
 
 ### Benchmark locale
 
@@ -148,4 +157,4 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione iniziale: **0.1.0**.
+Versione corrente: **0.2.0**.
