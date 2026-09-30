@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v4-source-safe"
+PROMPT_VERSION = "summary-v5-retry-whole"
 
 
 @dataclass(slots=True)
@@ -250,19 +250,27 @@ class Summarizer:
             self.stats.cache_hits += 1
             return hit
 
-        budget = num_predict or self.config.num_predict
+        initial_budget = num_predict or self.config.num_predict
+        budgets = [
+            initial_budget,
+            min(max(initial_budget + 1000, int(initial_budget * 1.6)), 4600),
+            min(max(initial_budget + 2200, int(initial_budget * 2.2)), 6800),
+        ]
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        pieces: list[str] = []
+        final_text = ""
 
-        for attempt in range(3):
+        for attempt, budget in enumerate(budgets):
+            # On a retry, regenerate the entire answer with a larger output budget instead
+            # of appending a continuation. This avoids semantic loops and duplicated sections.
+            retry_ctx = min(16384, max(self.config.num_ctx, budget + 6000))
             result = self.client.chat_stream(
                 self.model,
                 messages,
                 on_token=None,
-                num_ctx=self.config.num_ctx,
+                num_ctx=retry_ctx,
                 num_predict=budget,
                 keep_alive=self.config.keep_alive,
             )
@@ -271,24 +279,15 @@ class Summarizer:
             self.stats.prompt_tokens += result.prompt_eval_count
             self.stats.ollama_seconds += result.total_seconds
             self.stats.eval_seconds += result.eval_duration / 1_000_000_000
+            final_text = result.content
 
-            pieces.append(result.content)
             if result.done_reason != "length":
                 break
 
-            self.stats.continuation_calls += 1
-            messages.append({"role": "assistant", "content": result.content})
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Continua ESATTAMENTE dal punto in cui il testo si e interrotto. "
-                        "Non ripetere contenuti gia scritti, non aggiungere conoscenza esterna "
-                        "e completa tutte le sezioni e le frasi rimaste aperte."
-                    ),
-                }
-            )
-        merged = _clean_obvious_typos("".join(pieces).strip())
+            if attempt < len(budgets) - 1:
+                self.stats.continuation_calls += 1
+
+        merged = _clean_obvious_typos(final_text.strip())
         self.db.set_summary(cache_key, merged)
         return merged
 
@@ -346,16 +345,37 @@ class Summarizer:
         progress: Callable[[str], None] | None = None,
     ) -> str:
         source_parts: list[str] = []
+        raw_texts: list[str] = []
         for path in group.files:
             extracted = extract_document(path)
             if extracted.text:
+                raw_texts.append(extracted.text)
                 source_parts.append(
                     f"\n--- DISPENSA: {path.stem} ---\n{extracted.text}"
                 )
 
         source_text = "\n".join(source_parts).strip()
+        source_body = "\n".join(raw_texts).strip()
         if not source_text:
             return ""
+
+        topic_tokens = [
+            token
+            for token in re.findall(r"[A-Za-zÀ-ÿ]+", group.title.casefold())
+            if len(token) >= 5
+        ]
+        title_supported = (
+            not topic_tokens
+            or any(token in source_body.casefold() for token in topic_tokens)
+        )
+        mismatch_note = ""
+        if not title_supported:
+            mismatch_note = (
+                "\n\nNOTA OBBLIGATORIA DA INSERIRE SUBITO DOPO IL TITOLO:\n"
+                "> Verifica materiale: il titolo dei file suggerisce questo argomento, "
+                "ma il termine chiave non compare nel testo estratto. Il capitolo seguente "
+                "riassume soltanto il contenuto realmente presente nelle dispense.\n"
+            )
 
         _, domain = classify_domain(source_text)
         system = _summary_system_prompt(domain)
@@ -376,7 +396,7 @@ class Summarizer:
             return self._cached_chat(
                 cache_key,
                 system,
-                _topic_prompt(group.title, chunks[0], domain),
+                _topic_prompt(group.title, chunks[0] + mismatch_note, domain),
                 num_predict=1800,
             )
 
@@ -415,7 +435,7 @@ class Summarizer:
         return self._cached_chat(
             final_key,
             system,
-            _topic_merge_prompt(group.title, notes, domain),
+            _topic_merge_prompt(group.title, notes + mismatch_note, domain),
             num_predict=2200,
         )
 
