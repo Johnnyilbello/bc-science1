@@ -40,21 +40,20 @@ class OllamaClient:
             return False
 
         try:
-            with httpx.Client(timeout=None) as client:
-                with client.stream(
-                    "POST",
-                    f"{self.base_url}/api/pull",
-                    json={"model": model, "stream": True},
-                ) as response:
-                    response.raise_for_status()
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        payload = json.loads(line)
-                        if error := payload.get("error"):
-                            raise OllamaError(str(error))
-                        if progress_callback is not None:
-                            progress_callback(payload)
+            with httpx.Client(timeout=None) as client, client.stream(
+                "POST",
+                f"{self.base_url}/api/pull",
+                json={"model": model, "stream": True},
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    if error := payload.get("error"):
+                        raise OllamaError(str(error))
+                    if progress_callback is not None:
+                        progress_callback(payload)
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise OllamaError(f"Errore durante il download di {model}: {exc}") from exc
 
