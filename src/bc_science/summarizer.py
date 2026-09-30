@@ -94,6 +94,11 @@ def _clean_obvious_typos(text: str) -> str:
         "ricucinata": "ricaptata",
         "fissizione": "fissazione",
         "stto interventricolare": "setto interventricolare",
+        "Esemplo": "Esempio",
+        "cardico": "cardiaco",
+        "Potenzale": "Potenziale",
+        "Nel polmoni": "Nei polmoni",
+        "degli RNA ribosomiale": "dell'RNA ribosomiale",
     }
     cleaned = text
     for wrong, right in replacements.items():
