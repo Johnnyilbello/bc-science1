@@ -10,7 +10,7 @@ from rich.table import Table
 
 from .cache import CacheDB
 from .config import AppConfig, app_home, resolve_ask_profile
-from .documents import extract_document, iter_source_files
+from .documents import iter_source_files
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
@@ -124,21 +124,38 @@ def summarize(
     summarizer = Summarizer(config, profile)
     try:
         if single:
-            combined: list[str] = []
-            for path in files:
-                console.print(f"Leggo [cyan]{path.name}[/]...")
-                doc = extract_document(path)
-                combined.append(f"\n\n# Documento: {path.stem}\n\n{doc.text}")
             title = source.stem if source.is_file() else source.name
             console.print(
-                f"Genero il riassunto con [cyan]{summarizer.model}[/]. "
-                "I blocchi già elaborati vengono letti dalla cache."
+                f"Creo un unico riassunto del corso con [cyan]{summarizer.model}[/]."
             )
-            result = summarizer.summarize_text("\n".join(combined), title=title)
-            destination = output or (app_home() / "outputs" / f"{title}-riassunto.md")
+            console.print(
+                "[dim]Lezioni duplicate vengono fuse per argomento; "
+                "i risultati gia elaborati vengono letti dalla cache.[/]"
+            )
+
+            def show_progress(message: str) -> None:
+                console.print(f"[dim]{message}[/]")
+
+            result = summarizer.summarize_course(
+                files,
+                title=f"{title} - Riassunto completo",
+                progress=show_progress,
+            )
+            destination = output or (
+                app_home() / "outputs" / f"{title}-riassunto-unico.md"
+            )
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(result, encoding="utf-8")
-            console.print(f"[green]Creato:[/] {destination}")
+            console.print()
+            console.print(f"[green]Riassunto unico creato:[/] {destination}")
+            console.print(
+                "[dim]"
+                f"Copertura: {summarizer.stats.source_files} documenti -> "
+                f"{summarizer.stats.topic_groups} argomenti · "
+                f"{summarizer.stats.generated_calls} generazioni · "
+                f"{summarizer.stats.cache_hits} risultati dalla cache"
+                "[/]"
+            )
             return
 
         destination_dir = output or (app_home() / "outputs" / source.stem)
