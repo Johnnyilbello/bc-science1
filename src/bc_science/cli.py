@@ -12,6 +12,7 @@ from .config import AppConfig, app_home
 from .documents import extract_document, iter_source_files
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
+from .model_manager import ensure_model_with_progress
 from .ollama_client import OllamaClient
 from .qa import answer
 from .summarizer import Summarizer
@@ -41,9 +42,7 @@ def _require_ollama(config: AppConfig) -> OllamaClient:
 def _ensure_model(config: AppConfig, profile: str) -> str:
     client = _require_ollama(config)
     model = config.model_for_profile(profile)
-    if model not in client.models() and f"{model}:latest" not in client.models():
-        console.print(f"Scarico il modello richiesto [cyan]{model}[/]...")
-        client.ensure_model(model)
+    ensure_model_with_progress(client, model, console)
     return model
 
 
@@ -88,9 +87,7 @@ def ingest(
     """Indicizza semanticamente i materiali di studio."""
     config = _config()
     client = _require_ollama(config)
-    if config.embedding_model not in client.models():
-        console.print(f"Scarico [cyan]{config.embedding_model}[/]...")
-        client.ensure_model(config.embedding_model)
+    ensure_model_with_progress(client, config.embedding_model, console)
     result = ingest_source(source, config, force=force)
     console.print(
         f"[green]Indicizzazione completata.[/] Trovati {result['files_found']} file, "
@@ -102,9 +99,18 @@ def ingest(
 @app.command()
 def summarize(
     source: Annotated[Path, typer.Argument(help="PDF, DOCX, TXT, ZIP o cartella")],
-    profile: Annotated[str, typer.Option("--profile", "-p", help="turbo, standard o quality")] = "standard",
-    single: Annotated[bool, typer.Option("--single/--separate", help="Un unico riassunto o uno per file")] = True,
-    output: Annotated[Path | None, typer.Option("--output", "-o", help="File/cartella di output")] = None,
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="turbo, standard o quality"),
+    ] = "standard",
+    single: Annotated[
+        bool,
+        typer.Option("--single/--separate", help="Un unico riassunto o uno per file"),
+    ] = True,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="File/cartella di output"),
+    ] = None,
 ) -> None:
     """Genera riassunti semplici, completi e orientati all'esame."""
     config = _config()
@@ -156,8 +162,7 @@ def ask(
     config = _config()
     _ensure_model(config, profile)
     client = _require_ollama(config)
-    if config.embedding_model not in client.models():
-        client.ensure_model(config.embedding_model)
+    ensure_model_with_progress(client, config.embedding_model, console)
     response, hits = answer(question, config, profile)
     console.print(response)
     if sources and hits:
@@ -165,7 +170,7 @@ def ask(
         for hit in hits:
             console.print(
                 f"[dim]- {Path(hit['source']).name}, blocco {hit['chunk_index'] + 1} "
-                f"(similarità {hit['score']:.3f})[/]"
+                f"(similarita {hit['score']:.3f})[/]"
             )
 
 

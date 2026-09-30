@@ -6,6 +6,7 @@ from rich.console import Console
 
 from .config import AppConfig
 from .hardware import detect_hardware, select_model_plan
+from .model_manager import ensure_model_with_progress
 from .ollama_client import OllamaClient
 
 console = Console()
@@ -40,8 +41,7 @@ def bootstrap(pull: bool = True) -> AppConfig:
         required = [config.generation_model, config.embedding_model]
         for model in dict.fromkeys(required):
             console.print(f"Verifico modello [cyan]{model}[/]...")
-            downloaded = client.ensure_model(model)
-            console.print("  scaricato." if downloaded else "  già presente.")
+            ensure_model_with_progress(client, model, console)
 
     return config
 
