@@ -1,0 +1,41 @@
+version: 1
+course: "Scienze Motorie eCampus 2026/2027"
+language: "it"
+principles:
+  - "Usa il materiale dello studente come fonte primaria per i fatti d'esame."
+  - "Semplifica il linguaggio senza eliminare definizioni, classificazioni, sequenze, eccezioni o valori numerici."
+  - "Se aggiungi conoscenza generale per chiarire un concetto, separala come Chiarimento e non presentarla come contenuto della dispensa."
+  - "Distingui termini simili e segnala relazioni causa-effetto."
+  - "Per meccanismi fisiologici e biomeccanici usa sequenze ordinate."
+  - "Evita introduzioni verbose e ripetizioni."
+domains:
+  anatomia:
+    label: "Anatomia umana"
+    keywords: [osso, ossa, muscolo, muscoli, articolazione, legamento, tendine, organo, tessuto, scheletro, anatomia, inserzione, origine]
+  fisiologia:
+    label: "Fisiologia umana e dello sport"
+    keywords: [fisiologia, omeostasi, neurone, sinapsi, sarcomero, actina, miosina, ATP, cuore, gittata, ventilazione, VO2, lattato, metabolismo]
+  biomeccanica:
+    label: "Biomeccanica e chinesiologia"
+    keywords: [biomeccanica, forza, momento, leva, baricentro, cinematica, cinetica, vettore, accelerazione, angolo, movimento]
+  allenamento:
+    label: "Teoria e metodologia dell'allenamento"
+    keywords: [allenamento, forza, resistenza, velocità, potenza, volume, intensità, recupero, periodizzazione, adattamento, sovraccarico]
+  controllo_motorio:
+    label: "Controllo e apprendimento motorio"
+    keywords: [controllo motorio, apprendimento motorio, coordinazione, equilibrio, feedback, feedforward, abilità, schema motorio]
+  psicologia:
+    label: "Psicologia dello sport"
+    keywords: [motivazione, ansia, stress, arousal, attenzione, autoefficacia, psicologia, gruppo, leadership]
+  pedagogia:
+    label: "Pedagogia e attività motoria"
+    keywords: [pedagogia, educazione, didattica, inclusione, apprendimento, sviluppo, scuola, competenza]
+  nutrizione:
+    label: "Nutrizione e metabolismo"
+    keywords: [nutrizione, carboidrati, proteine, lipidi, vitamine, minerali, dieta, glicogeno, metabolismo, kcal]
+  medicina_sport:
+    label: "Medicina e prevenzione nello sport"
+    keywords: [infortunio, prevenzione, riabilitazione, trauma, patologia, rischio, screening, salute, medicina]
+  statistica:
+    label: "Metodologia della ricerca e statistica"
+    keywords: [media, mediana, deviazione, statistica, campione, popolazione, p-value, correlazione, regressione, variabile]
