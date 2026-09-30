@@ -49,7 +49,29 @@ Output predefinito:
 
     %LOCALAPPDATA%\BCScience\outputs\<corso>-riassunto-unico.md
 
-Durante la generazione BC Science mostra l'argomento in elaborazione. La versione 0.4 recupera automaticamente le risposte fermate dal limite token, impedisce aggiunte di conoscenza esterna nei capitoli, costruisce indice e mappa da titoli deterministici e, alla fine, mostra documenti coperti, argomenti, generazioni, cache, tempo totale, tempo Ollama, token generati, token/s medi e continuazioni anti-troncamento.
+Durante la generazione BC Science mostra l'argomento in elaborazione. La versione 0.5, quando un capitolo raggiunge il limite token, lo rigenera interamente con un budget maggiore invece di concatenare continuazioni. Questo evita loop e duplicati. Alla fine mostra documenti coperti, argomenti, generazioni, cache, tempo totale, tempo Ollama, token generati, token/s medi e retry anti-troncamento.
+
+### Rifinire rapidamente l'ultimo riassunto
+
+Dopo una generazione completa puoi migliorare struttura, chiarezza e duplicati senza rileggere
+tutti i PDF:
+
+    bc-science refine
+
+Il comando seleziona automaticamente l'ultimo `*-riassunto-unico.md`, usa il modello Standard
+4B e riscrive i capitoli uno per uno usando **il riassunto esistente come unica fonte**.
+
+Output:
+
+    %LOCALAPPDATA%\BCScience\outputs\<corso>-riassunto-rifinito.md
+
+Per scegliere manualmente un file:
+
+    bc-science refine --input "C:\percorso\riassunto.md"
+
+La rifinitura e piu rapida di una nuova analisi dei PDF e corregge ripetizioni, heading incollati,
+frasi poco chiare e refusi. Non puo pero recuperare informazioni che il riassunto sorgente aveva
+omesso: per la massima copertura resta disponibile `summarize ... --single`.
 
 ### Indicizzare i materiali
 
@@ -174,4 +196,4 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.4.0**.
+Versione corrente: **0.5.0**.

@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v4-source-safe"
+PROMPT_VERSION = "summary-v5-retry-whole"
 
 
 @dataclass(slots=True)
@@ -196,6 +196,104 @@ APPUNTI PARZIALI:
 """
 
 
+def _dedupe_exact_blocks(text: str) -> str:
+    """Remove exact repeated Markdown blocks while preserving first occurrence order."""
+    blocks = re.split(r"\n\s*\n", text.strip())
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for block in blocks:
+        normalized = re.sub(r"\s+", " ", block).strip().casefold()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        cleaned.append(block.strip())
+    return "\n\n".join(cleaned)
+
+
+def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
+    """Read chapter titles from the deterministic index and pair them with body blocks."""
+    index_match = re.search(
+        r"(?ms)^## Indice degli argomenti\s*$\n(?P<items>.*?)(?:\n---\n|\Z)",
+        text,
+    )
+    if not index_match:
+        return []
+
+    titles = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
+    ]
+    body = text[index_match.end():]
+    blocks = [part.strip() for part in re.split(r"\n---\n", body) if part.strip()]
+
+    chapters: list[tuple[str, str]] = []
+    used: set[int] = set()
+    for title in titles:
+        heading_re = re.compile(rf"(?mi)^##\s+{re.escape(title)}\s*$")
+        selected_index = None
+        for index, block in enumerate(blocks):
+            if index in used:
+                continue
+            if heading_re.search(block):
+                selected_index = index
+                break
+        if selected_index is None:
+            continue
+        used.add(selected_index)
+        chapters.append((title, blocks[selected_index]))
+    return chapters
+
+
+def _refine_chapter_prompt(title: str, chapter: str) -> str:
+    return f"""Riscrivi questo capitolo gia riassunto di BC Science.
+
+OBIETTIVO:
+- renderlo molto semplice da capire;
+- conservare TUTTE le informazioni distinte presenti;
+- eliminare ripetizioni e blocchi duplicati;
+- correggere frasi spezzate, heading incollati nel testo e refusi evidenti;
+- mantenere numeri, definizioni, classificazioni, sequenze, eccezioni e contenuti utili all'esame;
+- NON aggiungere conoscenze che non siano gia presenti nel capitolo;
+- NON correggere scientificamente il contenuto usando conoscenza esterna;
+- se compare una nota "Verifica materiale", conservarla;
+- non ripetere piu volte "Da ricordare per l'esame";
+- termina con frasi complete.
+
+FORMATO:
+## {title}
+[spiegazione ordinata e semplice]
+### Da ricordare per l'esame
+[un'unica sezione finale, 5-15 punti secondo la quantita di contenuto]
+
+CAPITOLO DA RIFINIRE:
+{chapter}
+"""
+
+
+def _refine_overview_prompt(title: str, topic_titles: list[str]) -> str:
+    topics = "\n".join(f"- {item}" for item in topic_titles)
+    return f"""Crea soltanto l'apertura del riassunto rifinito "{title}".
+
+Usa esclusivamente questi titoli di capitolo:
+{topics}
+
+Genera:
+# {title}
+> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
+
+## Come studiare questo riassunto
+Massimo 5 punti.
+
+## Mappa della materia
+Raggruppa logicamente i capitoli senza inventare contenuti.
+
+## Ripasso globale
+15-30 richiami molto brevi, derivabili soltanto dai titoli; niente dettagli non presenti.
+
+Non generare l'indice: verra aggiunto automaticamente.
+"""
+
+
 def _course_overview_prompt(topic_previews: str, title: str) -> str:
     return f"""Crea l'introduzione e il ripasso globale per un unico riassunto eCampus intitolato
 "{title}".
@@ -250,19 +348,27 @@ class Summarizer:
             self.stats.cache_hits += 1
             return hit
 
-        budget = num_predict or self.config.num_predict
+        initial_budget = num_predict or self.config.num_predict
+        budgets = [
+            initial_budget,
+            min(max(initial_budget + 1000, int(initial_budget * 1.6)), 4600),
+            min(max(initial_budget + 2200, int(initial_budget * 2.2)), 6800),
+        ]
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        pieces: list[str] = []
+        final_text = ""
 
-        for attempt in range(3):
+        for attempt, budget in enumerate(budgets):
+            # On a retry, regenerate the entire answer with a larger output budget instead
+            # of appending a continuation. This avoids semantic loops and duplicated sections.
+            retry_ctx = min(16384, max(self.config.num_ctx, budget + 6000))
             result = self.client.chat_stream(
                 self.model,
                 messages,
                 on_token=None,
-                num_ctx=self.config.num_ctx,
+                num_ctx=retry_ctx,
                 num_predict=budget,
                 keep_alive=self.config.keep_alive,
             )
@@ -271,24 +377,15 @@ class Summarizer:
             self.stats.prompt_tokens += result.prompt_eval_count
             self.stats.ollama_seconds += result.total_seconds
             self.stats.eval_seconds += result.eval_duration / 1_000_000_000
+            final_text = result.content
 
-            pieces.append(result.content)
             if result.done_reason != "length":
                 break
 
-            self.stats.continuation_calls += 1
-            messages.append({"role": "assistant", "content": result.content})
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "Continua ESATTAMENTE dal punto in cui il testo si e interrotto. "
-                        "Non ripetere contenuti gia scritti, non aggiungere conoscenza esterna "
-                        "e completa tutte le sezioni e le frasi rimaste aperte."
-                    ),
-                }
-            )
-        merged = _clean_obvious_typos("".join(pieces).strip())
+            if attempt < len(budgets) - 1:
+                self.stats.continuation_calls += 1
+
+        merged = _clean_obvious_typos(final_text.strip())
         self.db.set_summary(cache_key, merged)
         return merged
 
@@ -346,16 +443,37 @@ class Summarizer:
         progress: Callable[[str], None] | None = None,
     ) -> str:
         source_parts: list[str] = []
+        raw_texts: list[str] = []
         for path in group.files:
             extracted = extract_document(path)
             if extracted.text:
+                raw_texts.append(extracted.text)
                 source_parts.append(
                     f"\n--- DISPENSA: {path.stem} ---\n{extracted.text}"
                 )
 
         source_text = "\n".join(source_parts).strip()
+        source_body = "\n".join(raw_texts).strip()
         if not source_text:
             return ""
+
+        topic_tokens = [
+            token
+            for token in re.findall(r"[A-Za-zÀ-ÿ]+", group.title.casefold())
+            if len(token) >= 5
+        ]
+        title_supported = (
+            not topic_tokens
+            or any(token in source_body.casefold() for token in topic_tokens)
+        )
+        mismatch_note = ""
+        if not title_supported:
+            mismatch_note = (
+                "\n\nNOTA OBBLIGATORIA DA INSERIRE SUBITO DOPO IL TITOLO:\n"
+                "> Verifica materiale: il titolo dei file suggerisce questo argomento, "
+                "ma il termine chiave non compare nel testo estratto. Il capitolo seguente "
+                "riassume soltanto il contenuto realmente presente nelle dispense.\n"
+            )
 
         _, domain = classify_domain(source_text)
         system = _summary_system_prompt(domain)
@@ -376,7 +494,7 @@ class Summarizer:
             return self._cached_chat(
                 cache_key,
                 system,
-                _topic_prompt(group.title, chunks[0], domain),
+                _topic_prompt(group.title, chunks[0] + mismatch_note, domain),
                 num_predict=1800,
             )
 
@@ -415,7 +533,7 @@ class Summarizer:
         return self._cached_chat(
             final_key,
             system,
-            _topic_merge_prompt(group.title, notes, domain),
+            _topic_merge_prompt(group.title, notes + mismatch_note, domain),
             num_predict=2200,
         )
 
@@ -478,6 +596,70 @@ class Summarizer:
             + "\n".join(toc_lines)
             + separator
             + separator.join(chapters)
+            + "\n"
+        )
+
+    def refine_summary(
+        self,
+        text: str,
+        title: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
+        chapters = _extract_summary_chapters(text)
+        if not chapters:
+            raise ValueError(
+                "Il file non contiene un indice BC Science valido con capitoli rifinibili."
+            )
+
+        refined: list[tuple[str, str]] = []
+        system = _summary_system_prompt("Scienze Motorie")
+
+        for index, (chapter_title, chapter) in enumerate(chapters, start=1):
+            if progress:
+                progress(f"[{index}/{len(chapters)}] Rifinisco {chapter_title}")
+
+            deduped = _dedupe_exact_blocks(chapter)
+            cache_key = _key(
+                PROMPT_VERSION,
+                self.model,
+                "refine-chapter",
+                chapter_title,
+                deduped,
+            )
+            polished = self._cached_chat(
+                cache_key,
+                system,
+                _refine_chapter_prompt(chapter_title, deduped),
+                num_predict=2600,
+            )
+            refined.append(
+                (chapter_title, _normalize_chapter_heading(polished, chapter_title))
+            )
+
+        topic_titles = [chapter_title for chapter_title, _chapter in refined]
+        overview_key = _key(
+            PROMPT_VERSION,
+            self.model,
+            "refine-overview",
+            title,
+            "\n".join(topic_titles),
+        )
+        overview = self._cached_chat(
+            overview_key,
+            system,
+            _refine_overview_prompt(title, topic_titles),
+            num_predict=1200,
+        ).strip()
+
+        toc = ["## Indice degli argomenti", *[f"- {item}" for item in topic_titles]]
+        separator = "\n\n---\n\n"
+        return (
+            overview
+            + "\n\n"
+            + "\n".join(toc)
+            + separator
+            + separator.join(chapter for _title, chapter in refined)
             + "\n"
         )
 

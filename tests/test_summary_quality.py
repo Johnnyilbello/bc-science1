@@ -23,7 +23,7 @@ def test_chapter_normalization_removes_internal_rules_and_obvious_typos():
     assert "\n---\n" not in cleaned
 
 
-def test_cached_chat_continues_after_length_stop(tmp_path: Path, monkeypatch):
+def test_cached_chat_retries_whole_answer_after_length_stop(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     summarizer = Summarizer(AppConfig())
     responses = iter(
@@ -36,7 +36,7 @@ def test_cached_chat_continues_after_length_stop(tmp_path: Path, monkeypatch):
                 total_duration=1_200_000_000,
             ),
             ChatResult(
-                content=" correttamente.",
+                content="La frase continua correttamente.",
                 done_reason="stop",
                 eval_count=5,
                 eval_duration=500_000_000,
