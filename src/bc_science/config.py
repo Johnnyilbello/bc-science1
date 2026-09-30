@@ -45,7 +45,7 @@ class AppConfig:
         return self.path
 
     @classmethod
-    def load(cls) -> "AppConfig":
+    def load(cls) -> AppConfig:
         path = app_home() / "config.json"
         if not path.exists():
             return cls()
