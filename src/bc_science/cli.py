@@ -288,7 +288,9 @@ def refine(
             f"cache: {summarizer.stats.cache_hits} · "
             f"token generati: {summarizer.stats.generated_tokens} · "
             f"media: {avg_tps:.1f} token/s · "
-            f"retry anti-troncamento: {summarizer.stats.continuation_calls}"
+            f"retry anti-troncamento: {summarizer.stats.continuation_calls} · "
+            f"riparazioni qualita: {summarizer.stats.quality_repairs} · "
+            f"avvisi materiale: {summarizer.stats.source_warnings}"
             "[/]"
         )
         console.print(
