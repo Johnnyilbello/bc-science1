@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+from collections.abc import Callable, Iterable
 
 import httpx
+
+ProgressCallback = Callable[[dict], None]
 
 
 class OllamaError(RuntimeError):
@@ -27,16 +30,34 @@ class OllamaClient:
             response.raise_for_status()
             return {item["name"] for item in response.json().get("models", [])}
 
-    def ensure_model(self, model: str) -> bool:
+    def ensure_model(
+        self,
+        model: str,
+        progress_callback: ProgressCallback | None = None,
+    ) -> bool:
         installed = self.models()
         if model in installed or f"{model}:latest" in installed:
             return False
-        with httpx.Client(timeout=None) as client:
-            response = client.post(
-                f"{self.base_url}/api/pull",
-                json={"model": model, "stream": False},
-            )
-            response.raise_for_status()
+
+        try:
+            with httpx.Client(timeout=None) as client:
+                with client.stream(
+                    "POST",
+                    f"{self.base_url}/api/pull",
+                    json={"model": model, "stream": True},
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        payload = json.loads(line)
+                        if error := payload.get("error"):
+                            raise OllamaError(str(error))
+                        if progress_callback is not None:
+                            progress_callback(payload)
+        except (httpx.HTTPError, json.JSONDecodeError) as exc:
+            raise OllamaError(f"Errore durante il download di {model}: {exc}") from exc
+
         return True
 
     def chat(
