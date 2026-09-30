@@ -252,7 +252,7 @@ def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
 
 
 def _chapter_title_supported(title: str, chapter: str) -> bool:
-    body = re.sub(r"(?m)^#{1,6}\\s+.*$", "", chapter).casefold()
+    body = re.sub(r"(?m)^#{1,6}\s+.*$", "", chapter).casefold()
     tokens = [
         token
         for token in re.findall(r"[A-Za-zÀ-ÿ]+", title.casefold())
@@ -268,12 +268,12 @@ def _chapter_quality_issues(
     require_source_warning: bool = False,
 ) -> list[str]:
     issues: list[str] = []
-    h2_lines = re.findall(r"(?m)^##\\s+(.+?)\\s*$", chapter)
+    h2_lines = re.findall(r"(?m)^##\s+(.+?)\s*$", chapter)
     if len(h2_lines) != 1 or h2_lines[0].strip().casefold() != title.strip().casefold():
         issues.append("deve contenere esattamente un titolo H2 corretto")
 
     exam_sections = len(
-        re.findall(r"(?mi)^###\\s+Da ricordare per l['’]esame\\s*$", chapter)
+        re.findall(r"(?mi)^###\s+Da ricordare per l['’]esame\s*$", chapter)
     )
     if exam_sections != 1:
         issues.append("deve contenere una sola sezione Da ricordare per l'esame")
@@ -307,12 +307,12 @@ def _chapter_quality_issues(
 
 def _extract_exam_recap(chapter: str, limit: int = 650) -> str:
     match = re.search(
-        r"(?mis)^###\\s+Da ricordare per l['’]esame\\s*$\\n(?P<body>.*)$",
+        r"(?mis)^###\s+Da ricordare per l['’]esame\s*$\n(?P<body>.*)$",
         chapter,
     )
     if not match:
         return ""
-    body = re.sub(r"\\s+", " ", match.group("body")).strip()
+    body = re.sub(r"\s+", " ", match.group("body")).strip()
     if len(body) <= limit:
         return body
     return body[:limit].rsplit(" ", 1)[0] + "…"
