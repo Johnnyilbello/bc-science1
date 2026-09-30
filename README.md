@@ -54,6 +54,17 @@ Per una risposta più lunga e con più fonti:
 
     bc-science ask "Spiegami tutta la contrazione muscolare" --deep
 
+### Benchmark locale
+
+Per confrontare sul proprio PC il profilo Turbo (2B) con Standard (4B) sulla stessa domanda:
+
+    bc-science benchmark "Spiegami la contrazione muscolare"
+
+BC Science installa il modello Turbo solo se manca, esegue entrambi i test, mostra token/s,
+token generati e tempo totale, e salva anche le due risposte complete in:
+
+    %LOCALAPPDATA%\BCScience\benchmarks\
+
 ### Diagnostica
 
     bc-science doctor

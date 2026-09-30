@@ -38,7 +38,7 @@ def answer(
         if deep
         else (
             "Rapida: sii completo sui concetti fondamentali ma compatto. "
-            "Punta a circa 500-700 parole e non ripetere lo stesso concetto."
+            "Punta a circa 450-650 parole e non ripetere lo stesso concetto."
         )
     )
     prompt = f"""Rispondi alla domanda dello studente usando prima di tutto le FONTI riportate.
@@ -66,7 +66,7 @@ Concludi con "Da ricordare" in massimo 5 punti.
         [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
         on_token=on_token,
         num_ctx=config.num_ctx,
-        num_predict=1500 if deep else 900,
+        num_predict=1500 if deep else 1200,
         keep_alive=config.keep_alive,
     )
     return result, hits
