@@ -1,5 +1,5 @@
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from bc_science.documents import chunk_text, iter_source_files, normalize_text
 
