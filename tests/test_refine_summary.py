@@ -4,6 +4,7 @@ from bc_science.summarizer import (
     _dedupe_exact_blocks,
     _extract_exam_recap,
     _extract_summary_chapters,
+    _normalize_refined_structure,
 )
 
 
@@ -108,3 +109,43 @@ Testo.
     recap = _extract_exam_recap(chapter)
     assert "trasporto passivo" in recap
     assert "trasporto attivo" in recap
+
+
+def test_structural_normalizer_collapses_duplicate_exam_headings():
+    chapter = """## LA CORTECCIA MOTORIA
+
+Testo del capitolo abbastanza lungo da rappresentare contenuto reale.
+
+### Da ricordare per l'esame
+- Primo gruppo di punti.
+
+### Area motoria
+Contenuto intermedio.
+
+### Da ricordare per l’esame
+- Secondo gruppo di punti.
+"""
+    normalized, changed = _normalize_refined_structure(
+        chapter,
+        "LA CORTECCIA MOTORIA",
+    )
+    assert changed
+    assert normalized.count("### Da ricordare per l'esame") == 1
+    assert "### Punti chiave" in normalized
+    assert "- Primo gruppo di punti." in normalized
+    assert "- Secondo gruppo di punti." in normalized
+
+
+def test_structural_normalizer_removes_duplicate_title_h2():
+    chapter = """## il tatto
+
+Testo iniziale.
+
+## Il tatto
+### Da ricordare per l'esame
+- Punto finale.
+"""
+    normalized, changed = _normalize_refined_structure(chapter, "il tatto")
+    assert changed
+    assert len([line for line in normalized.splitlines() if line.startswith("## ")]) == 1
+    assert "### Da ricordare per l'esame" in normalized
