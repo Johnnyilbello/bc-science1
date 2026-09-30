@@ -42,6 +42,20 @@ function Resolve-Python {
     return $null
 }
 
+function Resolve-Tesseract {
+    $cmd = Get-Command tesseract.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $candidates = @(
+        (Join-Path $env:ProgramFiles "Tesseract-OCR\\tesseract.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Tesseract-OCR\\tesseract.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) { return $candidate }
+    }
+    return $null
+}
+
 function Resolve-Ollama {
     $cmd = Get-Command ollama.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
@@ -114,14 +128,15 @@ Write-Host "Ollama: OK" -ForegroundColor DarkGray
 
 if (-not $SkipOCR) {
     Write-Step "Verifica OCR"
-    $tesseract = Get-Command tesseract.exe -ErrorAction SilentlyContinue
-    if (-not $tesseract) {
+    $TesseractExe = Resolve-Tesseract
+    if (-not $TesseractExe) {
         $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
         if ($winget) {
             Write-Host "Tesseract non trovato: provo a installarlo per i PDF scannerizzati..."
             try {
                 & $winget.Source install --id UB-Mannheim.TesseractOCR --exact --silent --accept-package-agreements --accept-source-agreements
                 Reload-Path
+                $TesseractExe = Resolve-Tesseract
             } catch {
                 Write-Warning "OCR opzionale non installato. I PDF con testo normale funzioneranno comunque."
             }
