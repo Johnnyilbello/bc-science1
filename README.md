@@ -33,9 +33,24 @@ L'installer può essere rilanciato per aggiornare BC Science: conserva configura
 
     bc-science summarize "C:\Studio\FISIOLOGIA UMANA E DELLO SPORT.zip" --single
 
+La modalita `--single` crea un vero **riassunto unico del corso**:
+
+1. riconosce automaticamente lezioni numerate dello stesso argomento;
+2. fonde le dispense duplicate o complementari per argomento;
+3. genera un capitolo semplice ma completo per ogni argomento con il modello Standard 4B;
+4. conserva definizioni, numeri, classificazioni, meccanismi, sequenze ed eccezioni;
+5. costruisce una mappa della materia e un ripasso globale;
+6. unisce tutto in un solo Markdown senza ricomprimere i capitoli finali.
+
+Questo evita l'effetto "127 mini-riassunti incollati" e riduce il rischio che un'ultima
+compressione perda contenuti utili all'esame.
+
 Output predefinito:
 
-    %LOCALAPPDATA%\BCScience\outputs\
+    %LOCALAPPDATA%\BCScience\outputs\<corso>-riassunto-unico.md
+
+Durante la generazione BC Science mostra l'argomento in elaborazione e, alla fine, il numero
+di documenti coperti, argomenti ottenuti, generazioni eseguite e risultati riutilizzati dalla cache.
 
 ### Indicizzare i materiali
 
@@ -111,7 +126,10 @@ Il knowledge pack integrato riconosce e adatta il riassunto a domini come:
 
 La regola centrale è: **semplificare senza eliminare contenuti potenzialmente utili all'esame**.
 
-Definizioni, classificazioni, meccanismi, sequenze, eccezioni e valori numerici vengono preservati. Eventuali chiarimenti generali devono rimanere separati dal contenuto della fonte.
+Definizioni, classificazioni, meccanismi, sequenze, eccezioni e valori numerici vengono preservati.
+Il riassunto del corso usa le dispense importate come fonte primaria e non aggiunge correzioni
+scientifiche esterne in modo silenzioso: eventuali verifiche scientifiche vanno tenute separate
+dal contenuto da studiare per l'esame.
 
 ## Perché è veloce
 
@@ -157,4 +175,4 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.2.0**.
+Versione corrente: **0.3.0**.
