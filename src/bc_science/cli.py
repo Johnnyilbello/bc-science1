@@ -136,16 +136,27 @@ def summarize(
             def show_progress(message: str) -> None:
                 console.print(f"[dim]{message}[/]")
 
+            started = time.perf_counter()
             result = summarizer.summarize_course(
                 files,
                 title=f"{title} - Riassunto completo",
                 progress=show_progress,
             )
+            elapsed = time.perf_counter() - started
+
             destination = output or (
                 app_home() / "outputs" / f"{title}-riassunto-unico.md"
             )
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(result, encoding="utf-8")
+
+            minutes, seconds = divmod(elapsed, 60)
+            avg_tps = (
+                summarizer.stats.generated_tokens / summarizer.stats.eval_seconds
+                if summarizer.stats.eval_seconds > 0
+                else 0.0
+            )
+
             console.print()
             console.print(f"[green]Riassunto unico creato:[/] {destination}")
             console.print(
@@ -154,6 +165,16 @@ def summarize(
                 f"{summarizer.stats.topic_groups} argomenti · "
                 f"{summarizer.stats.generated_calls} generazioni · "
                 f"{summarizer.stats.cache_hits} risultati dalla cache"
+                "[/]"
+            )
+            console.print(
+                "[dim]"
+                f"Tempo totale: {int(minutes)}m {seconds:.1f}s · "
+                f"tempo Ollama: {summarizer.stats.ollama_seconds:.1f}s · "
+                f"token generati: {summarizer.stats.generated_tokens} · "
+                f"media generazione: {avg_tps:.1f} token/s · "
+                f"continuazioni anti-troncamento: "
+                f"{summarizer.stats.continuation_calls}"
                 "[/]"
             )
             return
