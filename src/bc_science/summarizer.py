@@ -55,6 +55,7 @@ def group_course_files(files: list[Path]) -> list[TopicGroup]:
     for path in files:
         title = normalize_topic_stem(path.stem)
         key = title.casefold()
+        key = re.sub(r"^(?:i|il|lo|la|gli|le)\\s+", "", key).strip()
         if key not in grouped:
             grouped[key] = TopicGroup(title=title, files=[])
             order.append(key)
