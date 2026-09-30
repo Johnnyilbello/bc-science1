@@ -25,6 +25,7 @@ class SummaryStats:
     generated_tokens: int = 0
     prompt_tokens: int = 0
     ollama_seconds: float = 0.0
+    eval_seconds: float = 0.0
 
 
 @dataclass(slots=True)
@@ -85,8 +86,25 @@ MODALITA RIASSUNTO SOURCE-ONLY:
     )
 
 
+def _clean_obvious_typos(text: str) -> str:
+    replacements = {
+        "ricucinato": "ricaptato",
+        "ricucinata": "ricaptata",
+        "fissizione": "fissazione",
+        "stto interventricolare": "setto interventricolare",
+    }
+    cleaned = text
+    for wrong, right in replacements.items():
+        cleaned = cleaned.replace(wrong, right)
+    return cleaned
+
+
 def _normalize_chapter_heading(chapter: str, title: str) -> str:
-    lines = chapter.strip().splitlines()
+    lines = [
+        line
+        for line in _clean_obvious_typos(chapter).strip().splitlines()
+        if line.strip() != "---"
+    ]
     if not lines:
         return f"## {title}"
     if lines[0].lstrip().startswith("#"):
@@ -182,8 +200,8 @@ def _course_overview_prompt(topic_previews: str, title: str) -> str:
     return f"""Crea l'introduzione e il ripasso globale per un unico riassunto eCampus intitolato
 "{title}".
 
-Hai sotto l'elenco dei capitoli gia completi con una breve anteprima. NON devi riscrivere
-i capitoli e NON devi aggiungere contenuti esterni.
+Hai sotto soltanto l'elenco dei capitoli del corso. NON devi riscrivere i capitoli
+e NON devi aggiungere contenuti esterni.
 
 Genera soltanto queste sezioni:
 
@@ -252,6 +270,7 @@ class Summarizer:
             self.stats.generated_tokens += result.eval_count
             self.stats.prompt_tokens += result.prompt_eval_count
             self.stats.ollama_seconds += result.total_seconds
+            self.stats.eval_seconds += result.eval_duration / 1_000_000_000
 
             pieces.append(result.content)
             if result.done_reason != "length":
@@ -269,7 +288,7 @@ class Summarizer:
                     ),
                 }
             )
-        merged = "".join(pieces).strip()
+        merged = _clean_obvious_typos("".join(pieces).strip())
         self.db.set_summary(cache_key, merged)
         return merged
 
