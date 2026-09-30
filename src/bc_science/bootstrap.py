@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 
 from rich.console import Console
 
@@ -59,8 +58,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:
-        console.print(f"[red]Bootstrap fallito:[/] {exc}")
-        sys.exit(1)
+    main()
