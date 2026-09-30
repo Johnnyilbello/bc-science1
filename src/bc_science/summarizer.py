@@ -411,7 +411,7 @@ class Summarizer:
         self.stats.source_files = len(files)
         self.stats.topic_groups = len(groups)
 
-        chapters: list[str] = []
+        chapter_records: list[tuple[str, str]] = []
         for index, group in enumerate(groups, start=1):
             if progress:
                 progress(
@@ -420,48 +420,38 @@ class Summarizer:
                 )
             chapter = self._summarize_topic(group, progress=progress)
             if chapter:
-                chapters.append(chapter.strip())
+                chapter_records.append(
+                    (group.title, _normalize_chapter_heading(chapter, group.title))
+                )
 
-        if not chapters:
+        if not chapter_records:
             return ""
 
-        # The overview sees only compact previews. The complete chapters are never compressed
-        # again, which prevents the final pass from silently dropping exam-relevant details.
-        previews: list[str] = []
-        for chapter in chapters:
-            lines = [line.strip() for line in chapter.splitlines() if line.strip()]
-            heading = next((line for line in lines if line.startswith("## ")), "## Argomento")
-            body = " ".join(line for line in lines if not line.startswith("#"))
-            previews.append(f"{heading}\n{body[:900]}")
-
-        preview_text = "\n\n".join(previews)
+        # The overview receives only the deterministic topic names. Passing large chapter
+        # previews here can consume the context window and truncate the overview itself.
+        topic_list = "\n".join(
+            f"- {index}. {topic_title}"
+            for index, (topic_title, _chapter) in enumerate(chapter_records, start=1)
+        )
         overview_system = _summary_system_prompt("Scienze Motorie")
         overview_key = _key(
             PROMPT_VERSION,
             self.model,
             "course-overview",
             title,
-            preview_text,
+            topic_list,
         )
         overview = self._cached_chat(
             overview_key,
             overview_system,
-            _course_overview_prompt(preview_text, title),
-            num_predict=1800,
+            _course_overview_prompt(topic_list, title),
+            num_predict=1400,
         ).strip()
 
         toc_lines = ["## Indice degli argomenti"]
-        for chapter in chapters:
-            heading = next(
-                (
-                    line[3:].strip()
-                    for line in chapter.splitlines()
-                    if line.startswith("## ")
-                ),
-                "Argomento",
-            )
-            toc_lines.append(f"- {heading}")
+        toc_lines.extend(f"- {topic_title}" for topic_title, _chapter in chapter_records)
 
+        chapters = [chapter for _topic_title, chapter in chapter_records]
         separator = "\n\n---\n\n"
         return (
             overview
