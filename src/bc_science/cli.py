@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -214,6 +215,80 @@ def ask(
                 f"[dim]- {Path(hit['source']).name}, blocco {hit['chunk_index'] + 1} "
                 f"(similarita {hit['score']:.3f})[/]"
             )
+
+
+@app.command()
+def benchmark(
+    question: Annotated[str, typer.Argument(help="Domanda usata per confrontare i modelli")],
+) -> None:
+    """Confronta Turbo e Standard sulla stessa domanda e sulle stesse dispense."""
+    config = _config()
+    client = _require_ollama(config)
+    ensure_model_with_progress(client, config.embedding_model, console)
+
+    profiles = ("turbo", "standard")
+    results: list[tuple[str, str, object, list[dict]]] = []
+
+    for profile in profiles:
+        model = _ensure_model(config, profile)
+        console.print(f"\n[cyan]Benchmark {profile}: {model}[/]")
+        with console.status("Genero risposta di benchmark..."):
+            result, hits = answer(
+                question,
+                config,
+                profile,
+                deep=False,
+                on_token=None,
+            )
+        results.append((profile, model, result, hits))
+
+    table = Table(title="BC Science - Benchmark locale")
+    table.add_column("Profilo")
+    table.add_column("Modello")
+    table.add_column("Token/s", justify="right")
+    table.add_column("Token", justify="right")
+    table.add_column("Prompt", justify="right")
+    table.add_column("Totale", justify="right")
+    table.add_column("Stop")
+
+    for profile, model, result, _hits in results:
+        table.add_row(
+            profile,
+            model,
+            f"{result.tokens_per_second:.1f}",
+            str(result.eval_count),
+            str(result.prompt_eval_count),
+            f"{result.total_seconds:.2f}s",
+            result.done_reason or "-",
+        )
+    console.print()
+    console.print(table)
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    destination = app_home() / "benchmarks" / f"benchmark-{stamp}.md"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    sections = [f"# BC Science benchmark\n\nDomanda: {question}\n"]
+    for profile, model, result, hits in results:
+        sections.append(
+            f"\n## {profile.title()} - {model}\n\n"
+            f"- Token/s: {result.tokens_per_second:.1f}\n"
+            f"- Token generati: {result.eval_count}\n"
+            f"- Token prompt: {result.prompt_eval_count}\n"
+            f"- Tempo totale Ollama: {result.total_seconds:.2f}s\n"
+            f"- Stop: {result.done_reason or '-'}\n\n"
+            f"{result.content}\n\n"
+            "### Fonti\n"
+            + "\n".join(
+                f"- {Path(hit['source']).name} "
+                f"(similarita {hit['score']:.3f})"
+                for hit in hits
+            )
+            + "\n"
+        )
+
+    destination.write_text("\n".join(sections), encoding="utf-8")
+    console.print(f"[green]Confronto completo salvato:[/] {destination}")
 
 
 @models_app.command("list")
