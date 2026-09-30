@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v6-validated-refine"
+PROMPT_VERSION = "summary-v6.1-structural-normalizer"
 
 
 @dataclass(slots=True)
@@ -28,6 +28,7 @@ class SummaryStats:
     eval_seconds: float = 0.0
     quality_repairs: int = 0
     source_warnings: int = 0
+    structural_fixes: int = 0
 
 
 @dataclass(slots=True)
@@ -303,6 +304,48 @@ def _chapter_quality_issues(
     if len(chapter.strip()) < 500:
         issues.append("capitolo anormalmente corto")
     return issues
+
+
+def _normalize_refined_structure(chapter: str, title: str) -> tuple[str, bool]:
+    """Repair Markdown-only structure without changing the chapter's factual content."""
+    normalized = _normalize_chapter_heading(chapter, title)
+    lines = normalized.splitlines()
+    changed = False
+
+    # Only the first line may be an H2. Preserve any later section title by demoting it.
+    cleaned: list[str] = []
+    for index, line in enumerate(lines):
+        h2 = re.match(r"^##\s+(.+?)\s*$", line)
+        if index > 0 and h2:
+            heading = h2.group(1).strip()
+            if heading.casefold() == title.strip().casefold():
+                changed = True
+                continue
+            cleaned.append(f"### {heading}")
+            changed = True
+            continue
+        cleaned.append(line)
+
+    # Normalize common variants of the exam-recap heading.
+    exam_heading_re = re.compile(
+        r"(?i)^###\s+Da\s+ricordare(?:\s+per)?(?:\s+l['’]?)?esame\s*$"
+    )
+    exam_indices: list[int] = []
+    for index, line in enumerate(cleaned):
+        if exam_heading_re.match(line.strip()):
+            if line.strip() != "### Da ricordare per l'esame":
+                cleaned[index] = "### Da ricordare per l'esame"
+                changed = True
+            exam_indices.append(index)
+
+    # If the model repeated the recap section, keep the last one canonical and
+    # preserve previous recap content under a neutral subsection.
+    if len(exam_indices) > 1:
+        for index in exam_indices[:-1]:
+            cleaned[index] = "### Punti chiave"
+        changed = True
+
+    return "\n".join(cleaned).strip(), changed
 
 
 def _extract_exam_recap(chapter: str, limit: int = 650) -> str:
@@ -741,7 +784,12 @@ class Summarizer:
                 _refine_chapter_prompt(chapter_title, deduped, source_warning),
                 num_predict=2800,
             )
-            polished = _normalize_chapter_heading(polished, chapter_title)
+            polished, structure_changed = _normalize_refined_structure(
+                polished,
+                chapter_title,
+            )
+            if structure_changed:
+                self.stats.structural_fixes += 1
             issues = _chapter_quality_issues(
                 polished,
                 chapter_title,
@@ -775,7 +823,12 @@ class Summarizer:
                     ),
                     num_predict=3800,
                 )
-                polished = _normalize_chapter_heading(polished, chapter_title)
+                polished, structure_changed = _normalize_refined_structure(
+                    polished,
+                    chapter_title,
+                )
+                if structure_changed:
+                    self.stats.structural_fixes += 1
                 remaining = _chapter_quality_issues(
                     polished,
                     chapter_title,
