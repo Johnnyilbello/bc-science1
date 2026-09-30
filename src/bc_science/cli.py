@@ -192,6 +192,114 @@ def summarize(
 
 
 @app.command()
+def refine(
+    source: Annotated[
+        Path | None,
+        typer.Option(
+            "--input",
+            "-i",
+            help="Riassunto Markdown da rifinire; se omesso usa l'ultimo riassunto unico",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="File Markdown di output"),
+    ] = None,
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="standard o quality"),
+    ] = "standard",
+) -> None:
+    """Rifinisce rapidamente l'ultimo riassunto senza rileggere tutti i PDF."""
+    config = _config()
+    _ensure_model(config, profile)
+
+    if source is None:
+        output_dir = app_home() / "outputs"
+        candidates = sorted(
+            output_dir.glob("*-riassunto-unico.md"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            console.print(
+                "[red]Nessun riassunto unico trovato.[/] "
+                "Generane prima uno con 'bc-science summarize ... --single'."
+            )
+            raise typer.Exit(1)
+        source = candidates[0]
+
+    source = source.expanduser().resolve()
+    if not source.exists() or source.suffix.lower() != ".md":
+        console.print(f"[red]Riassunto non valido:[/] {source}")
+        raise typer.Exit(1)
+
+    text = source.read_text(encoding="utf-8")
+    title = source.stem
+    for suffix in ("-riassunto-unico", "-riassunto-rifinito"):
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+            break
+    title = f"{title} - Riassunto rifinito"
+
+    destination = output or source.with_name(
+        source.stem.removesuffix("-riassunto-unico") + "-riassunto-rifinito.md"
+    )
+    destination = destination.expanduser().resolve()
+
+    summarizer = Summarizer(config, profile)
+    try:
+        console.print(f"Rifinisco [cyan]{source.name}[/] con {summarizer.model}.")
+        console.print(
+            "[dim]Modalita rapida: usa il riassunto esistente come unica fonte; "
+            "non rilegge i PDF originali.[/]"
+        )
+
+        def show_progress(message: str) -> None:
+            console.print(f"[dim]{message}[/]")
+
+        started = time.perf_counter()
+        try:
+            result = summarizer.refine_summary(
+                text,
+                title=title,
+                progress=show_progress,
+            )
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1) from exc
+        elapsed = time.perf_counter() - started
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(result, encoding="utf-8")
+
+        minutes, seconds = divmod(elapsed, 60)
+        avg_tps = (
+            summarizer.stats.generated_tokens / summarizer.stats.eval_seconds
+            if summarizer.stats.eval_seconds > 0
+            else 0.0
+        )
+        console.print()
+        console.print(f"[green]Riassunto rifinito creato:[/] {destination}")
+        console.print(
+            "[dim]"
+            f"Tempo totale: {int(minutes)}m {seconds:.1f}s · "
+            f"generazioni: {summarizer.stats.generated_calls} · "
+            f"cache: {summarizer.stats.cache_hits} · "
+            f"token generati: {summarizer.stats.generated_tokens} · "
+            f"media: {avg_tps:.1f} token/s · "
+            f"retry anti-troncamento: {summarizer.stats.continuation_calls}"
+            "[/]"
+        )
+        console.print(
+            "[yellow]Nota:[/] la rifinitura puo correggere struttura e duplicati, "
+            "ma non recupera informazioni eventualmente assenti dal riassunto sorgente."
+        )
+    finally:
+        summarizer.close()
+
+
+@app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Domanda sui materiali indicizzati")],
     profile: Annotated[
