@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -14,7 +14,7 @@ from .documents import extract_document, iter_source_files
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
-from .ollama_client import OllamaClient
+from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
 from .summarizer import Summarizer
 
@@ -227,7 +227,7 @@ def benchmark(
     ensure_model_with_progress(client, config.embedding_model, console)
 
     profiles = ("turbo", "standard")
-    results: list[tuple[str, str, object, list[dict]]] = []
+    results: list[tuple[str, str, ChatResult, list[dict]]] = []
 
     for profile in profiles:
         model = _ensure_model(config, profile)
@@ -264,7 +264,7 @@ def benchmark(
     console.print()
     console.print(table)
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
     destination = app_home() / "benchmarks" / f"benchmark-{stamp}.md"
     destination.parent.mkdir(parents=True, exist_ok=True)
 
