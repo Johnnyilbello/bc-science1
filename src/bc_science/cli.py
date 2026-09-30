@@ -290,7 +290,8 @@ def refine(
             f"media: {avg_tps:.1f} token/s · "
             f"retry anti-troncamento: {summarizer.stats.continuation_calls} · "
             f"riparazioni qualita: {summarizer.stats.quality_repairs} · "
-            f"avvisi materiale: {summarizer.stats.source_warnings}"
+            f"avvisi materiale: {summarizer.stats.source_warnings} · "
+            f"fix struttura: {summarizer.stats.structural_fixes}"
             "[/]"
         )
         console.print(
