@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v6.1-structural-normalizer"
+PROMPT_VERSION = "summary-v6-validated-refine"
 
 
 @dataclass(slots=True)
