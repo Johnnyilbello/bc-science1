@@ -12,7 +12,7 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v5-retry-whole"
+PROMPT_VERSION = "summary-v6-validated-refine"
 
 
 @dataclass(slots=True)
@@ -26,6 +26,8 @@ class SummaryStats:
     prompt_tokens: int = 0
     ollama_seconds: float = 0.0
     eval_seconds: float = 0.0
+    quality_repairs: int = 0
+    source_warnings: int = 0
 
 
 @dataclass(slots=True)
