@@ -134,3 +134,54 @@ Ogni gruppo ha una funzione specifica.
 
     assert audit.metrics.max_paragraph_sentences <= 5
     assert not any("troppe frasi" in issue for issue in audit.issues)
+
+
+def test_novice_audit_rejects_keyword_overload_and_inline_heading():
+    keywords = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 10)
+    )
+    text = f"""## Capitolo
+
+### In parole semplici
+Introduzione semplice per chi parte da zero.
+
+### Parole chiave
+{keywords}
+
+### Spiegazione
+Frase semplice. ### Applicazione
+
+Altra frase.
+
+### Da ricordare per l'esame
+- Punto.
+"""
+    audit = novice_audit(text)
+
+    assert not audit.passed
+    assert any("3 a 8 voci" in issue for issue in audit.issues)
+    assert any("heading Markdown" in issue for issue in audit.issues)
+
+
+def test_document_audit_rejects_incomplete_global_recap_frontmatter():
+    text = f"""# Corso
+
+## Mappa della materia
+- Primo
+
+## Ripasso globale
+1. **Primo**: rivedi il capitolo.
+
+## Indice degli argomenti
+- Primo
+
+---
+
+{_novice_chapter("Primo")}
+"""
+    passed, results = audit_novice_document(text)
+
+    assert not passed
+    front = next(audit for title, audit in results if title == "Front matter")
+    assert any("rivedi il capitolo" in issue for issue in front.issues)
