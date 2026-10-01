@@ -276,7 +276,7 @@ def test_refine_retries_quality_gate_until_structure_is_clean(tmp_path: Path, mo
 
 ## Capitolo
 
-Contenuto sorgente sufficiente per il test.
+Questo capitolo contiene materiale sorgente sufficiente per il test.
 Mantiene informazioni che non devono essere inventate o perse.
 La struttura iniziale deve essere migliorata.
 
