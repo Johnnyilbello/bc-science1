@@ -310,6 +310,7 @@ def novice_audit(text: str) -> NoviceAudit:
 
     return NoviceAudit(metrics=metrics, issues=tuple(issues))
 
+
 def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]]]:
     """Audit front matter and every chapter listed in the deterministic course index."""
     index_match = re.search(
@@ -330,7 +331,47 @@ def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]
         front_issues.append("manca il Ripasso globale")
     if "## Mappa della materia" not in frontmatter:
         front_issues.append("manca la Mappa della materia")
-    front_metrics = readability_metrics(frontmatter)
+    raw_front_metrics = readability_metrics(frontmatter)
+    front_metrics = ReadabilityMetrics(
+        sentence_count=raw_front_metrics.sentence_count,
+        average_sentence_words=raw_front_metrics.average_sentence_words,
+        max_sentence_words=raw_front_metrics.max_sentence_words,
+        long_sentence_ratio=raw_front_metrics.long_sentence_ratio,
+        max_paragraph_words=raw_front_metrics.max_paragraph_words,
+        max_paragraph_sentences=raw_front_metrics.max_paragraph_sentences,
+        has_simple_intro=True,
+        has_keywords=True,
+        score=100 if not front_issues else 0,
+    )
+
+    titles = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
+    ]
+    recap_match = re.search(
+        r"(?ms)^## Ripasso globale\s*$\n(?P<body>.*?)(?=^##\s+Indice degli argomenti\s*$)",
+        frontmatter,
+    )
+    if recap_match:
+        recap_items = re.findall(r"(?m)^\d+\.\s+", recap_match.group("body"))
+        if len(recap_items) != len(titles):
+            front_issues.append(
+                "il Ripasso globale non contiene una voce per ogni capitolo "
+                f"({len(recap_items)}/{len(titles)})"
+            )
+
+    if front_issues and front_metrics.score != 0:
+        front_metrics = ReadabilityMetrics(
+            sentence_count=front_metrics.sentence_count,
+            average_sentence_words=front_metrics.average_sentence_words,
+            max_sentence_words=front_metrics.max_sentence_words,
+            long_sentence_ratio=front_metrics.long_sentence_ratio,
+            max_paragraph_words=front_metrics.max_paragraph_words,
+            max_paragraph_sentences=front_metrics.max_paragraph_sentences,
+            has_simple_intro=True,
+            has_keywords=True,
+            score=0,
+        )
     results.append(
         (
             "Front matter",
@@ -338,10 +379,6 @@ def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]
         )
     )
 
-    titles = [
-        match.group(1).strip()
-        for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
-    ]
     body = text[index_match.end():]
 
     for title in titles:
