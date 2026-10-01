@@ -149,3 +149,41 @@ Testo iniziale.
     assert changed
     assert len([line for line in normalized.splitlines() if line.startswith("## ")]) == 1
     assert "### Da ricordare per l'esame" in normalized
+
+
+def test_structural_normalizer_merges_duplicate_h3_and_moves_recap_last():
+    chapter = """## LA CORTECCIA MOTORIA
+
+Introduzione.
+
+### Definizioni e termini
+- Prima definizione.
+
+### Sequenze / meccanismi
+- Prima sequenza.
+
+### Da ricordare per l'esame
+- Primo recap.
+
+### Definizioni e termini
+- Seconda definizione.
+
+### Sequenze / meccanismi
+- Seconda sequenza.
+
+### Attenzione all'esame
+- Nota finale.
+"""
+    normalized, changed = _normalize_refined_structure(
+        chapter,
+        "LA CORTECCIA MOTORIA",
+    )
+    assert changed
+    assert normalized.count("### Definizioni e termini") == 1
+    assert normalized.count("### Sequenze / meccanismi") == 1
+    assert normalized.count("### Da ricordare per l'esame") == 1
+    assert "- Prima definizione." in normalized
+    assert "- Seconda definizione." in normalized
+    assert "- Prima sequenza." in normalized
+    assert "- Seconda sequenza." in normalized
+    assert normalized.rfind("### Da ricordare per l'esame") > normalized.rfind("### Attenzione all'esame")
