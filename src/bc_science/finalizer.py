@@ -277,6 +277,51 @@ def _finalize_frontmatter(text: str) -> tuple[str, int]:
     return text, changed
 
 
+EDITORIAL_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ('Le biomolecole sono le "mattoni"', 'Le biomolecole sono i "mattoni"'),
+    ("questa legame", "questo legame"),
+    ("sinapsia", "sinapsi"),
+    ("Questa enzima", "Questo enzima"),
+    ("energia fisica del stimolo", "energia fisica dello stimolo"),
+    ("propriocezione e equilibrio", "propriocezione ed equilibrio"),
+)
+
+
+def _apply_editorial_proofreading(text: str) -> tuple[str, int]:
+    """Apply only deterministic, high-confidence language and title fixes."""
+    changed = 0
+
+    for old, new in EDITORIAL_REPLACEMENTS:
+        occurrences = text.count(old)
+        if occurrences:
+            text = text.replace(old, new)
+            changed += occurrences
+
+    gusto = _chapter_slice(text, "GUSTO")
+    if "olfatt" in gusto.casefold() and "gusto" in gusto.casefold():
+        title = "GUSTO E OLFATTO"
+        replacements = (
+            ("## GUSTO\n", f"## {title}\n"),
+            ("- GUSTO\n", f"- {title}\n"),
+            ("capitolo GUSTO;", f"capitolo {title};"),
+        )
+        for old, new in replacements:
+            if old in text:
+                text = text.replace(old, new, 1)
+                changed += 1
+
+        recap_pattern = re.compile(r"(?m)^(?P<prefix>\d+\.\s+)\*\*GUSTO\*\*:")
+        if recap_pattern.search(text):
+            text = recap_pattern.sub(
+                lambda match: f"{match.group('prefix')}**{title}**:",
+                text,
+                count=1,
+            )
+            changed += 1
+
+    return text, changed
+
+
 def _apply_scientific_notes_to_chapters(text: str) -> tuple[str, int]:
     """Attach scientific notes to full chapters, not to front-matter recaps."""
     index_pos = text.find("## Indice degli argomenti")
@@ -298,6 +343,8 @@ def finalize_markdown(text: str) -> tuple[str, int, int]:
     finalized, organization_fixes = _fix_known_mismatches(text)
     finalized, frontmatter_fixes = _finalize_frontmatter(finalized)
     organization_fixes += frontmatter_fixes
+    finalized, editorial_fixes = _apply_editorial_proofreading(finalized)
+    organization_fixes += editorial_fixes
     finalized, scientific_notes = _apply_scientific_notes_to_chapters(finalized)
     if not finalized.endswith("\n"):
         finalized += "\n"
