@@ -239,3 +239,25 @@ Testo del capitolo.
 
     assert "rivedi il capitolo" not in recap
     assert "concetto di base" in recap
+
+
+def test_global_recap_truncates_long_prose_exam_section():
+    long_point = " ".join(["informazione"] * 120) + "."
+    chapter = f"""## Capitolo
+
+### In parole semplici
+Introduzione semplice.
+
+### Parole chiave
+- **Uno** — definizione.
+- **Due** — definizione.
+- **Tre** — definizione.
+
+### Da ricordare per l'esame
+{long_point}
+"""
+    recap = _build_global_recap([("Capitolo", chapter)])
+    recap_line = recap.splitlines()[1]
+
+    assert len(recap_line) < 360
+    assert "rivedi il capitolo" not in recap_line
