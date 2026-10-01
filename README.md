@@ -91,8 +91,7 @@ Per misurare il risultato:
 Il comando mostra per ciascun capitolo score 0-100, parole medie per frase,
 densità massima del paragrafo e gli eventuali motivi di FAIL.
 
-bc-science refine prova automaticamente a riscrivere soltanto i capitoli che non
-superano il controllo principiante. bc-science finalize rifiuta di generare il PDF
+bc-science refine corregge autonomamente i capitoli che non superano il controllo principiante. Prima spezza deterministicamente i paragrafi troppo densi senza cambiare le frasi; se restano problemi di comprensione, esegue fino a quattro autocorrezioni mirate del solo capitolo e rivalida dopo ogni tentativo. bc-science finalize rifiuta di generare il PDF
 se anche un capitolo non supera il gate.
 
 Lo score è un controllo operativo, non una prova matematica di comprensione: BC Science
@@ -257,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.0**.
+Versione corrente: **0.8.1**.
 
 
 ### Ripasso globale rapido
