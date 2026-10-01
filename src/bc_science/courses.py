@@ -4,9 +4,9 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .cache import CacheDB
 from .config import AppConfig, app_home
@@ -70,7 +70,7 @@ def _is_hidden_or_ignored_dir(name: str) -> bool:
 def _is_ignored_file(path: Path) -> bool:
     name = path.name
     lowered = name.casefold()
-    if name.startswith(".") or name.startswith("~$"):
+    if name.startswith((".", "~$")):
         return True
     if path.suffix.casefold() in IGNORED_FILE_SUFFIXES:
         return True
