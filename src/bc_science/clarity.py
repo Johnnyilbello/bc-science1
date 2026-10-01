@@ -260,9 +260,6 @@ def novice_audit(text: str) -> NoviceAudit:
 
     if not metrics.has_simple_intro:
         issues.append("manca la sezione 'In parole semplici'")
-    if not metrics.has_keywords:
-        issues.append("manca la sezione 'Parole chiave'")
-
     h3_titles = [
         match.group(1).strip().casefold()
         for match in re.finditer(r"(?m)^###\s+(.+?)\s*$", text)
@@ -270,17 +267,12 @@ def novice_audit(text: str) -> NoviceAudit:
     if h3_titles:
         if h3_titles[0] != "in parole semplici":
             issues.append("'In parole semplici' deve essere la prima sottosezione")
-        if len(h3_titles) < 2 or h3_titles[1] != "parole chiave":
-            issues.append("'Parole chiave' deve essere la seconda sottosezione")
+        if "parole chiave" in h3_titles and h3_titles.index("parole chiave") != 1:
+            issues.append(
+                "se presente, 'Parole chiave' deve essere la seconda sottosezione"
+            )
         if h3_titles[-1] != "da ricordare per l'esame":
             issues.append("'Da ricordare per l'esame' deve essere l'ultima sottosezione")
-
-    keyword_count = _keyword_count(text)
-    if metrics.has_keywords and not 3 <= keyword_count <= 8:
-        issues.append(
-            "la sezione 'Parole chiave' deve contenere da 3 a 8 voci "
-            f"(trovate {keyword_count})"
-        )
 
     if re.search(r"(?m)^.+[ \t]+###\s+\S+", text):
         issues.append("contiene un heading Markdown incollato alla fine di una frase")
