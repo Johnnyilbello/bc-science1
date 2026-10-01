@@ -14,7 +14,8 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v8.3-integrity"
+PROMPT_VERSION = "summary-v8-novice-first"
+REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
 
 
 @dataclass(slots=True)
@@ -1022,7 +1023,7 @@ class Summarizer:
                 self.stats.source_warnings += 1
 
             cache_key = _key(
-                PROMPT_VERSION,
+                REFINE_PROMPT_VERSION,
                 self.model,
                 "refine-chapter",
                 chapter_title,
@@ -1055,7 +1056,7 @@ class Summarizer:
                         f"({'; '.join(issues)})"
                     )
                 repair_key = _key(
-                    PROMPT_VERSION,
+                    REFINE_PROMPT_VERSION,
                     self.model,
                     "refine-repair",
                     chapter_title,
@@ -1112,7 +1113,7 @@ class Summarizer:
                         f"{chapter_title} ({'; '.join(clarity.issues)})"
                     )
                 novice_key = _key(
-                    PROMPT_VERSION,
+                    REFINE_PROMPT_VERSION,
                     self.model,
                     f"novice-repair-{attempt}",
                     chapter_title,
@@ -1207,7 +1208,7 @@ class Summarizer:
         topic_list = "\n".join(map_topics)
 
         map_key = _key(
-            PROMPT_VERSION,
+            REFINE_PROMPT_VERSION,
             self.model,
             "refine-map-v2",
             topic_list,
