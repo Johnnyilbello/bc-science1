@@ -108,3 +108,29 @@ def test_layout_normalizer_splits_seven_sentence_paragraph_without_rewriting():
     assert all(sentence in normalized for sentence in sentences)
     assert normalized.index(sentences[0]) < normalized.index(sentences[-1])
     assert novice_audit(normalized).metrics.max_paragraph_sentences <= 5
+
+
+def test_list_under_heading_is_not_counted_as_one_seven_sentence_paragraph():
+    text = """## Capitolo
+
+### In parole semplici
+La cellula usa diversi tipi di molecole.
+Ogni gruppo ha una funzione specifica.
+
+### Parole chiave
+- **Glucidi** — molecole usate anche come fonte di energia.
+- **Lipidi** — molecole che possono avere funzione energetica o strutturale.
+- **Proteine** — molecole formate da amminoacidi.
+- **Enzimi** — proteine che accelerano reazioni.
+- **ATP** — molecola coinvolta negli scambi di energia.
+- **DNA** — molecola che contiene informazione genetica.
+- **RNA** — molecola coinvolta nell'espressione dell'informazione genetica.
+
+### Da ricordare per l'esame
+- Le biomolecole hanno funzioni diverse.
+"""
+
+    audit = novice_audit(text)
+
+    assert audit.metrics.max_paragraph_sentences <= 5
+    assert not any("troppe frasi" in issue for issue in audit.issues)
