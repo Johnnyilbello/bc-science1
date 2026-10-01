@@ -21,18 +21,29 @@ QUERY_INSTRUCTION = (
 )
 
 
-def ingest(source: Path, config: AppConfig, *, force: bool = False) -> dict[str, int]:
+def ingest_files(
+    files: list[Path],
+    config: AppConfig,
+    *,
+    force: bool = False,
+    db_path: Path | None = None,
+    prune_missing: bool = False,
+) -> dict[str, int]:
     client = OllamaClient(config.ollama_url)
-    db = CacheDB()
-    files = iter_source_files(source)
+    resolved_files = [path.expanduser().resolve() for path in files]
+    db = CacheDB(db_path)
     indexed = 0
     skipped = 0
     chunks_total = 0
+    removed = 0
 
     try:
-        for path in files:
+        if prune_missing:
+            removed = db.prune_documents({str(path) for path in resolved_files})
+
+        for path in resolved_files:
             digest = file_sha256(path)
-            key = str(path.resolve())
+            key = str(path)
             if not force and db.document_hash(key) == digest:
                 skipped += 1
                 continue
@@ -50,7 +61,10 @@ def ingest(source: Path, config: AppConfig, *, force: bool = False) -> dict[str,
             embeddings: list[list[float]] = []
             batch_size = 12
             for start in range(0, len(chunks), batch_size):
-                batch = [DOCUMENT_INSTRUCTION + c for c in chunks[start:start + batch_size]]
+                batch = [
+                    DOCUMENT_INSTRUCTION + chunk
+                    for chunk in chunks[start:start + batch_size]
+                ]
                 embeddings.extend(client.embed(config.embedding_model, batch))
 
             db.replace_document(key, digest, path.stem, chunks, embeddings)
@@ -60,11 +74,27 @@ def ingest(source: Path, config: AppConfig, *, force: bool = False) -> dict[str,
         db.close()
 
     return {
-        "files_found": len(files),
+        "files_found": len(resolved_files),
         "indexed": indexed,
         "skipped": skipped,
         "chunks": chunks_total,
+        "removed": removed,
     }
+
+
+def ingest(
+    source: Path,
+    config: AppConfig,
+    *,
+    force: bool = False,
+    db_path: Path | None = None,
+) -> dict[str, int]:
+    return ingest_files(
+        iter_source_files(source),
+        config,
+        force=force,
+        db_path=db_path,
+    )
 
 
 def retrieve(question: str, config: AppConfig, limit: int | None = None) -> list[dict]:
