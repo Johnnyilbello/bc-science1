@@ -39,20 +39,26 @@ def _strip_markdown(text: str) -> str:
 
 def _sentence_word_counts(text: str) -> list[int]:
     plain = _strip_markdown(text)
-    plain = re.sub(r"\s+", " ", plain).strip()
-    if not plain:
-        return []
-
-    sentences = [
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])", plain)
-        if sentence.strip()
-    ]
     counts: list[int] = []
-    for sentence in sentences:
-        words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", sentence, flags=re.UNICODE)
-        if words:
-            counts.append(len(words))
+
+    # Keep Markdown/list line boundaries meaningful: a bullet without a final period
+    # must not be merged with the next bullet and counted as one giant sentence.
+    for raw_line in plain.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line:
+            continue
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(
+                r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])",
+                line,
+            )
+            if sentence.strip()
+        ]
+        for sentence in sentences:
+            words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", sentence, flags=re.UNICODE)
+            if words:
+                counts.append(len(words))
     return counts
 
 
