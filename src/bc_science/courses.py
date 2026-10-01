@@ -51,6 +51,9 @@ class CourseState:
     indexed_documents: int
     output_path: Path
     workspace_path: Path
+    new_files: int = 0
+    changed_files: int = 0
+    removed_files: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,12 +222,34 @@ def course_state(scan: CourseScan) -> CourseState:
         finally:
             db.close()
 
+    new_files = 0
+    changed_files = 0
+    removed_files = 0
+
     if not scan.supported_files:
         state = "vuota"
     elif manifest is None:
         state = "da creare"
+        new_files = len(scan.supported_files)
     else:
-        current = _fingerprint(_snapshot(scan))
+        snapshot = _snapshot(scan)
+        current_files = {str(row["path"]): str(row["sha256"]) for row in snapshot}
+        previous_rows = manifest.get("files")
+        previous_files = {
+            str(row["path"]): str(row["sha256"])
+            for row in previous_rows
+            if isinstance(row, dict) and "path" in row and "sha256" in row
+        } if isinstance(previous_rows, list) else {}
+
+        new_files = len(current_files.keys() - previous_files.keys())
+        removed_files = len(previous_files.keys() - current_files.keys())
+        changed_files = sum(
+            1
+            for path in current_files.keys() & previous_files.keys()
+            if current_files[path] != previous_files[path]
+        )
+
+        current = _fingerprint(snapshot)
         if manifest.get("fingerprint") == current and output.exists():
             state = "pronta"
         else:
@@ -236,6 +261,9 @@ def course_state(scan: CourseScan) -> CourseState:
         indexed_documents=indexed_documents,
         output_path=output,
         workspace_path=workspace,
+        new_files=new_files,
+        changed_files=changed_files,
+        removed_files=removed_files,
     )
 
 
