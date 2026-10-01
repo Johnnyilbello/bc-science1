@@ -567,7 +567,10 @@ OBIETTIVI:
 - spezza paragrafi lunghi in blocchi piu piccoli;
 - conserva TUTTE le informazioni distinte, i numeri, le definizioni, le eccezioni e le sequenze;
 - non semplificare eliminando contenuti utili all'esame;
-- non introdurre analogie o esempi non presenti nel capitolo.
+- non introdurre analogie o esempi non presenti nel capitolo;
+- non creare "Verifica materiale" se non e richiesta dal warning;
+- non dichiarare che la fonte e scientificamente corretta, verificata o priva di errori;
+- ogni heading Markdown deve iniziare su una nuova riga.
 {warning}
 STRUTTURA OBBLIGATORIA:
 ## {title}
