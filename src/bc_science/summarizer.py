@@ -481,28 +481,69 @@ Rigenera l'intero capitolo da zero rispettando rigorosamente tutti i vincoli.
     )
 
 
-def _refine_overview_prompt(
-    title: str,
-    topic_titles: list[str],
-    recap_source: str,
-) -> str:
+def _extract_exam_points(chapter: str) -> list[str]:
+    match = re.search(
+        r"(?mis)^###\s+Da ricordare per l['’]esame\s*$\n(?P<body>.*)$",
+        chapter,
+    )
+    if not match:
+        return []
+
+    body = match.group("body").strip()
+    points: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        bullet = re.match(r"^(?:[-*]|\d+[.)])\s+(.*)$", stripped)
+        if bullet:
+            value = re.sub(r"\s+", " ", bullet.group(1)).strip()
+            if value:
+                points.append(value)
+
+    if points:
+        return points
+
+    fallback = re.sub(r"\s+", " ", body).strip()
+    return [fallback] if fallback else []
+
+
+def _build_global_recap(refined: list[tuple[str, str]]) -> str:
+    """Build one high-yield recap item per chapter without another model call."""
+    lines = ["## Ripasso globale"]
+    for index, (title, chapter) in enumerate(refined, start=1):
+        points = _extract_exam_points(chapter)
+        if not points:
+            lines.append(f"{index}. **{title}**: rivedi il capitolo.")
+            continue
+
+        selected: list[str] = []
+        total = 0
+        for point in points[:3]:
+            plain = re.sub(r"\s+", " ", point).strip()
+            if not plain:
+                continue
+            projected = total + len(plain)
+            if selected and projected > 280:
+                break
+            selected.append(plain)
+            total = projected
+
+        recap = " ".join(selected) if selected else points[0]
+        lines.append(f"{index}. **{title}**: {recap}")
+    return "\n".join(lines)
+
+
+def _refine_map_prompt(topic_titles: list[str]) -> str:
     topics = "\n".join(f"- {item}" for item in topic_titles)
-    return f"""Crea SOLO queste due sezioni per il riassunto rifinito "{title}":
+    return f"""Crea SOLO la sezione Markdown:
 
 ## Mappa della materia
-Raggruppa logicamente i capitoli e mostra i collegamenti principali. Sii breve.
 
-## Ripasso globale
-Crea 20-35 punti ad alta resa realmente utili al ripasso. Ogni punto deve contenere
-un concetto, una definizione, una sequenza, una differenza o un numero presente negli
-estratti "Da ricordare" riportati sotto. NON limitarti a elencare i titoli.
-Non aggiungere conoscenza esterna.
+Raggruppa i capitoli seguenti in 4-7 macro-aree logiche e mostra in modo molto breve
+i collegamenti principali. Massimo 12 punti complessivi. Non aggiungere conoscenza
+esterna e non creare altre sezioni.
 
-TITOLI:
+CAPITOLI:
 {topics}
-
-ESTRATTI "DA RICORDARE":
-{recap_source}
 """
 
 
@@ -909,27 +950,22 @@ class Summarizer:
             refined.append((chapter_title, polished))
 
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
-        recap_parts = []
-        for chapter_title, chapter in refined:
-            recap = _extract_exam_recap(chapter)
-            if recap:
-                recap_parts.append(f"{chapter_title}: {recap}")
-        recap_source = "\n".join(recap_parts)
+        topic_list = "\n".join(topic_titles)
 
-        overview_key = _key(
+        map_key = _key(
             PROMPT_VERSION,
             self.model,
-            "refine-overview",
-            title,
-            "\n".join(topic_titles),
-            recap_source,
+            "refine-map-v1",
+            topic_list,
         )
-        overview = self._cached_chat(
-            overview_key,
+        map_section = self._cached_chat(
+            map_key,
             system,
-            _refine_overview_prompt(title, topic_titles, recap_source),
-            num_predict=1800,
+            _refine_map_prompt(topic_titles),
+            num_predict=650,
         ).strip()
+        global_recap = _build_global_recap(refined)
+        overview = map_section + "\n\n" + global_recap
 
         header = f"""# {title}
 > Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
