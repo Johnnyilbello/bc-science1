@@ -60,11 +60,24 @@ def test_finalize_file_creates_valid_pdf_docx_and_markdown(tmp_path: Path):
     source.write_text(
         """# Materia - Riassunto rifinito
 
-## Come studiare
-1. Leggi.
+## Indice degli argomenti
+- Capitolo
+
+---
 
 ## Capitolo
-Testo semplice.
+
+### In parole semplici
+Questo capitolo introduce un concetto di base.
+La spiegazione parte dall'idea principale e poi aggiunge i dettagli.
+
+### Parole chiave
+- **Concetto** — idea centrale descritta nel capitolo.
+- **Dettaglio** — informazione che completa l'idea principale.
+
+### Spiegazione
+Il testo usa frasi brevi e presenta una sola idea alla volta.
+Le informazioni sono organizzate in modo progressivo.
 
 ### Da ricordare per l'esame
 - Punto importante.
@@ -148,3 +161,33 @@ L'uomo ha circa 100 milioni di neuroni. Rapporto: 1 neurone : 9 glie.
     assert notes == 1
     assert note_pos > index_pos
     assert note_pos > chapter_pos
+
+
+def test_finalize_file_rejects_non_novice_ready_summary(tmp_path: Path):
+    source = tmp_path / "Materia-riassunto-rifinito.md"
+    source.write_text(
+        """# Materia - Riassunto rifinito
+
+## Indice degli argomenti
+- Capitolo
+
+---
+
+## Capitolo
+Testo tecnico senza introduzione o parole chiave.
+
+### Da ricordare per l'esame
+- Punto.
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        finalize_file(source, tmp_path / "final")
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("finalize_file doveva bloccare un riassunto non novice-ready")
+
+    assert "comprensibilita per principianti" in message
+    assert "bc-science refine" in message
