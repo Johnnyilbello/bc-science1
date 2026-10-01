@@ -77,8 +77,7 @@ def _paragraph_metrics(text: str) -> tuple[int, int]:
 
         for line in raw_lines:
             is_boundary = (
-                line.startswith("#")
-                or line.startswith(">")
+                line.startswith(("#", ">"))
                 or bool(re.match(r"^(?:[-*]|\d+[.)])\s+", line))
             )
             if is_boundary:
