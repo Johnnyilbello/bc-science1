@@ -719,6 +719,8 @@ def _load_refine_checkpoint(
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return []
 
+    if not isinstance(payload, dict):
+        return []
     if payload.get("schema") != 1 or payload.get("signature") != signature:
         return []
 
@@ -1077,16 +1079,20 @@ class Summarizer:
                 )
 
             # Never trust stale/corrupt checkpoint content just because the metadata matches.
-            for _saved_title, saved_chapter in refined:
-                saved_audit = novice_audit(saved_chapter)
-                if not saved_audit.passed:
-                    refined = []
-                    restored_count = 0
-                    if progress:
-                        progress("Checkpoint ignorato: contiene un capitolo non valido.")
-                    break
-                self.stats.novice_score_total += saved_audit.metrics.score
-                self.stats.novice_chapters += 1
+            restored_audits = [
+                novice_audit(saved_chapter)
+                for _saved_title, saved_chapter in refined
+            ]
+            if any(not audit.passed for audit in restored_audits):
+                refined = []
+                restored_count = 0
+                if progress:
+                    progress("Checkpoint ignorato: contiene un capitolo non valido.")
+            else:
+                self.stats.novice_score_total += sum(
+                    audit.metrics.score for audit in restored_audits
+                )
+                self.stats.novice_chapters += len(restored_audits)
 
         for index, (chapter_title, chapter) in enumerate(chapters, start=1):
             if index <= restored_count:
