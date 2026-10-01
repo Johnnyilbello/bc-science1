@@ -141,6 +141,7 @@ def courses_status(
     table.add_column("Stato")
     table.add_column("Documenti", justify="right")
     table.add_column("Indicizzati", justify="right")
+    table.add_column("Delta")
     table.add_column("Output")
 
     state_style = {
@@ -151,11 +152,17 @@ def courses_status(
     }
     for item in states:
         style = state_style.get(item.state, "white")
+        delta = (
+            f"+{item.new_files} ~{item.changed_files} -{item.removed_files}"
+            if item.new_files or item.changed_files or item.removed_files
+            else "—"
+        )
         table.add_row(
             item.scan.name,
             f"[{style}]{item.state}[/]",
             str(len(item.scan.supported_files)),
             str(item.indexed_documents),
+            delta,
             str(item.output_path) if item.output_path.exists() else "—",
         )
 
