@@ -27,6 +27,40 @@ L'installer:
 
 L'installer può essere rilanciato per aggiornare BC Science: conserva configurazione, indice e cache.
 
+## Multi-materia e workspace — 0.9
+
+BC Science può lavorare direttamente su una cartella radice che contiene una sottocartella per materia, senza creare ZIP separati.
+
+Esempio:
+
+    C:\\Studio\\SCIENZE MOTORIE\\
+      ANATOMIA\\
+      FISIOLOGIA UMANA E DELLO SPORT\\
+      FONDAMENTI DI BIOLOGIA E CHIMICA\\
+
+Scansione veloce, senza Ollama:
+
+    bc-science courses list "C:\\Studio\\SCIENZE MOTORIE"
+
+Stato dei workspace e differenze rispetto all'ultimo build:
+
+    bc-science courses status "C:\\Studio\\SCIENZE MOTORIE"
+
+La colonna Delta usa `+nuovi ~modificati -rimossi`.
+
+Generazione o aggiornamento delle sole materie necessarie:
+
+    bc-science courses build "C:\\Studio\\SCIENZE MOTORIE"
+
+Per ogni materia vengono creati:
+
+- un workspace separato in `%LOCALAPPDATA%\\BCScience\\workspaces\\courses\\...`;
+- un database dedicato per indice semantico e cache di generazione;
+- un manifest con hash dei documenti per rilevare modifiche;
+- un solo riassunto coerente in `outputs\\courses\\<materia>\\riassunto-unico.md`.
+
+File temporanei, nascosti, output precedenti e formati non supportati vengono esclusi dalla pipeline e conteggiati nel preflight. Se una materia non è cambiata e l'output esiste, il build la riutilizza senza richiamare Ollama. Se alcuni file sono cambiati, la materia viene aggiornata riutilizzando cache e indice dei documenti invariati.
+
 ## Primo utilizzo
 
 ### Riassumere un intero corso o ZIP in un unico file
@@ -257,7 +291,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.9**.
+Versione corrente: **0.9.0**.
 
 
 ### Ripasso globale rapido
@@ -278,7 +312,7 @@ Dalla 0.7.2 `finalize` sincronizza anche copertina, mappa, ripasso globale e ind
 La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 
 - 0.8: comprensibilità per principianti;
-- 0.9: multi-materia e workspace;
+- 0.9: multi-materia e workspace — implementato;
 - 0.10: audit di copertura e coerenza;
 - 0.11: modalità esame;
 - 0.12: aggiornamento incrementale;
