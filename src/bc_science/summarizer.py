@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .cache import CacheDB
+from .clarity import novice_audit
 from .config import AppConfig
 from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v6-validated-refine"
+PROMPT_VERSION = "summary-v8-novice-first"
 
 
 @dataclass(slots=True)
@@ -30,6 +31,9 @@ class SummaryStats:
     quality_repairs: int = 0
     source_warnings: int = 0
     structural_fixes: int = 0
+    novice_repairs: int = 0
+    novice_score_total: int = 0
+    novice_chapters: int = 0
 
 
 @dataclass(slots=True)
@@ -78,6 +82,7 @@ def _summary_system_prompt(domain: str) -> str:
         system_prompt(domain)
         + """
 MODALITA RIASSUNTO SOURCE-ONLY:
+- Il lettore target non ha mai studiato la materia: non dare per scontate conoscenze pregresse.
 - Le dispense fornite sono l'unica fonte ammessa.
 - NON aggiungere conoscenza generale, neppure in sezioni chiamate "Chiarimento".
 - NON correggere scientificamente le dispense usando conoscenze esterne.
@@ -86,6 +91,9 @@ MODALITA RIASSUNTO SOURCE-ONLY:
   nota "Verifica materiale" e riassumi comunque il contenuto realmente presente, senza chiedere
   conferma all'utente.
 - Non lasciare mai una frase, una lista o una parola incompleta.
+- Una frase deve esprimere preferibilmente una sola idea.
+- Definisci i termini tecnici necessari al primo uso usando solo informazioni presenti nelle fonti.
+- Spezza i contenuti complessi in paragrafi brevi e sottosezioni descrittive.
 """
     )
 
@@ -131,6 +139,8 @@ def _chunk_prompt(text: str, domain: str) -> str:
     return f"""Trasforma il seguente estratto di {domain} in appunti da esame eCampus.
 
 OBIETTIVO:
+- comprensibile anche a chi parte da zero e non ha mai studiato la materia;
+- prima spiega il significato generale, poi introduci i dettagli;
 - massima comprensibilita;
 - nessuna perdita di concetti potenzialmente valutabili;
 - elimina solo ripetizioni e frasi decorative;
@@ -139,6 +149,10 @@ OBIETTIVO:
 - usa soltanto cio che e supportato dalla fonte.
 
 FORMATO:
+### In parole semplici
+[spiega che cosa stiamo studiando, a cosa serve e quale idea bisogna capire per prima]
+### Parole chiave
+[3-8 termini realmente presenti nella fonte con definizione semplice supportata dalla fonte]
 ### Spiegazione semplice
 ### Concetti da ricordare
 ### Definizioni e termini
@@ -156,24 +170,30 @@ def _topic_prompt(title: str, source_text: str, domain: str) -> str:
 Devi fondere TUTTE le dispense riportate sotto in un solo testo coerente.
 
 PRIORITA ASSOLUTE:
-1. Semplice da capire anche alla prima lettura.
-2. Completo rispetto alle dispense: non eliminare fatti diversi solo per accorciare.
-3. Rimuovi duplicati tra lezioni 1/2/3/4 e ripetizioni dello stesso concetto.
-4. Mantieni terminologia, numeri, classificazioni, definizioni, eccezioni e sequenze.
-5. Spiega subito ogni termine tecnico difficile con parole semplici.
-6. Per processi fisiologici usa sequenze numerate causa -> effetto.
-7. Non aggiungere conoscenze esterne e non correggere silenziosamente le dispense.
-8. Non citare i nomi dei file nel corpo del capitolo.
-9. Non inventare "domande ufficiali eCampus".
-10. NON creare sezioni "Chiarimento" basate su conoscenza generale.
-11. Se titolo e contenuto non corrispondono, usa una breve nota "Verifica materiale" e poi
+1. Deve essere comprensibile a una persona che non ha MAI studiato la materia.
+2. Prima costruisci il quadro mentale di base, poi aggiungi dettagli e terminologia.
+3. Ogni termine tecnico indispensabile va spiegato al primo uso con parole comuni, usando solo la fonte.
+4. Completo rispetto alle dispense: non eliminare fatti diversi solo per accorciare.
+5. Rimuovi duplicati tra lezioni 1/2/3/4 e ripetizioni dello stesso concetto.
+6. Mantieni terminologia, numeri, classificazioni, definizioni, eccezioni e sequenze.
+7. Per processi fisiologici usa sequenze numerate causa -> effetto.
+8. Preferisci frasi brevi, una idea per frase e paragrafi di massimo 5 frasi quando possibile.
+9. Non aggiungere conoscenze esterne e non correggere silenziosamente le dispense.
+10. Non citare i nomi dei file nel corpo del capitolo.
+11. Non inventare "domande ufficiali eCampus".
+12. NON creare sezioni "Chiarimento" basate su conoscenza generale.
+13. Se titolo e contenuto non corrispondono, usa una breve nota "Verifica materiale" e poi
     riassumi il contenuto effettivamente presente: non chiedere conferma all'utente.
-12. Termina sempre il capitolo con una frase completa.
+14. Termina sempre il capitolo con una frase completa.
 
 STRUTTURA:
 ## {title}
-Apri con 2-4 frasi che fanno capire subito l'argomento.
-Poi usa sottosezioni solo quando servono, con paragrafi brevi e liste.
+### In parole semplici
+3-5 frasi che spiegano che cosa e l'argomento, perché conta nel corso e qual e l'idea di base.
+Niente termini tecnici non spiegati.
+### Parole chiave
+3-8 punti nel formato "**Termine** — spiegazione semplice", solo se la definizione e supportata dalle dispense.
+Poi usa sottosezioni descrittive, paragrafi brevi e liste. Introduci i dettagli in ordine progressivo.
 Chiudi con:
 ### Da ricordare per l'esame
 con i punti davvero essenziali, senza ripetere tutto il capitolo.
@@ -187,6 +207,10 @@ def _topic_merge_prompt(title: str, notes: str, domain: str) -> str:
     return f"""Fondi gli appunti parziali seguenti nel capitolo definitivo "{title}" ({domain}).
 
 REGOLE:
+- scrivi per una persona che parte da zero;
+- apri con "### In parole semplici" e poi "### Parole chiave";
+- definisci il lessico tecnico indispensabile usando soltanto gli appunti;
+- usa frasi preferibilmente brevi, una idea per frase e paragrafi brevi;
 - conserva ogni informazione distinta utile all'esame;
 - elimina solo duplicati;
 - correggi refusi evidenti di forma senza cambiare il significato;
@@ -440,6 +464,8 @@ Subito dopo il titolo inserisci:
     return f"""Riscrivi questo capitolo gia riassunto di BC Science.
 
 OBIETTIVO:
+- deve essere comprensibile anche a chi non ha mai studiato la materia;
+- costruisci prima il quadro mentale di base e poi i dettagli;
 - renderlo molto semplice da capire;
 - conservare TUTTE le informazioni distinte presenti;
 - eliminare ripetizioni e blocchi duplicati;
@@ -453,11 +479,60 @@ OBIETTIVO:
 {warning}
 VINCOLI STRUTTURALI:
 - esattamente UN heading H2: "## {title}", solo come prima riga;
+- subito dopo eventuale "Verifica materiale", inserisci "### In parole semplici";
+- inserisci poi "### Parole chiave" con 3-8 definizioni semplici supportate dal capitolo;
 - nessun altro heading H2 nel capitolo;
 - esattamente UNA sezione finale "### Da ricordare per l'esame";
 - dopo "Da ricordare per l'esame" usa punti brevi, senza riscrivere tutto il capitolo.
 
 CAPITOLO DA RIFINIRE:
+{chapter}
+"""
+
+
+def _novice_repair_prompt(
+    title: str,
+    chapter: str,
+    issues: list[str],
+    source_warning: bool,
+) -> str:
+    issue_text = "\n".join(f"- {item}" for item in issues)
+    warning = ""
+    if source_warning:
+        warning = (
+            "\nMantieni la nota 'Verifica materiale' gia presente e non inventare "
+            "il contenuto mancante.\n"
+        )
+    return f"""Riscrivi il capitolo seguente per un LETTORE PRINCIPIANTE ASSOLUTO.
+
+VINCOLO FONDAMENTALE:
+Il capitolo qui sotto e l'UNICA fonte. Non aggiungere fatti, esempi o spiegazioni
+che non siano ricavabili dal suo contenuto. Non correggere scientificamente la fonte.
+
+PROBLEMI DI COMPRENSIBILITA DA RISOLVERE:
+{issue_text}
+
+OBIETTIVI:
+- una persona che non ha mai studiato la materia deve capire il filo logico alla prima lettura;
+- ogni frase dovrebbe contenere una sola idea quando possibile;
+- usa parole comuni prima del termine tecnico;
+- quando serve un termine tecnico, definiscilo al primo uso;
+- spezza paragrafi lunghi in blocchi piu piccoli;
+- conserva TUTTE le informazioni distinte, i numeri, le definizioni, le eccezioni e le sequenze;
+- non semplificare eliminando contenuti utili all'esame;
+- non introdurre analogie o esempi non presenti nel capitolo.
+{warning}
+STRUTTURA OBBLIGATORIA:
+## {title}
+### In parole semplici
+3-5 frasi introduttive, senza conoscenze pregresse richieste.
+### Parole chiave
+3-8 termini gia presenti nel capitolo, spiegati in modo semplice con informazioni gia presenti.
+[resto del capitolo in ordine progressivo]
+### Da ricordare per l'esame
+[una sola sezione finale]
+
+CAPITOLO SORGENTE:
 {chapter}
 """
 
@@ -947,6 +1022,61 @@ class Summarizer:
                         + "; ".join(remaining)
                     )
 
+            clarity = novice_audit(polished)
+            if not clarity.passed:
+                self.stats.novice_repairs += 1
+                if progress:
+                    progress(
+                        f"    controllo principiante: rigenero {chapter_title} "
+                        f"({'; '.join(clarity.issues)})"
+                    )
+                novice_key = _key(
+                    PROMPT_VERSION,
+                    self.model,
+                    "novice-repair",
+                    chapter_title,
+                    str(source_warning),
+                    polished,
+                    "|".join(clarity.issues),
+                )
+                polished = self._cached_chat(
+                    novice_key,
+                    system,
+                    _novice_repair_prompt(
+                        chapter_title,
+                        polished,
+                        list(clarity.issues),
+                        source_warning,
+                    ),
+                    num_predict=3800,
+                )
+                polished, structure_changed = _normalize_refined_structure(
+                    polished,
+                    chapter_title,
+                )
+                if structure_changed:
+                    self.stats.structural_fixes += 1
+
+                remaining_structure = _chapter_quality_issues(
+                    polished,
+                    chapter_title,
+                    require_source_warning=source_warning,
+                )
+                if remaining_structure:
+                    raise ValueError(
+                        f"Il capitolo '{chapter_title}' perde la struttura durante "
+                        "la semplificazione: " + "; ".join(remaining_structure)
+                    )
+
+                clarity = novice_audit(polished)
+                if not clarity.passed:
+                    raise ValueError(
+                        f"Il capitolo '{chapter_title}' non e abbastanza comprensibile "
+                        "per un principiante: " + "; ".join(clarity.issues)
+                    )
+
+            self.stats.novice_score_total += clarity.metrics.score
+            self.stats.novice_chapters += 1
             refined.append((chapter_title, polished))
 
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
