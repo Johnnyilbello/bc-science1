@@ -341,22 +341,6 @@ def _chapter_quality_issues(
     if re.search(r"(?m)^.+[ \t]+#{3,6}\s+\S+", chapter):
         issues.append("contiene un heading Markdown incollato alla fine di una frase")
 
-    keyword_match = re.search(
-        r"(?mis)^###\s+Parole chiave\s*$\n(?P<body>.*?)(?=^###\s+|\Z)",
-        chapter,
-    )
-    if keyword_match:
-        keyword_count = sum(
-            1
-            for line in keyword_match.group("body").splitlines()
-            if re.match(r"^\s*(?:[-*]|\d+[.)])\s+", line)
-        )
-        if not 3 <= keyword_count <= 8:
-            issues.append(
-                "Parole chiave deve contenere da 3 a 8 voci "
-                f"(trovate {keyword_count})"
-            )
-
     forbidden_placeholders = (
         "[spiegazione ordinata e semplice]",
         "[un'unica sezione finale",
@@ -528,7 +512,7 @@ OBIETTIVO:
 VINCOLI STRUTTURALI:
 - esattamente UN heading H2: "## {title}", solo come prima riga;
 - subito dopo eventuale "Verifica materiale", inserisci "### In parole semplici";
-- inserisci poi "### Parole chiave" con 3-8 definizioni semplici supportate dal capitolo;
+- "### Parole chiave" e FACOLTATIVA: se aiuta davvero, usa poche definizioni semplici supportate dal capitolo; altrimenti omettila;
 - nessun altro heading H2 nel capitolo;
 - esattamente UNA sezione finale "### Da ricordare per l'esame";
 - dopo "Da ricordare per l'esame" usa punti brevi, senza riscrivere tutto il capitolo.
@@ -577,8 +561,8 @@ STRUTTURA OBBLIGATORIA:
 ## {title}
 ### In parole semplici
 3-5 frasi introduttive, senza conoscenze pregresse richieste.
-### Parole chiave
-3-8 termini gia presenti nel capitolo, spiegati in modo semplice con informazioni gia presenti.
+[FACOLTATIVO: ### Parole chiave
+solo se aiuta davvero la comprensione; usa termini gia presenti nel capitolo e spiegazioni supportate dalla fonte]
 [resto del capitolo in ordine progressivo]
 ### Da ricordare per l'esame
 [una sola sezione finale]
