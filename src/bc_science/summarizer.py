@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,6 +101,10 @@ def _clean_obvious_typos(text: str) -> str:
         "Potenzale": "Potenziale",
         "Nel polmoni": "Nei polmoni",
         "degli RNA ribosomiale": "dell'RNA ribosomiale",
+        "rilezione": "rilevazione",
+        "sinapsis": "sinapsi",
+        "**DOLE:**": "**DOLCE:**",
+        "non hanno detriti, assoni": "non hanno dendriti, assoni",
     }
     cleaned = text
     for wrong, right in replacements.items():
@@ -279,6 +284,14 @@ def _chapter_quality_issues(
     if exam_sections != 1:
         issues.append("deve contenere una sola sezione Da ricordare per l'esame")
 
+    h3_lines = [
+        heading.strip().casefold()
+        for heading in re.findall(r"(?m)^###\s+(.+?)\s*$", chapter)
+    ]
+    duplicate_h3 = [name for name, count in Counter(h3_lines).items() if count > 1]
+    if duplicate_h3:
+        issues.append("contiene sottosezioni H3 duplicate")
+
     if require_source_warning and "Verifica materiale" not in chapter:
         issues.append("manca la nota obbligatoria Verifica materiale")
 
@@ -338,14 +351,67 @@ def _normalize_refined_structure(chapter: str, title: str) -> tuple[str, bool]:
                 changed = True
             exam_indices.append(index)
 
-    # If the model repeated the recap section, keep the last one canonical and
-    # preserve previous recap content under a neutral subsection.
+    # If the model repeated the recap section, preserve earlier content as "Punti chiave".
     if len(exam_indices) > 1:
         for index in exam_indices[:-1]:
             cleaned[index] = "### Punti chiave"
         changed = True
 
-    return "\n".join(cleaned).strip(), changed
+    # Parse H3 sections so repeated section headings can be merged deterministically.
+    first_h3 = next(
+        (index for index, line in enumerate(cleaned) if line.startswith("### ")),
+        None,
+    )
+    if first_h3 is None:
+        return "\n".join(cleaned).strip(), changed
+
+    prefix = cleaned[:first_h3]
+    sections: list[tuple[str, list[str]]] = []
+    current_heading: str | None = None
+    current_body: list[str] = []
+
+    for line in cleaned[first_h3:]:
+        if line.startswith("### "):
+            if current_heading is not None:
+                sections.append((current_heading, current_body))
+            current_heading = line[4:].strip()
+            current_body = []
+        else:
+            current_body.append(line)
+    if current_heading is not None:
+        sections.append((current_heading, current_body))
+
+    merged_order: list[str] = []
+    merged_titles: dict[str, str] = {}
+    merged_bodies: dict[str, list[str]] = {}
+    for heading, body in sections:
+        key = heading.casefold()
+        if key not in merged_bodies:
+            merged_order.append(key)
+            merged_titles[key] = heading
+            merged_bodies[key] = list(body)
+        else:
+            if merged_bodies[key] and body:
+                merged_bodies[key].append("")
+            merged_bodies[key].extend(body)
+            changed = True
+
+    exam_key = "da ricordare per l'esame"
+    if exam_key in merged_order and merged_order[-1] != exam_key:
+        merged_order.remove(exam_key)
+        merged_order.append(exam_key)
+        changed = True
+
+    rebuilt = list(prefix)
+    for key in merged_order:
+        body_text = "\n".join(merged_bodies[key]).strip()
+        if body_text:
+            body_text = _dedupe_exact_blocks(body_text)
+        rebuilt.append(f"### {merged_titles[key]}")
+        if body_text:
+            rebuilt.extend(["", *body_text.splitlines()])
+
+    return "\n".join(rebuilt).strip(), changed
 
 
 def _extract_exam_recap(chapter: str, limit: int = 650) -> str:
