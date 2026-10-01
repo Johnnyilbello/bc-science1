@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-import fitz
+import pymupdf
 from docx import Document
 from docx.shared import Inches, Pt
 from reportlab.lib.enums import TA_CENTER
@@ -446,7 +446,7 @@ def export_pdf(markdown: str, destination: Path, title: str) -> int:
     flush_paragraph()
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
 
-    with fitz.open(destination) as pdf:
+    with pymupdf.open(destination) as pdf:
         if pdf.page_count <= 0:
             raise ValueError("Il PDF finale non contiene pagine.")
         return pdf.page_count
