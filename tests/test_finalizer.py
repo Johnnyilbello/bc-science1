@@ -127,7 +127,7 @@ def test_finalize_updates_frontmatter_and_places_notes_in_full_chapters():
 - Sistema nervoso: gusto/tatto/olfatto/udito/vista.
 
 ## Ripasso globale
-14. **olfatto**: controllo motorio e feedback.
+14. **olfatto (titolo da verificare)**: controllo motorio e feedback.
 
 ## Indice degli argomenti
 - GUSTO
@@ -158,6 +158,7 @@ L'uomo ha circa 100 milioni di neuroni. Rapporto: 1 neurone : 9 glie.
     label = 'Controllo nervoso del movimento (materiale etichettato "olfatto")'
     assert f"- {label}" in result
     assert f"**{label}**:" in result
+    assert "**olfatto (titolo da verificare)**:" not in result
     assert 'gusto/tatto/udito/vista + controllo nervoso del movimento (file "olfatto")' in result
     assert f"## {label}" in result
     assert fixes >= 5
