@@ -282,6 +282,11 @@ def refine(
         )
         console.print()
         console.print(f"[green]Riassunto rifinito creato:[/] {destination}")
+        novice_avg = (
+            summarizer.stats.novice_score_total / summarizer.stats.novice_chapters
+            if summarizer.stats.novice_chapters
+            else 0.0
+        )
         console.print(
             "[dim]"
             f"Tempo totale: {int(minutes)}m {seconds:.1f}s · "
@@ -291,6 +296,8 @@ def refine(
             f"media: {avg_tps:.1f} token/s · "
             f"retry anti-troncamento: {summarizer.stats.continuation_calls} · "
             f"riparazioni qualita: {summarizer.stats.quality_repairs} · "
+            f"riparazioni principiante: {summarizer.stats.novice_repairs} · "
+            f"chiarezza media: {novice_avg:.0f}/100 · "
             f"avvisi materiale: {summarizer.stats.source_warnings} · "
             f"fix struttura: {summarizer.stats.structural_fixes}"
             "[/]"
