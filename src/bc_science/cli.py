@@ -248,6 +248,7 @@ def refine(
         source.stem.removesuffix("-riassunto-unico") + "-riassunto-rifinito.md"
     )
     destination = destination.expanduser().resolve()
+    checkpoint_path = destination.with_name(destination.name + ".checkpoint.json")
 
     summarizer = Summarizer(config, profile)
     try:
@@ -266,9 +267,16 @@ def refine(
                 text,
                 title=title,
                 progress=show_progress,
+                checkpoint_path=checkpoint_path,
             )
         except ValueError as exc:
             console.print(f"[red]{exc}[/]")
+            if checkpoint_path.exists():
+                console.print(
+                    "[yellow]Checkpoint conservato:[/] "
+                    f"{checkpoint_path}\n"
+                    "Rilancia 'bc-science refine' per riprendere dai capitoli gia completati."
+                )
             raise typer.Exit(1) from exc
         elapsed = time.perf_counter() - started
 
