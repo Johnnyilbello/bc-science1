@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -703,6 +704,63 @@ CAPITOLI DISPONIBILI:
 """
 
 
+def _load_refine_checkpoint(
+    path: Path,
+    *,
+    signature: str,
+    expected_titles: list[str],
+) -> list[tuple[str, str]]:
+    """Restore the valid completed prefix from a refine checkpoint."""
+    if not path.exists():
+        return []
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+    if payload.get("schema") != 1 or payload.get("signature") != signature:
+        return []
+
+    completed = payload.get("completed")
+    if not isinstance(completed, list):
+        return []
+
+    restored: list[tuple[str, str]] = []
+    for expected_title, item in zip(expected_titles, completed, strict=False):
+        if not isinstance(item, dict) or item.get("title") != expected_title:
+            break
+        chapter = item.get("chapter")
+        if not isinstance(chapter, str) or not chapter.strip():
+            break
+        restored.append((expected_title, chapter))
+    return restored
+
+
+def _save_refine_checkpoint(
+    path: Path,
+    *,
+    signature: str,
+    completed: list[tuple[str, str]],
+) -> None:
+    """Atomically persist completed refine chapters so a later run can resume."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": 1,
+        "signature": signature,
+        "completed": [
+            {"title": chapter_title, "chapter": chapter}
+            for chapter_title, chapter in completed
+        ],
+    }
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
 class Summarizer:
     def __init__(self, config: AppConfig, profile: str | None = None) -> None:
         self.config = config
@@ -984,6 +1042,7 @@ class Summarizer:
         title: str,
         *,
         progress: Callable[[str], None] | None = None,
+        checkpoint_path: Path | None = None,
     ) -> str:
         chapters = _extract_summary_chapters(text)
         if not chapters:
@@ -991,10 +1050,52 @@ class Summarizer:
                 "Il file non contiene un indice BC Science valido con capitoli rifinibili."
             )
 
-        refined: list[tuple[str, str]] = []
         system = _summary_system_prompt("Scienze Motorie")
+        checkpoint_signature = _key(
+            "refine-checkpoint-v1",
+            REFINE_PROMPT_VERSION,
+            self.model,
+            title,
+            text,
+        )
+        expected_titles = [chapter_title for chapter_title, _chapter in chapters]
+        refined: list[tuple[str, str]] = []
+        restored_count = 0
+
+        if checkpoint_path is not None:
+            checkpoint_path = checkpoint_path.expanduser().resolve()
+            refined = _load_refine_checkpoint(
+                checkpoint_path,
+                signature=checkpoint_signature,
+                expected_titles=expected_titles,
+            )
+            restored_count = len(refined)
+            if restored_count and progress:
+                progress(
+                    f"Checkpoint trovato: riprendo da {restored_count}/{len(chapters)} "
+                    "capitoli gia completati."
+                )
+
+            # Never trust stale/corrupt checkpoint content just because the metadata matches.
+            for _saved_title, saved_chapter in refined:
+                saved_audit = novice_audit(saved_chapter)
+                if not saved_audit.passed:
+                    refined = []
+                    restored_count = 0
+                    if progress:
+                        progress("Checkpoint ignorato: contiene un capitolo non valido.")
+                    break
+                self.stats.novice_score_total += saved_audit.metrics.score
+                self.stats.novice_chapters += 1
 
         for index, (chapter_title, chapter) in enumerate(chapters, start=1):
+            if index <= restored_count:
+                if progress:
+                    progress(
+                        f"[{index}/{len(chapters)}] Gia rifinito {chapter_title} (checkpoint)"
+                    )
+                continue
+
             if progress:
                 progress(f"[{index}/{len(chapters)}] Rifinisco {chapter_title}")
 
@@ -1183,6 +1284,13 @@ class Summarizer:
             self.stats.novice_chapters += 1
             refined.append((chapter_title, polished))
 
+            if checkpoint_path is not None:
+                _save_refine_checkpoint(
+                    checkpoint_path,
+                    signature=checkpoint_signature,
+                    completed=refined,
+                )
+
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
         map_topics = [
             (
@@ -1222,7 +1330,7 @@ class Summarizer:
 
         toc = ["## Indice degli argomenti", *[f"- {item}" for item in topic_titles]]
         separator = "\n\n---\n\n"
-        return (
+        result = (
             header
             + "\n"
             + overview
@@ -1232,6 +1340,9 @@ class Summarizer:
             + separator.join(chapter for _title, chapter in refined)
             + "\n"
         )
+        if checkpoint_path is not None:
+            checkpoint_path.unlink(missing_ok=True)
+        return result
 
     def summarize_file(self, path: Path) -> str:
         extracted = extract_document(path)
