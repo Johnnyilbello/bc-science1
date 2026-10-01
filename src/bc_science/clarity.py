@@ -282,7 +282,7 @@ def novice_audit(text: str) -> NoviceAudit:
             f"(trovate {keyword_count})"
         )
 
-    if re.search(r"(?m)^.+\s+###\s+\S+", text):
+    if re.search(r"(?m)^.+[ \t]+###\s+\S+", text):
         issues.append("contiene un heading Markdown incollato alla fine di una frase")
 
     if metrics.average_sentence_words > 28:
@@ -349,7 +349,7 @@ def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]
         for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
     ]
     recap_match = re.search(
-        r"(?ms)^## Ripasso globale\s*$\n(?P<body>.*?)(?=^##\s+Indice degli argomenti\s*$)",
+        r"(?ms)^## Ripasso globale\s*$\n(?P<body>.*?)(?=^##\s+|\Z)",
         frontmatter,
     )
     if recap_match:
