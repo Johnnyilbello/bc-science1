@@ -253,7 +253,6 @@ def _finalize_frontmatter(text: str) -> tuple[str, int]:
 
     replacements = (
         (f"- {old_label}\n", f"- {new_label}\n"),
-        (f"**{old_label}**:", f"**{new_label}**:"),
         (
             "gusto/tatto/olfatto/udito/vista",
             'gusto/tatto/udito/vista + controllo nervoso del movimento (file "olfatto")',
@@ -263,6 +262,17 @@ def _finalize_frontmatter(text: str) -> tuple[str, int]:
         if old in text:
             text = text.replace(old, new, 1)
             changed += 1
+
+    recap_pattern = re.compile(
+        r"(?m)^(?P<prefix>\d+\.\s+)\*\*olfatto(?:\s*\(titolo da verificare\))?\*\*:"
+    )
+    if recap_pattern.search(text):
+        text = recap_pattern.sub(
+            lambda match: f"{match.group('prefix')}**{new_label}**:",
+            text,
+            count=1,
+        )
+        changed += 1
 
     return text, changed
 
