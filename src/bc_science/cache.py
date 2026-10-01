@@ -98,6 +98,24 @@ class CacheDB:
                 rows,
             )
 
+    def prune_documents(self, allowed_source_paths: set[str]) -> int:
+        """Remove indexed documents and chunks no longer present in a workspace."""
+        rows = self.conn.execute("SELECT source_path FROM documents").fetchall()
+        stale = [source for (source,) in rows if source not in allowed_source_paths]
+        if not stale:
+            return 0
+
+        with self.conn:
+            self.conn.executemany(
+                "DELETE FROM chunks WHERE source_path = ?",
+                [(source,) for source in stale],
+            )
+            self.conn.executemany(
+                "DELETE FROM documents WHERE source_path = ?",
+                [(source,) for source in stale],
+            )
+        return len(stale)
+
     def search(self, query_vector: list[float], limit: int = 6) -> list[dict]:
         q = np.asarray(query_vector, dtype=np.float32)
         q_norm = np.linalg.norm(q)
