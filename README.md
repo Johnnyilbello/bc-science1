@@ -91,7 +91,7 @@ Per misurare il risultato:
 Il comando mostra per ciascun capitolo score 0-100, parole medie per frase,
 densità massima del paragrafo e gli eventuali motivi di FAIL.
 
-bc-science refine corregge autonomamente i capitoli che non superano il controllo principiante. Prima spezza deterministicamente i paragrafi troppo densi senza cambiare le frasi; se restano problemi di comprensione, esegue fino a quattro autocorrezioni mirate del solo capitolo e rivalida dopo ogni tentativo. Dalla 0.8.7 `Parole chiave` e davvero facoltativa e non abbassa il punteggio di chiarezza quando manca. La 0.8.8 sincronizza anche il Ripasso globale quando `finalize` rinomina un capitolo etichettato erroneamente, incluso il caso reale `olfatto (titolo da verificare)`. Inoltre `refine` salva un checkpoint dopo ogni capitolo completato: se un capitolo fallisce il gate o il processo viene interrotto, basta rilanciare lo stesso comando per riprendere dai capitoli gia validati. Il checkpoint viene rimosso automaticamente quando la rifinitura termina con successo. bc-science finalize rifiuta di generare il PDF
+bc-science refine corregge autonomamente i capitoli che non superano il controllo principiante. Prima spezza deterministicamente i paragrafi troppo densi senza cambiare le frasi; se restano problemi di comprensione, esegue fino a quattro autocorrezioni mirate del solo capitolo e rivalida dopo ogni tentativo. Dalla 0.8.7 `Parole chiave` e davvero facoltativa e non abbassa il punteggio di chiarezza quando manca. La 0.8.8 sincronizza anche il Ripasso globale quando `finalize` rinomina un capitolo etichettato erroneamente, incluso il caso reale `olfatto (titolo da verificare)`. La 0.8.9 aggiunge un proofreading finale deterministico per refusi e accordi ad alta confidenza e sincronizza titoli editoriali supportati dal contenuto, come `GUSTO E OLFATTO`, senza usare il modello e senza modificare silenziosamente fatti scientifici. Inoltre `refine` salva un checkpoint dopo ogni capitolo completato: se un capitolo fallisce il gate o il processo viene interrotto, basta rilanciare lo stesso comando per riprendere dai capitoli gia validati. Il checkpoint viene rimosso automaticamente quando la rifinitura termina con successo. bc-science finalize rifiuta di generare il PDF
 se anche un capitolo non supera il gate.
 
 Lo score è un controllo operativo, non una prova matematica di comprensione: BC Science
@@ -115,9 +115,10 @@ Il comando seleziona automaticamente l'ultimo \`*-riassunto-rifinito.md\` e crea
 1. conserva il testo eCampus;
 2. mantiene separati gli avvisi \`Verifica materiale\`;
 3. corregge solo l'organizzazione di mismatch già identificati, senza inventare contenuti;
-4. aggiunge note scientifiche separate soltanto quando una regola verificata riconosce esattamente una formulazione problematica;
-5. include la fonte NCBI/PubMed nella nota;
-6. impagina il risultato in A4 e genera PDF/DOCX localmente.
+4. applica un proofreading deterministico limitato a refusi, accordi grammaticali e titoli editoriali ad alta confidenza;
+5. aggiunge note scientifiche separate soltanto quando una regola verificata riconosce esattamente una formulazione problematica;
+6. include la fonte NCBI/PubMed nella nota;
+7. impagina il risultato in A4 e genera PDF/DOCX localmente.
 
 Per Fisiologia il pacchetto 0.7 include note curate su ritorno venoso sistemico, gradiente del
 trasporto passivo, organuli cellulari, parotidi, numero di neuroni/glia, lattato/fatica ed
@@ -256,7 +257,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.8**.
+Versione corrente: **0.8.9**.
 
 
 ### Ripasso globale rapido
