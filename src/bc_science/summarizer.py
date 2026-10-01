@@ -224,7 +224,11 @@ REGOLE:
 
 FORMATO:
 ## {title}
-[testo organizzato e semplice]
+### In parole semplici
+[quadro mentale di base per chi parte da zero]
+### Parole chiave
+[3-8 termini con definizione semplice supportata dagli appunti]
+[testo organizzato in ordine progressivo, con paragrafi brevi]
 ### Da ricordare per l'esame
 [5-12 punti, in base alla quantita di contenuto]
 
@@ -475,6 +479,7 @@ OBIETTIVO:
 - NON correggere scientificamente il contenuto usando conoscenza esterna;
 - non ripetere il titolo dentro il capitolo;
 - non ripetere piu volte "Da ricordare per l'esame";
+- preferisci una idea per frase e paragrafi di massimo 5 frasi quando possibile;
 - termina con una frase completa.
 {warning}
 VINCOLI STRUTTURALI:
