@@ -467,7 +467,7 @@ def finalize(
         "[dim]"
         f"Tempo: {elapsed:.1f}s · "
         f"note scientifiche: {result.scientific_notes} · "
-        f"fix organizzativi: {result.organization_fixes}"
+        f"fix editoriali/organizzativi: {result.organization_fixes}"
         "[/]"
     )
     console.print(
