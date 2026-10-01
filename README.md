@@ -91,7 +91,7 @@ Per misurare il risultato:
 Il comando mostra per ciascun capitolo score 0-100, parole medie per frase,
 densità massima del paragrafo e gli eventuali motivi di FAIL.
 
-bc-science refine corregge autonomamente i capitoli che non superano il controllo principiante. Prima spezza deterministicamente i paragrafi troppo densi senza cambiare le frasi; se restano problemi di comprensione, esegue fino a quattro autocorrezioni mirate del solo capitolo e rivalida dopo ogni tentativo. Dalla 0.8.7 `Parole chiave` e davvero facoltativa e non abbassa il punteggio di chiarezza quando manca. Inoltre `refine` salva un checkpoint dopo ogni capitolo completato: se un capitolo fallisce il gate o il processo viene interrotto, basta rilanciare lo stesso comando per riprendere dai capitoli gia validati. Il checkpoint viene rimosso automaticamente quando la rifinitura termina con successo. bc-science finalize rifiuta di generare il PDF
+bc-science refine corregge autonomamente i capitoli che non superano il controllo principiante. Prima spezza deterministicamente i paragrafi troppo densi senza cambiare le frasi; se restano problemi di comprensione, esegue fino a quattro autocorrezioni mirate del solo capitolo e rivalida dopo ogni tentativo. Dalla 0.8.7 `Parole chiave` e davvero facoltativa e non abbassa il punteggio di chiarezza quando manca. La 0.8.8 sincronizza anche il Ripasso globale quando `finalize` rinomina un capitolo etichettato erroneamente, incluso il caso reale `olfatto (titolo da verificare)`. Inoltre `refine` salva un checkpoint dopo ogni capitolo completato: se un capitolo fallisce il gate o il processo viene interrotto, basta rilanciare lo stesso comando per riprendere dai capitoli gia validati. Il checkpoint viene rimosso automaticamente quando la rifinitura termina con successo. bc-science finalize rifiuta di generare il PDF
 se anche un capitolo non supera il gate.
 
 Lo score è un controllo operativo, non una prova matematica di comprensione: BC Science
@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.7**.
+Versione corrente: **0.8.8**.
 
 
 ### Ripasso globale rapido
