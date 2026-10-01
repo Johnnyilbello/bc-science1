@@ -79,7 +79,7 @@ BC Science considera il lettore target una persona che **non ha mai studiato la 
 Dalla 0.8 ogni capitolo rifinito deve includere:
 
 - In parole semplici: quadro mentale di base prima dei dettagli;
-- Parole chiave: 3-8 termini tecnici spiegati usando solo informazioni già presenti;
+- Parole chiave: facoltative; possono essere usate quando aiutano davvero, ma non sono un requisito per superare il controllo;
 - progressione dal concetto generale ai meccanismi e ai dettagli;
 - frasi e paragrafi abbastanza brevi da non sovraccaricare la lettura;
 - una sola sezione finale Da ricordare per l'esame.
@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.4**.
+Versione corrente: **0.8.5**.
 
 
 ### Ripasso globale rapido
@@ -295,7 +295,7 @@ Le liste continuano comunque a contribuire alle metriche globali di lunghezza de
 
 Il gate di chiarezza controlla anche l'integrità editoriale del documento:
 - nessun placeholder `rivedi il capitolo` nel Ripasso globale;
-- `Parole chiave` limitate a 3-8 voci per capitolo;
+- `Parole chiave` facoltative e mai usate come blocco rigido della pipeline;
 - heading Markdown sempre su una riga propria;
 - `In parole semplici` come prima sottosezione e `Da ricordare per l'esame` come ultima;
 - `Verifica materiale` ammessa solo per mismatch titolo/contenuto e mai come certificazione scientifica;
@@ -314,3 +314,18 @@ non conforme, `refine` esegue fino a tre autocorrezioni qualità mirate prima di
 Il `Ripasso globale` limita inoltre la lunghezza di ogni richiamo: anche quando
 `Da ricordare per l'esame` è scritto come un lungo paragrafo invece che come elenco,
 il front matter non può più essere invaso da centinaia di parole per un singolo capitolo.
+
+
+### Chiarezza 0.8.5
+
+La sezione `Parole chiave` non è più obbligatoria e il numero di termini non è più un
+quality gate. Il controllo valuta invece ciò che conta davvero per un principiante:
+introduzione semplice, ordine logico, lunghezza delle frasi, densità dei paragrafi,
+integrità Markdown e completezza strutturale.
+
+Questo evita rigenerazioni inutili come un capitolo valido che produce 9 parole chiave
+invece di 8.
+
+La roadmap 0.9 introduce inoltre la modalità multi-materia da cartella radice:
+`bc-science courses build "C:\Studio\SCIENZE MOTORIE"` dovrà rilevare automaticamente
+le sottocartelle-materia e produrre un riassunto unico per ciascuna senza richiedere ZIP/RAR.
