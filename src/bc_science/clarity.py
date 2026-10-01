@@ -82,6 +82,58 @@ def _paragraph_metrics(text: str) -> tuple[int, int]:
     return max_words, max_sentences
 
 
+def normalize_novice_layout(
+    text: str,
+    *,
+    max_sentences_per_paragraph: int = 5,
+) -> tuple[str, int]:
+    """Split dense prose paragraphs without changing sentence wording or order."""
+    blocks = re.split(r"(\n\s*\n)", text)
+    rebuilt: list[str] = []
+    fixes = 0
+
+    for block in blocks:
+        if re.fullmatch(r"\n\s*\n", block):
+            rebuilt.append(block)
+            continue
+
+        stripped = block.strip()
+        if not stripped:
+            rebuilt.append(block)
+            continue
+
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if (
+            any(line.startswith("#") for line in lines)
+            or any(line.startswith(">") for line in lines)
+            or all(re.match(r"^(?:[-*]|\d+[.)])\s+", line) for line in lines)
+        ):
+            rebuilt.append(block)
+            continue
+
+        plain = " ".join(lines)
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(
+                r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])",
+                plain,
+            )
+            if sentence.strip()
+        ]
+        if len(sentences) <= max_sentences_per_paragraph:
+            rebuilt.append(block)
+            continue
+
+        chunks = [
+            " ".join(sentences[start:start + max_sentences_per_paragraph])
+            for start in range(0, len(sentences), max_sentences_per_paragraph)
+        ]
+        rebuilt.append("\n\n".join(chunks))
+        fixes += len(chunks) - 1
+
+    return "".join(rebuilt), fixes
+
+
 def readability_metrics(text: str) -> ReadabilityMetrics:
     counts = _sentence_word_counts(text)
     sentence_count = len(counts)
