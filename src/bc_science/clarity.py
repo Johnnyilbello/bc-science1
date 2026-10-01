@@ -102,16 +102,37 @@ def normalize_novice_layout(
             rebuilt.append(block)
             continue
 
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        original_lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+        if not original_lines:
+            rebuilt.append(block)
+            continue
+
+        prefix_lines: list[str] = []
+        body_lines = list(original_lines)
+
+        # A common Markdown form is:
+        # ### Heading
+        # prose...
+        # The heading must be preserved, while the prose below still needs density checks.
+        while body_lines and body_lines[0].lstrip().startswith("#"):
+            prefix_lines.append(body_lines.pop(0))
+
+        if not body_lines:
+            rebuilt.append(block)
+            continue
+
+        stripped_body = [line.strip() for line in body_lines]
         if (
-            any(line.startswith("#") for line in lines)
-            or any(line.startswith(">") for line in lines)
-            or all(re.match(r"^(?:[-*]|\d+[.)])\s+", line) for line in lines)
+            any(line.startswith(">") for line in stripped_body)
+            or all(
+                re.match(r"^(?:[-*]|\d+[.)])\s+", line)
+                for line in stripped_body
+            )
         ):
             rebuilt.append(block)
             continue
 
-        plain = " ".join(lines)
+        plain = " ".join(stripped_body)
         sentences = [
             sentence.strip()
             for sentence in re.split(
@@ -128,7 +149,11 @@ def normalize_novice_layout(
             " ".join(sentences[start:start + max_sentences_per_paragraph])
             for start in range(0, len(sentences), max_sentences_per_paragraph)
         ]
-        rebuilt.append("\n\n".join(chunks))
+        body = "\n\n".join(chunks)
+        if prefix_lines:
+            rebuilt.append("\n".join(prefix_lines) + "\n" + body)
+        else:
+            rebuilt.append(body)
         fixes += len(chunks) - 1
 
     return "".join(rebuilt), fixes
