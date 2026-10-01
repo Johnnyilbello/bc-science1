@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .cache import CacheDB
+from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
 from .documents import iter_source_files
 from .finalizer import finalize_file
@@ -308,6 +309,74 @@ def refine(
         )
     finally:
         summarizer.close()
+
+
+@app.command()
+def clarity(
+    source: Annotated[
+        Path | None,
+        typer.Option(
+            "--input",
+            "-i",
+            help="Riassunto rifinito da controllare; se omesso usa l'ultimo disponibile",
+        ),
+    ] = None,
+) -> None:
+    """Misura quanto il riassunto e comprensibile per un principiante assoluto."""
+    outputs = app_home() / "outputs"
+    if source is None:
+        candidates = sorted(
+            outputs.glob("*-riassunto-rifinito.md"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            console.print(
+                "[red]Nessun riassunto rifinito trovato.[/] "
+                "Esegui prima 'bc-science refine'."
+            )
+            raise typer.Exit(1)
+        source = candidates[0]
+
+    source = source.expanduser().resolve()
+    if not source.exists() or source.suffix.lower() != ".md":
+        console.print(f"[red]Riassunto non valido:[/] {source}")
+        raise typer.Exit(1)
+
+    passed, results = audit_novice_document(source.read_text(encoding="utf-8"))
+
+    table = Table(title=f"BC Science - Chiarezza principiante · {source.name}")
+    table.add_column("Capitolo")
+    table.add_column("Score", justify="right")
+    table.add_column("Parole/frase", justify="right")
+    table.add_column("Paragrafo max", justify="right")
+    table.add_column("Stato")
+
+    total = 0
+    for title, audit in results:
+        metrics = audit.metrics
+        total += metrics.score
+        status = "[green]PASS[/]" if audit.passed else "[red]FAIL[/]"
+        if audit.issues:
+            status += " · " + "; ".join(audit.issues)
+        table.add_row(
+            title,
+            f"{metrics.score}/100",
+            f"{metrics.average_sentence_words:.1f}",
+            str(metrics.max_paragraph_words),
+            status,
+        )
+
+    console.print(table)
+    average = total / len(results) if results else 0.0
+    console.print(
+        f"[{'green' if passed else 'red'}]"
+        f"{'PASS' if passed else 'FAIL'}[/] · "
+        f"chiarezza media {average:.0f}/100 · "
+        f"{sum(1 for _title, audit in results if audit.passed)}/{len(results)} capitoli conformi"
+    )
+    if not passed:
+        raise typer.Exit(1)
 
 
 @app.command()
