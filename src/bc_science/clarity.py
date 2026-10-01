@@ -63,22 +63,51 @@ def _sentence_word_counts(text: str) -> list[int]:
 
 
 def _paragraph_metrics(text: str) -> tuple[int, int]:
+    """Measure prose paragraphs only; headings and lists are separate reading chunks."""
     max_words = 0
     max_sentences = 0
+
     for block in re.split(r"\n\s*\n", text):
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        if all(line.startswith("#") for line in lines):
-            continue
-        if all(re.match(r"^(?:[-*]|\d+[.)])\s+", line) for line in lines):
+        raw_lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not raw_lines:
             continue
 
-        plain = _strip_markdown(" ".join(lines))
-        words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", plain, flags=re.UNICODE)
-        sentence_count = len(_sentence_word_counts(plain))
-        max_words = max(max_words, len(words))
-        max_sentences = max(max_sentences, sentence_count)
+        prose_groups: list[list[str]] = []
+        current: list[str] = []
+
+        def flush() -> None:
+            nonlocal current
+            if current:
+                prose_groups.append(current)
+                current = []
+
+        for line in raw_lines:
+            if line.startswith("#"):
+                flush()
+                continue
+
+            if line.startswith(">"):
+                flush()
+                continue
+
+            if re.match(r"^(?:[-*]|\d+[.)])\s+", line):
+                # A list item is already a separate visual chunk. Its sentence length is
+                # still measured globally by _sentence_word_counts(), but it must not
+                # inflate "sentences per paragraph" by being joined to adjacent bullets.
+                flush()
+                continue
+
+            current.append(line)
+
+        flush()
+
+        for group in prose_groups:
+            plain = _strip_markdown(" ".join(group))
+            words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", plain, flags=re.UNICODE)
+            sentence_count = len(_sentence_word_counts(plain))
+            max_words = max(max_words, len(words))
+            max_sentences = max(max_sentences, sentence_count)
+
     return max_words, max_sentences
 
 
