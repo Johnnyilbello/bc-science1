@@ -229,7 +229,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.7.1**.
+Versione corrente: **0.7.2**.
 
 
 ### Ripasso globale rapido
@@ -238,3 +238,8 @@ Dalla 0.6.3 il `Ripasso globale` non richiede più una lunga generazione AI. Vie
 deterministicamente dai veri blocchi `Da ricordare per l'esame` dei capitoli, con un richiamo
 ad alta resa per ciascun argomento. La sola `Mappa della materia` resta generata dal modello,
 con un budget breve e una cache stabile basata esclusivamente sui titoli.
+
+
+### Finalizzazione coerente
+
+Dalla 0.7.2 `finalize` sincronizza anche copertina, mappa, ripasso globale e indice con i fix organizzativi applicati ai capitoli. Le note scientifiche vengono inserite nei capitoli completi pertinenti, non nel front-matter sintetico.
