@@ -27,3 +27,20 @@ def test_vector_search_returns_most_similar(tmp_path: Path):
         assert hits[0]["text"] == "cuore"
     finally:
         db.close()
+
+
+
+def test_prune_documents_removes_stale_workspace_entries(tmp_path: Path):
+    db = CacheDB(tmp_path / "cache.db")
+    try:
+        db.replace_document("a.txt", "hash-a", "A", ["uno"], [[1.0, 0.0]])
+        db.replace_document("b.txt", "hash-b", "B", ["due"], [[0.0, 1.0]])
+
+        removed = db.prune_documents({"a.txt"})
+
+        assert removed == 1
+        assert db.stats()["documents"] == 1
+        assert db.document_hash("a.txt") == "hash-a"
+        assert db.document_hash("b.txt") is None
+    finally:
+        db.close()
