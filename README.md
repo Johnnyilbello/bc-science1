@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.1**.
+Versione corrente: **0.8.2**.
 
 
 ### Ripasso globale rapido
@@ -282,3 +282,10 @@ La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 - 0.11: modalità esame;
 - 0.12: aggiornamento incrementale;
 - 1.0: comando one-shot bc-science build.
+
+
+### Chiarezza 0.8.2
+
+Il gate di chiarezza distingue ora correttamente prosa, heading, note e liste Markdown.
+Una lista di 7 elementi non viene più interpretata come un singolo paragrafo di 7 frasi.
+Le liste continuano comunque a contribuire alle metriche globali di lunghezza delle frasi.
