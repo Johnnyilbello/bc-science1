@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.5**.
+Versione corrente: **0.8.6**.
 
 
 ### Ripasso globale rapido
@@ -329,3 +329,18 @@ invece di 8.
 La roadmap 0.9 introduce inoltre la modalità multi-materia da cartella radice:
 `bc-science courses build "C:\Studio\SCIENZE MOTORIE"` dovrà rilevare automaticamente
 le sottocartelle-materia e produrre un riassunto unico per ciascuna senza richiedere ZIP/RAR.
+
+
+### Normalizzazione deterministica 0.8.6
+
+Il gate principiante e il normalizzatore condividono ora gli stessi confini strutturali.
+Prima di richiamare il modello, BC Science:
+
+- stacca automaticamente gli heading Markdown rimasti alla fine di una frase;
+- tratta heading, liste e blockquote come confini separati;
+- spezza soltanto i blocchi di prosa realmente troppo densi;
+- conserva ordine e contenuto delle frasi;
+- evita loop di quattro riscritture quando il difetto è soltanto di layout.
+
+Questo corregge il caso reale in cui un capitolo continuava a segnalare contemporaneamente
+un heading inline e un paragrafo da 7 frasi nonostante le autocorrezioni AI.
