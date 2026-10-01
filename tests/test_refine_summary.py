@@ -1,8 +1,8 @@
 from bc_science.summarizer import (
+    _build_global_recap,
     _chapter_quality_issues,
     _chapter_title_supported,
     _dedupe_exact_blocks,
-    _build_global_recap,
     _extract_exam_points,
     _extract_exam_recap,
     _extract_summary_chapters,
