@@ -71,6 +71,41 @@ Per scegliere manualmente un file:
 
 La rifinitura e piu rapida di una nuova analisi dei PDF. La 0.6.3 normalizza prima la struttura Markdown e poi valida ogni capitolo: rimuove o declassa heading H2 duplicati e fonde deterministicamente più sezioni `Da ricordare per l'esame` senza perdere il testo. Poi rifiuta placeholder, recap mancanti e finali sospettamente tronchi. Solo se resta un problema sostanziale rigenera quel singolo capitolo. Inoltre il Ripasso globale viene costruito dai veri `Da ricordare` dei capitoli invece che dai soli titoli, e i mismatch fra titolo e contenuto vengono marcati come `Verifica materiale`. Non puo pero recuperare informazioni che il riassunto sorgente aveva omesso: per la massima copertura resta disponibile `summarize ... --single`.
 
+### Creare la dispensa finale
+
+Dopo \`refine\`, BC Science può completare autonomamente il lavoro:
+
+    bc-science finalize
+
+Il comando seleziona automaticamente l'ultimo \`*-riassunto-rifinito.md\` e crea:
+
+    %LOCALAPPDATA%\BCScience\outputs\final\<corso>-dispensa-finale.md
+    %LOCALAPPDATA%\BCScience\outputs\final\<corso>-dispensa-finale.docx
+    %LOCALAPPDATA%\BCScience\outputs\final\<corso>-dispensa-finale.pdf
+
+\`finalize\` non rilegge i PDF e non usa il modello per riscrivere il corso. È una fase deterministica:
+
+1. conserva il testo eCampus;
+2. mantiene separati gli avvisi \`Verifica materiale\`;
+3. corregge solo l'organizzazione di mismatch già identificati, senza inventare contenuti;
+4. aggiunge note scientifiche separate soltanto quando una regola verificata riconosce esattamente una formulazione problematica;
+5. include la fonte NCBI/PubMed nella nota;
+6. impagina il risultato in A4 e genera PDF/DOCX localmente.
+
+Per Fisiologia il pacchetto 0.7 include note curate su ritorno venoso sistemico, gradiente del
+trasporto passivo, organuli cellulari, parotidi, numero di neuroni/glia, lattato/fatica ed
+emoglobina. Le frasi eCampus originali restano visibili: la nota non le sostituisce
+silenziosamente.
+
+Opzioni utili:
+
+    bc-science finalize --no-docx
+    bc-science finalize --no-pdf
+    bc-science finalize --input "C:\Studio\riassunto-rifinito.md"
+    bc-science finalize --output-dir "C:\Studio\Finale"
+
+La generazione PDF usa ReportLab open-source e non richiede Microsoft Word o LibreOffice.
+
 ### Indicizzare i materiali
 
     bc-science ingest "C:\Studio\FISIOLOGIA UMANA E DELLO SPORT.zip"
@@ -194,7 +229,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.6.3**.
+Versione corrente: **0.7.0**.
 
 
 ### Ripasso globale rapido
