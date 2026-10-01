@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .cache import CacheDB
-from .clarity import normalize_novice_layout, novice_audit
+from .clarity import normalize_inline_headings, normalize_novice_layout, novice_audit
 from .config import AppConfig
 from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
@@ -368,13 +368,8 @@ def _chapter_quality_issues(
 def _normalize_refined_structure(chapter: str, title: str) -> tuple[str, bool]:
     """Repair Markdown-only structure without changing the chapter's factual content."""
     normalized = _normalize_chapter_heading(chapter, title)
-    separated = re.sub(
-        r"[ \t]+(?=#{3,6}\s+\S)",
-        "\n\n",
-        normalized,
-    )
-    changed = separated != normalized
-    normalized = separated
+    normalized, heading_fixes = normalize_inline_headings(normalized)
+    changed = heading_fixes > 0
     lines = normalized.splitlines()
 
     # Only the first line may be an H2. Preserve any later section title by demoting it.
