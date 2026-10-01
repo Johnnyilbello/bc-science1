@@ -17,6 +17,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer
 
+from .clarity import audit_novice_document
+
 NOTE_MARKER = "Nota scientifica aggiornata"
 
 
@@ -591,6 +593,21 @@ def finalize_file(
         raise ValueError(f"Riassunto Markdown non valido: {source}")
 
     raw = source.read_text(encoding="utf-8")
+    novice_ready, novice_results = audit_novice_document(raw)
+    if not novice_ready:
+        failed = [
+            f"{title}: {', '.join(audit.issues)}"
+            for title, audit in novice_results
+            if not audit.passed
+        ]
+        preview = "; ".join(failed[:5])
+        more = f" (+{len(failed) - 5} altri)" if len(failed) > 5 else ""
+        raise ValueError(
+            "Il riassunto non supera il controllo di comprensibilita per principianti. "
+            "Esegui prima 'bc-science refine' con la versione corrente. "
+            f"Problemi: {preview}{more}"
+        )
+
     final_markdown, note_count, organization_fixes = finalize_markdown(raw)
 
     stem = source.stem

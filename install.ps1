@@ -203,6 +203,7 @@ Write-Host "Esempi:"
 Write-Host '  bc-science summarize "C:\Studio\Fisiologia.zip" --single'
 Write-Host '  bc-science ingest "C:\Studio\Fisiologia.zip"'
 Write-Host '  bc-science ask "Spiegami il ruolo del calcio nella contrazione muscolare"'
+Write-Host '  bc-science clarity'
 Write-Host '  bc-science finalize'
 Write-Host ""
 Write-Host "Dopo una nuova apertura di PowerShell il comando bc-science sarà disponibile globalmente."

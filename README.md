@@ -71,6 +71,34 @@ Per scegliere manualmente un file:
 
 La rifinitura e piu rapida di una nuova analisi dei PDF. La 0.6.3 normalizza prima la struttura Markdown e poi valida ogni capitolo: rimuove o declassa heading H2 duplicati e fonde deterministicamente più sezioni `Da ricordare per l'esame` senza perdere il testo. Poi rifiuta placeholder, recap mancanti e finali sospettamente tronchi. Solo se resta un problema sostanziale rigenera quel singolo capitolo. Inoltre il Ripasso globale viene costruito dai veri `Da ricordare` dei capitoli invece che dai soli titoli, e i mismatch fra titolo e contenuto vengono marcati come `Verifica materiale`. Non puo pero recuperare informazioni che il riassunto sorgente aveva omesso: per la massima copertura resta disponibile `summarize ... --single`.
 
+
+### Controllare la comprensibilità per principianti
+
+BC Science considera il lettore target una persona che **non ha mai studiato la materia**.
+
+Dalla 0.8 ogni capitolo rifinito deve includere:
+
+- In parole semplici: quadro mentale di base prima dei dettagli;
+- Parole chiave: 3-8 termini tecnici spiegati usando solo informazioni già presenti;
+- progressione dal concetto generale ai meccanismi e ai dettagli;
+- frasi e paragrafi abbastanza brevi da non sovraccaricare la lettura;
+- una sola sezione finale Da ricordare per l'esame.
+
+Per misurare il risultato:
+
+    bc-science clarity
+
+Il comando mostra per ciascun capitolo score 0-100, parole medie per frase,
+densità massima del paragrafo e gli eventuali motivi di FAIL.
+
+bc-science refine prova automaticamente a riscrivere soltanto i capitoli che non
+superano il controllo principiante. bc-science finalize rifiuta di generare il PDF
+se anche un capitolo non supera il gate.
+
+Lo score è un controllo operativo, non una prova matematica di comprensione: BC Science
+combina struttura obbligatoria, limiti di densità e revisione source-only invece di affidarsi
+a una sola formula di leggibilità.
+
 ### Creare la dispensa finale
 
 Dopo \`refine\`, BC Science può completare autonomamente il lavoro:
@@ -229,7 +257,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.7.2**.
+Versione corrente: **0.8.0**.
 
 
 ### Ripasso globale rapido
@@ -243,3 +271,15 @@ con un budget breve e una cache stabile basata esclusivamente sui titoli.
 ### Finalizzazione coerente
 
 Dalla 0.7.2 `finalize` sincronizza anche copertina, mappa, ripasso globale e indice con i fix organizzativi applicati ai capitoli. Le note scientifiche vengono inserite nei capitoli completi pertinenti, non nel front-matter sintetico.
+
+
+## Roadmap
+
+La roadmap completa è in ROADMAP.md. Le tappe principali sono:
+
+- 0.8: comprensibilità per principianti;
+- 0.9: multi-materia e workspace;
+- 0.10: audit di copertura e coerenza;
+- 0.11: modalità esame;
+- 0.12: aggiornamento incrementale;
+- 1.0: comando one-shot bc-science build.
