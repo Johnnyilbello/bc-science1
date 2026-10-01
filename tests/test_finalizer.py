@@ -60,6 +60,12 @@ def test_finalize_file_creates_valid_pdf_docx_and_markdown(tmp_path: Path):
     source.write_text(
         """# Materia - Riassunto rifinito
 
+## Mappa della materia
+- Capitolo.
+
+## Ripasso globale
+1. **Capitolo**: concetto di base e dettagli principali.
+
 ## Indice degli argomenti
 - Capitolo
 
@@ -74,6 +80,7 @@ La spiegazione parte dall'idea principale e poi aggiunge i dettagli.
 ### Parole chiave
 - **Concetto** — idea centrale descritta nel capitolo.
 - **Dettaglio** — informazione che completa l'idea principale.
+- **Sequenza** — ordine con cui vengono presentati i passaggi.
 
 ### Spiegazione
 Il testo usa frasi brevi e presenta una sola idea alla volta.
