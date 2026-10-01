@@ -201,30 +201,32 @@ def readability_metrics(text: str) -> ReadabilityMetrics:
         re.search(r"(?mi)^###\s+Parole chiave\s*$", text)
     )
 
+    # "Parole chiave" is intentionally optional. Do not make the chapter lose
+    # points merely because that section is absent: otherwise a structurally valid,
+    # readable chapter can get stuck at 75/100 and trigger pointless model retries.
     score = 0
-    score += 25 if has_simple_intro else 0
-    score += 20 if has_keywords else 0
+    score += 30 if has_simple_intro else 0
 
     if average <= 20:
-        score += 25
+        score += 30
     elif average <= 24:
-        score += 20
+        score += 24
     elif average <= 28:
-        score += 12
+        score += 15
     elif average <= 32:
-        score += 5
+        score += 6
 
     if max_paragraph_words <= 100:
-        score += 15
+        score += 20
     elif max_paragraph_words <= 120:
-        score += 10
+        score += 14
     elif max_paragraph_words <= 150:
-        score += 5
+        score += 7
 
     if max_paragraph_sentences <= 5:
-        score += 15
+        score += 20
     elif max_paragraph_sentences <= 6:
-        score += 8
+        score += 10
 
     return ReadabilityMetrics(
         sentence_count=sentence_count,
