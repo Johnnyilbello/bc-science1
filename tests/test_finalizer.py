@@ -97,3 +97,54 @@ Il sangue povero di ossigeno arriva al cuore tramite le arterie del corpo.
     assert notes_first == 1
     assert notes_second == 0
     assert second.count("Nota scientifica aggiornata") == 1
+
+
+def test_finalize_updates_frontmatter_and_places_notes_in_full_chapters():
+    source = """# FISIOLOGIA UMANA E DELLO SPORT - Riassunto rifinito
+> Versione rifinita dell'ultimo riassunto BC Science; non sostituisce la verifica sui PDF originali.
+
+## Mappa della materia
+- Sistema nervoso: gusto/tatto/olfatto/udito/vista.
+
+## Ripasso globale
+14. **olfatto**: controllo motorio e feedback.
+
+## Indice degli argomenti
+- GUSTO
+- olfatto
+- neuroni
+
+---
+
+## GUSTO
+La trasduzione olfattiva usa recettori specifici.
+
+---
+
+## olfatto
+> Verifica materiale: il titolo del capitolo non è supportato chiaramente dal testo sorgente.
+
+Il controllo nervoso dei movimenti usa feedback e feed-forward.
+
+---
+
+## neuroni
+L'uomo ha circa 100 milioni di neuroni. Rapporto: 1 neurone : 9 glie.
+"""
+    result, notes, fixes = finalize_markdown(source)
+
+    assert result.startswith("# FISIOLOGIA UMANA E DELLO SPORT - Dispensa finale")
+    assert "Dispensa finale generata da BC Science." in result
+    label = 'Controllo nervoso del movimento (materiale etichettato "olfatto")'
+    assert f"- {label}" in result
+    assert f"**{label}**:" in result
+    assert 'gusto/tatto/udito/vista + controllo nervoso del movimento (file "olfatto")' in result
+    assert f"## {label}" in result
+    assert fixes >= 5
+
+    note_pos = result.index("Nota scientifica aggiornata")
+    index_pos = result.index("## Indice degli argomenti")
+    chapter_pos = result.index("## neuroni")
+    assert notes == 1
+    assert note_pos > index_pos
+    assert note_pos > chapter_pos
