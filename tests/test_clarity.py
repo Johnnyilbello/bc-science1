@@ -217,6 +217,34 @@ I dettagli vengono aggiunti dopo il quadro generale.
     assert not audit.metrics.has_keywords
 
 
+def test_optional_keywords_do_not_create_a_75_point_dead_end():
+    dense_but_valid = " ".join(
+        " ".join(["Concetto"] * 21) + "."
+        for _ in range(5)
+    )
+    text = f"""## Capitolo
+
+### In parole semplici
+Questo capitolo introduce l'argomento con parole semplici.
+La spiegazione parte dall'idea generale.
+Il lettore non deve conoscere gia la materia.
+
+### Spiegazione
+{dense_but_valid}
+
+### Da ricordare per l'esame
+- Il concetto principale resta chiaro.
+"""
+
+    audit = novice_audit(text)
+
+    assert not audit.metrics.has_keywords
+    assert 100 < audit.metrics.max_paragraph_words <= 120
+    assert audit.metrics.average_sentence_words <= 24
+    assert audit.metrics.score >= 80
+    assert audit.passed
+
+
 def test_layout_normalizer_handles_mixed_prose_boundaries_and_inline_heading():
     dense = " ".join(f"Frase {index} descrive un concetto." for index in range(1, 8))
     text = f"""## Capitolo
