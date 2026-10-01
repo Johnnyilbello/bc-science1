@@ -287,7 +287,7 @@ La struttura iniziale deve essere migliorata.
 
     def chapter(fake_certification: bool) -> str:
         certification = (
-            "Il materiale e scientificamente corretto e verificato.\\n"
+            "Il materiale e scientificamente corretto e verificato.\n"
             if fake_certification
             else ""
         )
@@ -302,10 +302,12 @@ Le informazioni restano quelle della fonte.
 La struttura viene resa piu leggibile.
 Il testo non aggiunge conoscenze esterne.
 La spiegazione procede dal concetto generale ai dettagli.
+
 Ogni passaggio resta collegato al materiale sorgente.
 Le definizioni vengono mantenute senza inventare esempi.
 I meccanismi vengono presentati in ordine progressivo.
 Le informazioni utili all'esame non vengono eliminate.
+
 Il capitolo resta comprensibile anche a chi parte da zero.
 La struttura separa introduzione, spiegazione e ripasso finale.
 
@@ -322,7 +324,7 @@ La struttura separa introduzione, spiegazione e ripasso finale.
             quality_attempts += 1
             return chapter(fake_certification=quality_attempts == 1)
         if "Crea SOLO la sezione Markdown" in user:
-            return "## Mappa della materia\\n- Capitolo"
+            return "## Mappa della materia\n- Capitolo"
         return chapter(fake_certification=True)
 
     monkeypatch.setattr(summarizer, "_cached_chat", fake_cached_chat)
