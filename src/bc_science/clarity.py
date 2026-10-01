@@ -37,17 +37,18 @@ def _strip_markdown(text: str) -> str:
     return value
 
 
-def _sentence_word_counts(text: str) -> list[int]:
+def _sentence_units(text: str) -> list[str]:
+    """Return sentence-like reading units while preserving Markdown line boundaries."""
     plain = _strip_markdown(text)
-    counts: list[int] = []
+    units: list[str] = []
 
-    # Keep Markdown/list line boundaries meaningful: a bullet without a final period
-    # must not be merged with the next bullet and counted as one giant sentence.
+    # A physical Markdown line is meaningful for readability too: bullets and short
+    # explanatory lines must not be silently glued to the following line.
     for raw_line in plain.splitlines():
         line = re.sub(r"\s+", " ", raw_line).strip()
         if not line:
             continue
-        sentences = [
+        parts = [
             sentence.strip()
             for sentence in re.split(
                 r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])",
@@ -55,11 +56,32 @@ def _sentence_word_counts(text: str) -> list[int]:
             )
             if sentence.strip()
         ]
-        for sentence in sentences:
-            words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", sentence, flags=re.UNICODE)
-            if words:
-                counts.append(len(words))
+        units.extend(parts or [line])
+    return units
+
+
+def _sentence_word_counts(text: str) -> list[int]:
+    counts: list[int] = []
+    for sentence in _sentence_units(text):
+        words = re.findall(r"\b[\wÀ-ÿ'+-]+\b", sentence, flags=re.UNICODE)
+        if words:
+            counts.append(len(words))
     return counts
+
+
+def normalize_inline_headings(text: str) -> tuple[str, int]:
+    """Put ATX Markdown headings on their own line without rewriting prose."""
+    normalized, inline_fixes = re.subn(
+        r"(?<=\S)[ \t]+(?=#{2,6}[ \t]+\S)",
+        "\n\n",
+        text,
+    )
+    normalized, indent_fixes = re.subn(
+        r"(?m)^[ \t]+(?=#{2,6}[ \t]+\S)",
+        "",
+        normalized,
+    )
+    return normalized, inline_fixes + indent_fixes
 
 
 def _paragraph_metrics(text: str) -> tuple[int, int]:
@@ -106,77 +128,59 @@ def normalize_novice_layout(
     *,
     max_sentences_per_paragraph: int = 5,
 ) -> tuple[str, int]:
-    """Split dense prose paragraphs without changing sentence wording or order."""
-    blocks = re.split(r"(\n\s*\n)", text)
-    rebuilt: list[str] = []
-    fixes = 0
+    """Repair layout deterministically using the same boundaries as the clarity gate."""
+    normalized, heading_fixes = normalize_inline_headings(text)
+    fixes = heading_fixes
+    output: list[str] = []
+    prose_lines: list[str] = []
 
-    for block in blocks:
-        if re.fullmatch(r"\n\s*\n", block):
-            rebuilt.append(block)
-            continue
+    def flush_prose() -> None:
+        nonlocal fixes, prose_lines
+        if not prose_lines:
+            return
 
-        stripped = block.strip()
-        if not stripped:
-            rebuilt.append(block)
-            continue
-
-        original_lines = [line.rstrip() for line in block.splitlines() if line.strip()]
-        if not original_lines:
-            rebuilt.append(block)
-            continue
-
-        prefix_lines: list[str] = []
-        body_lines = list(original_lines)
-
-        # A common Markdown form is:
-        # ### Heading
-        # prose...
-        # The heading must be preserved, while the prose below still needs density checks.
-        while body_lines and body_lines[0].lstrip().startswith("#"):
-            prefix_lines.append(body_lines.pop(0))
-
-        if not body_lines:
-            rebuilt.append(block)
-            continue
-
-        stripped_body = [line.strip() for line in body_lines]
-        if (
-            any(line.startswith(">") for line in stripped_body)
-            or all(
-                re.match(r"^(?:[-*]|\d+[.)])\s+", line)
-                for line in stripped_body
-            )
-        ):
-            rebuilt.append(block)
-            continue
-
-        plain = " ".join(stripped_body)
-        sentences = [
-            sentence.strip()
-            for sentence in re.split(
-                r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý0-9])",
-                plain,
-            )
-            if sentence.strip()
-        ]
-        if len(sentences) <= max_sentences_per_paragraph:
-            rebuilt.append(block)
-            continue
+        original = "\n".join(prose_lines)
+        units = _sentence_units(original)
+        if len(units) <= max_sentences_per_paragraph:
+            output.extend(prose_lines)
+            prose_lines = []
+            return
 
         chunks = [
-            " ".join(sentences[start:start + max_sentences_per_paragraph])
-            for start in range(0, len(sentences), max_sentences_per_paragraph)
+            " ".join(units[start:start + max_sentences_per_paragraph])
+            for start in range(0, len(units), max_sentences_per_paragraph)
         ]
-        body = "\n\n".join(chunks)
-        if prefix_lines:
-            rebuilt.append("\n".join(prefix_lines) + "\n" + body)
-        else:
-            rebuilt.append(body)
+        for index, chunk in enumerate(chunks):
+            if index:
+                output.append("")
+            output.append(chunk)
         fixes += len(chunks) - 1
+        prose_lines = []
 
-    return "".join(rebuilt), fixes
+    for raw_line in normalized.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            flush_prose()
+            output.append("")
+            continue
 
+        is_boundary = (
+            stripped.startswith(("#", ">"))
+            or bool(re.match(r"^(?:[-*]|\d+[.)])\s+", stripped))
+        )
+        if is_boundary:
+            flush_prose()
+            output.append(raw_line.rstrip())
+            continue
+
+        prose_lines.append(raw_line.rstrip())
+
+    flush_prose()
+
+    # Avoid runaway blank lines while preserving paragraph separation.
+    result = "\n".join(output)
+    result = re.sub(r"\n{3,}", "\n\n", result).strip()
+    return result, fixes
 
 def readability_metrics(text: str) -> ReadabilityMetrics:
     counts = _sentence_word_counts(text)
