@@ -658,8 +658,10 @@ def _build_global_recap(refined: list[tuple[str, str]]) -> str:
             plain = re.sub(r"\s+", " ", point).strip()
             if not plain:
                 continue
+            if len(plain) > 220:
+                plain = plain[:220].rsplit(" ", 1)[0] + "…"
             projected = total + len(plain)
-            if selected and projected > 280:
+            if selected and projected > 320:
                 break
             selected.append(plain)
             total = projected
@@ -1048,20 +1050,23 @@ class Summarizer:
                 require_source_warning=source_warning,
             )
 
-            if issues:
+            quality_attempt = 0
+            max_quality_attempts = 3
+            while issues and quality_attempt < max_quality_attempts:
+                quality_attempt += 1
                 self.stats.quality_repairs += 1
                 if progress:
                     progress(
-                        f"    controllo qualita: rigenero {chapter_title} "
-                        f"({'; '.join(issues)})"
+                        f"    autocorrezione qualita {quality_attempt}/{max_quality_attempts}: "
+                        f"{chapter_title} ({'; '.join(issues)})"
                     )
                 repair_key = _key(
                     REFINE_PROMPT_VERSION,
                     self.model,
-                    "refine-repair",
+                    f"refine-repair-{quality_attempt}",
                     chapter_title,
                     str(source_warning),
-                    deduped,
+                    deduped if quality_attempt == 1 else polished,
                     "|".join(issues),
                 )
                 polished = self._cached_chat(
@@ -1069,11 +1074,11 @@ class Summarizer:
                     system,
                     _repair_refined_chapter_prompt(
                         chapter_title,
-                        deduped,
+                        deduped if quality_attempt == 1 else polished,
                         issues,
                         source_warning,
                     ),
-                    num_predict=3800,
+                    num_predict=3800 + (quality_attempt - 1) * 400,
                 )
                 polished, structure_changed = _normalize_refined_structure(
                     polished,
@@ -1081,16 +1086,18 @@ class Summarizer:
                 )
                 if structure_changed:
                     self.stats.structural_fixes += 1
-                remaining = _chapter_quality_issues(
+                issues = _chapter_quality_issues(
                     polished,
                     chapter_title,
                     require_source_warning=source_warning,
                 )
-                if remaining:
-                    raise ValueError(
-                        f"Il capitolo '{chapter_title}' non supera il controllo qualita: "
-                        + "; ".join(remaining)
-                    )
+
+            if issues:
+                raise ValueError(
+                    f"Il capitolo '{chapter_title}' non supera il controllo qualita "
+                    f"dopo {max_quality_attempts} autocorrezioni: "
+                    + "; ".join(issues)
+                )
 
             polished, layout_fixes = normalize_novice_layout(polished)
             if layout_fixes:
