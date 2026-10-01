@@ -374,7 +374,7 @@ def clarity(
         f"[{'green' if passed else 'red'}]"
         f"{'PASS' if passed else 'FAIL'}[/] · "
         f"chiarezza media {average:.0f}/100 · "
-        f"{sum(1 for _title, audit in results if audit.passed)}/{len(results)} capitoli conformi"
+        f"{sum(1 for _title, audit in results if audit.passed)}/{len(results)} sezioni conformi"
     )
     if not passed:
         raise typer.Exit(1)
