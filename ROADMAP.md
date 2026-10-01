@@ -32,7 +32,7 @@ non spiegate.
 Criterio di uscita: tutti i capitoli del corso devono avere score >= 80/100 e nessun
 problema hard di chiarezza.
 
-## 0.9 — Multi-materia, cartella radice e workspace per corso
+## 0.9 — Multi-materia, cartella radice e workspace per corso ✅
 
 Obiettivo: passare da una pipeline validata su Fisiologia a una piattaforma per tutto il corso
 di laurea, senza obbligare l'utente a creare ZIP/RAR per ogni materia.
@@ -85,6 +85,10 @@ Comandi pianificati:
 Criterio di uscita: almeno tre materie differenti elaborate end-to-end partendo direttamente
 da una cartella radice, con un riassunto unico e comprensibile per materia e senza regole
 hardcoded specifiche del singolo corso.
+
+Implementazione 0.9.0: motore multi-materia, scansione/preflight, workspace e DB separati,
+manifest con hash, status incrementale e build selettivo sono disponibili. Il collaudo reale
+su almeno tre materie complete resta il passaggio operativo da eseguire sul corpus utente.
 
 ## 0.10 — Audit di copertura e coerenza
 
