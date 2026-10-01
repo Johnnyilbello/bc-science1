@@ -19,7 +19,7 @@ Obiettivo: nessun PDF finale viene prodotto se i capitoli richiedono conoscenze 
 non spiegate.
 
 - sezione obbligatoria "In parole semplici";
-- sezione obbligatoria "Parole chiave";
+- sezione "Parole chiave" facoltativa: utile solo quando migliora davvero la comprensione;
 - termini tecnici introdotti e definiti usando solo le fonti;
 - progressione quadro generale -> dettagli -> meccanismi -> ripasso;
 - frasi e paragrafi controllati per densità;
@@ -32,21 +32,59 @@ non spiegate.
 Criterio di uscita: tutti i capitoli del corso devono avere score >= 80/100 e nessun
 problema hard di chiarezza.
 
-## 0.9 — Multi-materia e workspace per corso
+## 0.9 — Multi-materia, cartella radice e workspace per corso
 
 Obiettivo: passare da una pipeline validata su Fisiologia a una piattaforma per tutto il corso
-di laurea.
+di laurea, senza obbligare l'utente a creare ZIP/RAR per ogni materia.
 
-- workspace separato per materia;
-- cache, indice, output e configurazione isolati per corso;
-- rilevamento automatico del dominio;
-- profili di stile per Anatomia, Fisiologia, Biomeccanica, Psicologia, Pedagogia,
-  Nutrizione, Statistica e materie affini;
-- gestione esplicita di figure, tabelle e pagine visuali quando il testo estratto non basta;
-- comandi courses list, courses status, courses build.
+Comando principale pianificato:
 
-Criterio di uscita: almeno tre materie differenti elaborate end-to-end senza regole hardcoded
-specifiche del singolo corso.
+    bc-science courses build "C:\Studio\SCIENZE MOTORIE"
+
+La directory passata al comando è la cartella radice. Ogni sottocartella diretta viene
+considerata una materia distinta, per esempio:
+
+    SCIENZE MOTORIE\
+      FONDAMENTI DI BIOLOGIA E CHIMICA\
+      ANATOMIA\
+      FISIOLOGIA UMANA E DELLO SPORT\
+
+Per ogni materia BC Science dovrà:
+
+- scansionare ricorsivamente tutte le sottocartelle;
+- contare file totali, file supportati, file ignorati e cartelle visitate;
+- usare direttamente PDF, DOCX, TXT e Markdown senza richiedere archivi;
+- ignorare file temporanei, nascosti, output precedenti e formati non supportati,
+  segnalandoli nel report iniziale;
+- mostrare un preflight prima dell'elaborazione con numero di materie e documenti trovati;
+- creare un workspace separato con cache, indice e output dedicati;
+- produrre UN SOLO riassunto coerente per materia, non una raccolta di mini-riassunti;
+- scrivere per un lettore che non ha mai studiato la materia;
+- mantenere "In parole semplici" come principio editoriale, ma NON richiedere
+  obbligatoriamente una sezione "Parole chiave";
+- preservare definizioni, classificazioni, numeri, meccanismi, sequenze ed eccezioni;
+- riutilizzare cache e risultati precedenti quando i file non sono cambiati;
+- consentire in seguito finalize/audit separati per ogni materia.
+
+Output previsto:
+
+    outputs\courses\FONDAMENTI DI BIOLOGIA E CHIMICA\riassunto-unico.md
+    outputs\courses\ANATOMIA\riassunto-unico.md
+    outputs\courses\FISIOLOGIA UMANA E DELLO SPORT\riassunto-unico.md
+
+Comandi pianificati:
+
+    bc-science courses list "C:\Studio\SCIENZE MOTORIE"
+    bc-science courses status "C:\Studio\SCIENZE MOTORIE"
+    bc-science courses build "C:\Studio\SCIENZE MOTORIE"
+
+`courses list` deve essere una scansione veloce senza usare Ollama.
+`courses status` deve mostrare cosa è già indicizzato/generato e cosa è cambiato.
+`courses build` deve eseguire la pipeline solo sulle materie necessarie.
+
+Criterio di uscita: almeno tre materie differenti elaborate end-to-end partendo direttamente
+da una cartella radice, con un riassunto unico e comprensibile per materia e senza regole
+hardcoded specifiche del singolo corso.
 
 ## 0.10 — Audit di copertura e coerenza
 

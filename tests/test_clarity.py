@@ -46,7 +46,6 @@ Questo paragrafo contiene una spiegazione molto lunga che continua senza una ver
     audit = novice_audit(text)
     assert not audit.passed
     assert any("In parole semplici" in issue for issue in audit.issues)
-    assert any("Parole chiave" in issue for issue in audit.issues)
 
 
 def test_document_audit_checks_every_indexed_chapter():
@@ -143,7 +142,7 @@ Ogni gruppo ha una funzione specifica.
     assert not any("troppe frasi" in issue for issue in audit.issues)
 
 
-def test_novice_audit_rejects_keyword_overload_and_inline_heading():
+def test_novice_audit_allows_keyword_overload_but_rejects_inline_heading():
     keywords = "\n".join(
         f"- **Termine {index}** — definizione semplice."
         for index in range(1, 10)
@@ -167,7 +166,7 @@ Altra frase.
     audit = novice_audit(text)
 
     assert not audit.passed
-    assert any("3 a 8 voci" in issue for issue in audit.issues)
+    assert not any("3 a 8 voci" in issue for issue in audit.issues)
     assert any("heading Markdown" in issue for issue in audit.issues)
 
 
@@ -192,3 +191,27 @@ def test_document_audit_rejects_incomplete_global_recap_frontmatter():
     assert not passed
     front = next(audit for title, audit in results if title == "Front matter")
     assert any("rivedi il capitolo" in issue for issue in front.issues)
+
+
+def test_novice_audit_can_pass_without_keyword_section():
+    text = """## Capitolo
+
+### In parole semplici
+Questo capitolo introduce l'argomento con parole semplici.
+La spiegazione parte dall'idea generale.
+Il lettore non deve conoscere gia la materia.
+
+### Spiegazione
+Il primo concetto viene presentato in modo progressivo.
+Ogni frase contiene una sola idea.
+I dettagli vengono aggiunti dopo il quadro generale.
+
+### Da ricordare per l'esame
+- Il concetto principale resta chiaro.
+- I dettagli vengono dopo l'introduzione.
+"""
+
+    audit = novice_audit(text)
+
+    assert audit.passed
+    assert not audit.metrics.has_keywords
