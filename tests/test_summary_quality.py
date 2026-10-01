@@ -13,6 +13,8 @@ def test_summary_prompt_forbids_external_clarifications():
     prompt = _summary_system_prompt("Fisiologia umana e dello sport")
     assert "NON aggiungere conoscenza generale" in prompt
     assert "NON correggere scientificamente" in prompt
+    assert "non ha mai studiato la materia" in prompt
+    assert "Una frase deve esprimere preferibilmente una sola idea" in prompt
 
 
 def test_chapter_normalization_removes_internal_rules_and_obvious_typos():
