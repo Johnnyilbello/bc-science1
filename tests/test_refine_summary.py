@@ -1,7 +1,9 @@
 from bc_science.summarizer import (
+    _build_global_recap,
     _chapter_quality_issues,
     _chapter_title_supported,
     _dedupe_exact_blocks,
+    _extract_exam_points,
     _extract_exam_recap,
     _extract_summary_chapters,
     _normalize_refined_structure,
@@ -187,3 +189,50 @@ Introduzione.
     assert "- Prima sequenza." in normalized
     assert "- Seconda sequenza." in normalized
     assert normalized.rfind("### Da ricordare per l'esame") > normalized.rfind("### Attenzione all'esame")
+
+
+def test_extract_exam_points_reads_bullets():
+    chapter = """## Membrana
+
+Testo.
+
+### Da ricordare per l'esame
+- Il trasporto passivo segue il gradiente.
+- Il trasporto attivo richiede energia.
+"""
+    assert _extract_exam_points(chapter) == [
+        "Il trasporto passivo segue il gradiente.",
+        "Il trasporto attivo richiede energia.",
+    ]
+
+
+def test_global_recap_has_one_item_per_chapter():
+    chapters = [
+        (
+            "Membrana",
+            """## Membrana
+
+Testo.
+
+### Da ricordare per l'esame
+- Il trasporto passivo segue il gradiente.
+- Il trasporto attivo richiede energia.
+""",
+        ),
+        (
+            "Muscolo",
+            """## Muscolo
+
+Testo.
+
+### Da ricordare per l'esame
+- Il calcio lega la troponina.
+""",
+        ),
+    ]
+    recap = _build_global_recap(chapters)
+    assert recap.startswith("## Ripasso globale")
+    assert recap.count("\n1. **Membrana**:") == 1
+    assert recap.count("\n2. **Muscolo**:") == 1
+    assert "Il trasporto passivo segue il gradiente." in recap
+    assert "Il calcio lega la troponina." in recap
