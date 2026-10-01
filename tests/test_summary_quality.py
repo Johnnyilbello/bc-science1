@@ -187,7 +187,7 @@ Testo applicativo.
     assert "frase completa. ###" not in normalized
 
 
-def test_quality_gate_rejects_too_many_keywords_and_fake_scientific_certification():
+def test_quality_gate_ignores_keyword_count_but_rejects_fake_scientific_certification():
     keywords = "\n".join(
         f"- **Termine {index}** — definizione semplice."
         for index in range(1, 11)
@@ -214,7 +214,7 @@ Introduzione semplice.
 
     assert any("Verifica materiale non richiesta" in issue for issue in issues)
     assert any("certificazione scientifica" in issue for issue in issues)
-    assert any("3 a 8 voci" in issue for issue in issues)
+    assert not any("3 a 8 voci" in issue for issue in issues)
 
 
 def test_global_recap_never_uses_review_chapter_placeholder():
@@ -263,6 +263,7 @@ Introduzione semplice.
     assert "rivedi il capitolo" not in recap_line
 
 
+
 def test_refine_retries_quality_gate_until_structure_is_clean(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     summarizer = Summarizer(AppConfig())
@@ -284,32 +285,21 @@ La struttura iniziale deve essere migliorata.
 - Punto importante.
 """
 
-    too_many_10 = "\n".join(
-        f"- **Termine {index}** — definizione semplice."
-        for index in range(1, 11)
-    )
-    too_many_9 = "\n".join(
-        f"- **Termine {index}** — definizione semplice."
-        for index in range(1, 10)
-    )
-    good_3 = "\n".join(
-        f"- **Termine {index}** — definizione semplice."
-        for index in range(1, 4)
-    )
-
-    def chapter(keywords: str) -> str:
+    def chapter(fake_certification: bool) -> str:
+        certification = (
+            "Il materiale e scientificamente corretto e verificato.\\n"
+            if fake_certification
+            else ""
+        )
         return f"""## Capitolo
 
 ### In parole semplici
 Questo capitolo introduce il contenuto in modo semplice.
 La spiegazione parte dall'idea generale.
-
-### Parole chiave
-{keywords}
-
+{certification}
 ### Spiegazione
 Le informazioni restano quelle della fonte.
-La struttura viene resa più leggibile.
+La struttura viene resa piu leggibile.
 Il testo non aggiunge conoscenze esterne.
 
 ### Da ricordare per l'esame
@@ -323,10 +313,10 @@ Il testo non aggiunge conoscenze esterne.
         nonlocal quality_attempts
         if "La precedente generazione non ha superato il controllo qualita" in user:
             quality_attempts += 1
-            return chapter(too_many_9 if quality_attempts == 1 else good_3)
+            return chapter(fake_certification=quality_attempts == 1)
         if "Crea SOLO la sezione Markdown" in user:
-            return "## Mappa della materia\n- Capitolo"
-        return chapter(too_many_10)
+            return "## Mappa della materia\\n- Capitolo"
+        return chapter(fake_certification=True)
 
     monkeypatch.setattr(summarizer, "_cached_chat", fake_cached_chat)
 
@@ -336,5 +326,5 @@ Il testo non aggiunge conoscenze esterne.
         summarizer.close()
 
     assert quality_attempts == 2
-    assert "Termine 9" not in result
+    assert "scientificamente corretto" not in result
     assert summarizer.stats.quality_repairs == 2
