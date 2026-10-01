@@ -91,7 +91,9 @@ def test_course_build_uses_workspace_manifest_and_skips_unchanged(
     first = build_course(first_scan, AppConfig())
     assert first.state == "creata"
     assert first.output_path is not None and first.output_path.exists()
-    assert course_state(first_scan).state == "pronta"
+    ready = course_state(first_scan)
+    assert ready.state == "pronta"
+    assert (ready.new_files, ready.changed_files, ready.removed_files) == (0, 0, 0)
     assert calls == {"ingest": 1, "summarize": 1}
 
     second = build_course(scan_courses(root)[0], AppConfig())
@@ -100,7 +102,9 @@ def test_course_build_uses_workspace_manifest_and_skips_unchanged(
 
     source.write_text("contenuto modificato", encoding="utf-8")
     changed_scan = scan_courses(root)[0]
-    assert course_state(changed_scan).state == "modificata"
+    changed = course_state(changed_scan)
+    assert changed.state == "modificata"
+    assert (changed.new_files, changed.changed_files, changed.removed_files) == (0, 1, 0)
 
     third = build_course(changed_scan, AppConfig())
     assert third.state == "creata"
