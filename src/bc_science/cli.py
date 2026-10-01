@@ -11,6 +11,7 @@ from rich.table import Table
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
+from .courses import build_course, course_state, scan_courses
 from .documents import iter_source_files
 from .finalizer import finalize_file
 from .hardware import detect_hardware, select_model_plan
@@ -26,7 +27,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 models_app = typer.Typer(help="Gestione modelli locali.")
+courses_app = typer.Typer(help="Gestione multi-materia da una cartella radice.")
 app.add_typer(models_app, name="models")
+app.add_typer(courses_app, name="courses")
 console = Console()
 
 
@@ -80,6 +83,165 @@ def doctor() -> None:
         f"{stats['summaries']} risultati in cache",
     )
     console.print(table)
+
+
+@courses_app.command("list")
+def courses_list(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+) -> None:
+    """Scansiona velocemente le materie senza usare Ollama."""
+    try:
+        scans = scan_courses(root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    table = Table(title=f"BC Science - Materie · {root.expanduser().resolve()}")
+    table.add_column("Materia")
+    table.add_column("Cartelle", justify="right")
+    table.add_column("File", justify="right")
+    table.add_column("Supportati", justify="right")
+    table.add_column("Ignorati", justify="right")
+
+    for scan in scans:
+        table.add_row(
+            scan.name,
+            str(scan.folders_visited),
+            str(scan.total_files),
+            str(len(scan.supported_files)),
+            str(scan.ignored_files),
+        )
+
+    console.print(table)
+    console.print(
+        f"[dim]{len(scans)} materie · "
+        f"{sum(len(scan.supported_files) for scan in scans)} documenti supportati[/]"
+    )
+
+
+@courses_app.command("status")
+def courses_status(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+) -> None:
+    """Mostra cosa è pronto, modificato o ancora da generare."""
+    try:
+        states = [course_state(scan) for scan in scan_courses(root)]
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    table = Table(title=f"BC Science - Stato materie · {root.expanduser().resolve()}")
+    table.add_column("Materia")
+    table.add_column("Stato")
+    table.add_column("Documenti", justify="right")
+    table.add_column("Indicizzati", justify="right")
+    table.add_column("Output")
+
+    state_style = {
+        "pronta": "green",
+        "modificata": "yellow",
+        "da creare": "cyan",
+        "vuota": "dim",
+    }
+    for item in states:
+        style = state_style.get(item.state, "white")
+        table.add_row(
+            item.scan.name,
+            f"[{style}]{item.state}[/]",
+            str(len(item.scan.supported_files)),
+            str(item.indexed_documents),
+            str(item.output_path) if item.output_path.exists() else "—",
+        )
+
+    console.print(table)
+
+
+@courses_app.command("build")
+def courses_build(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="standard o quality"),
+    ] = "standard",
+) -> None:
+    """Genera o aggiorna un riassunto unico per ogni materia necessaria."""
+    try:
+        scans = scan_courses(root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    supported_total = sum(len(scan.supported_files) for scan in scans)
+    ignored_total = sum(scan.ignored_files for scan in scans)
+    console.print(
+        f"[bold]Preflight:[/] {len(scans)} materie · "
+        f"{supported_total} documenti supportati · "
+        f"{ignored_total} file ignorati"
+    )
+    if not scans or supported_total == 0:
+        console.print("[red]Nessun documento supportato trovato nelle materie.[/]")
+        raise typer.Exit(1)
+
+    config = _config()
+    _ensure_model(config, profile)
+    client = _require_ollama(config)
+    ensure_model_with_progress(client, config.embedding_model, console)
+
+    created = 0
+    reused = 0
+    empty = 0
+    for index, scan in enumerate(scans, start=1):
+        console.print()
+        console.print(
+            f"[bold][{index}/{len(scans)}] {scan.name}[/] · "
+            f"{len(scan.supported_files)} documenti"
+        )
+
+        def show_progress(message: str, *, course_name: str = scan.name) -> None:
+            console.print(f"[dim]{course_name}: {message}[/]")
+
+        try:
+            result = build_course(
+                scan,
+                config,
+                profile=profile,
+                progress=show_progress,
+            )
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/]")
+            raise typer.Exit(1) from exc
+
+        if result.state == "riutilizzata":
+            reused += 1
+            console.print(f"[green]Già aggiornata:[/] {result.output_path}")
+        elif result.state == "vuota":
+            empty += 1
+            console.print("[yellow]Nessun documento supportato: materia saltata.[/]")
+        else:
+            created += 1
+            console.print(f"[green]Riassunto unico creato:[/] {result.output_path}")
+            console.print(
+                "[dim]"
+                f"Indice: {result.indexed} nuovi/modificati · "
+                f"{result.reused_index} invariati · "
+                f"{result.removed_index} rimossi"
+                "[/]"
+            )
+
+    console.print()
+    console.print(
+        "[green]Multi-materia completato.[/] "
+        f"{created} create/aggiornate · {reused} riutilizzate · {empty} vuote"
+    )
 
 
 @app.command()
