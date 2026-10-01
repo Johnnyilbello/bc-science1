@@ -75,31 +75,22 @@ def _paragraph_metrics(text: str) -> tuple[int, int]:
         prose_groups: list[list[str]] = []
         current: list[str] = []
 
-        def flush() -> None:
-            nonlocal current
-            if current:
-                prose_groups.append(current)
-                current = []
-
         for line in raw_lines:
-            if line.startswith("#"):
-                flush()
-                continue
-
-            if line.startswith(">"):
-                flush()
-                continue
-
-            if re.match(r"^(?:[-*]|\d+[.)])\s+", line):
-                # A list item is already a separate visual chunk. Its sentence length is
-                # still measured globally by _sentence_word_counts(), but it must not
-                # inflate "sentences per paragraph" by being joined to adjacent bullets.
-                flush()
+            is_boundary = (
+                line.startswith("#")
+                or line.startswith(">")
+                or bool(re.match(r"^(?:[-*]|\d+[.)])\s+", line))
+            )
+            if is_boundary:
+                if current:
+                    prose_groups.append(current)
+                    current = []
                 continue
 
             current.append(line)
 
-        flush()
+        if current:
+            prose_groups.append(current)
 
         for group in prose_groups:
             plain = _strip_markdown(" ".join(group))
