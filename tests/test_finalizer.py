@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import fitz
+import pymupdf
 
 from bc_science.finalizer import finalize_file, finalize_markdown
 
@@ -79,7 +79,7 @@ Testo semplice.
     assert result.pdf_path is not None and result.pdf_path.exists()
     assert result.pdf_pages >= 1
 
-    with fitz.open(result.pdf_path) as pdf:
+    with pymupdf.open(result.pdf_path) as pdf:
         assert pdf.page_count == result.pdf_pages
         assert pdf.page_count >= 1
 
