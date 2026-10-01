@@ -223,9 +223,70 @@ def _fix_known_mismatches(text: str) -> tuple[str, int]:
     return text[: match.start()] + replacement + text[match.end() :], 1
 
 
+def _finalize_frontmatter(text: str) -> tuple[str, int]:
+    """Keep cover, map, recap, index and renamed chapter labels consistent."""
+    changed = 0
+
+    title_pattern = re.compile(
+        r"(?m)^#\s+(.+?)\s*-\s*Riassunto rifinito\s*$"
+    )
+    if title_pattern.search(text):
+        text = title_pattern.sub(r"# \1 - Dispensa finale", text, count=1)
+        changed += 1
+
+    old_subtitle = (
+        "> Versione rifinita dell'ultimo riassunto BC Science; "
+        "non sostituisce la verifica sui PDF originali."
+    )
+    new_subtitle = (
+        "> Dispensa finale generata da BC Science. Il testo eCampus resta la base di studio; "
+        "le eventuali precisazioni scientifiche sono separate e citate."
+    )
+    if old_subtitle in text:
+        text = text.replace(old_subtitle, new_subtitle, 1)
+        changed += 1
+
+    old_label = "olfatto"
+    new_label = 'Controllo nervoso del movimento (materiale etichettato "olfatto")'
+
+    replacements = (
+        (f"- {old_label}\n", f"- {new_label}\n"),
+        (f"**{old_label}**:", f"**{new_label}**:"),
+        (
+            "gusto/tatto/olfatto/udito/vista",
+            'gusto/tatto/udito/vista + controllo nervoso del movimento (file "olfatto")',
+        ),
+    )
+    for old, new in replacements:
+        if old in text:
+            text = text.replace(old, new, 1)
+            changed += 1
+
+    return text, changed
+
+
+def _apply_scientific_notes_to_chapters(text: str) -> tuple[str, int]:
+    """Attach scientific notes to full chapters, not to front-matter recaps."""
+    index_pos = text.find("## Indice degli argomenti")
+    if index_pos < 0:
+        return _apply_scientific_notes(text)
+
+    content_pos = text.find("\n---\n", index_pos)
+    if content_pos < 0:
+        return _apply_scientific_notes(text)
+
+    split_at = content_pos + len("\n---\n")
+    prefix = text[:split_at]
+    chapters = text[split_at:]
+    chapters, note_count = _apply_scientific_notes(chapters)
+    return prefix + chapters, note_count
+
+
 def finalize_markdown(text: str) -> tuple[str, int, int]:
     finalized, organization_fixes = _fix_known_mismatches(text)
-    finalized, scientific_notes = _apply_scientific_notes(finalized)
+    finalized, frontmatter_fixes = _finalize_frontmatter(finalized)
+    organization_fixes += frontmatter_fixes
+    finalized, scientific_notes = _apply_scientific_notes_to_chapters(finalized)
     if not finalized.endswith("\n"):
         finalized += "\n"
     return finalized, scientific_notes, organization_fixes
