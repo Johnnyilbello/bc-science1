@@ -69,7 +69,7 @@ Per scegliere manualmente un file:
 
     bc-science refine --input "C:\percorso\riassunto.md"
 
-La rifinitura e piu rapida di una nuova analisi dei PDF. La 0.6.2 normalizza prima la struttura Markdown e poi valida ogni capitolo: rimuove o declassa heading H2 duplicati e fonde deterministicamente più sezioni `Da ricordare per l'esame` senza perdere il testo. Poi rifiuta placeholder, recap mancanti e finali sospettamente tronchi. Solo se resta un problema sostanziale rigenera quel singolo capitolo. Inoltre il Ripasso globale viene costruito dai veri `Da ricordare` dei capitoli invece che dai soli titoli, e i mismatch fra titolo e contenuto vengono marcati come `Verifica materiale`. Non puo pero recuperare informazioni che il riassunto sorgente aveva omesso: per la massima copertura resta disponibile `summarize ... --single`.
+La rifinitura e piu rapida di una nuova analisi dei PDF. La 0.6.3 normalizza prima la struttura Markdown e poi valida ogni capitolo: rimuove o declassa heading H2 duplicati e fonde deterministicamente più sezioni `Da ricordare per l'esame` senza perdere il testo. Poi rifiuta placeholder, recap mancanti e finali sospettamente tronchi. Solo se resta un problema sostanziale rigenera quel singolo capitolo. Inoltre il Ripasso globale viene costruito dai veri `Da ricordare` dei capitoli invece che dai soli titoli, e i mismatch fra titolo e contenuto vengono marcati come `Verifica materiale`. Non puo pero recuperare informazioni che il riassunto sorgente aveva omesso: per la massima copertura resta disponibile `summarize ... --single`.
 
 ### Indicizzare i materiali
 
@@ -194,4 +194,12 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.6.2**.
+Versione corrente: **0.6.3**.
+
+
+### Ripasso globale rapido
+
+Dalla 0.6.3 il `Ripasso globale` non richiede più una lunga generazione AI. Viene costruito
+deterministicamente dai veri blocchi `Da ricordare per l'esame` dei capitoli, con un richiamo
+ad alta resa per ciascun argomento. La sola `Mappa della materia` resta generata dal modello,
+con un budget breve e una cache stabile basata esclusivamente sui titoli.
