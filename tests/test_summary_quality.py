@@ -183,7 +183,7 @@ Testo applicativo.
     normalized, changed = _normalize_refined_structure(raw, "Fibre")
 
     assert changed
-    assert "Una frase completa.\n\n### Applicazione pratica" in normalized
+    assert "Una frase completa.\n### Applicazione pratica" in normalized
     assert "frase completa. ###" not in normalized
 
 
