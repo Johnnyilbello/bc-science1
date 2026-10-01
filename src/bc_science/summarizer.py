@@ -1155,7 +1155,7 @@ class Summarizer:
                             f"{'; '.join(remaining_structure)}"
                         )
                     repair_key = _key(
-                        PROMPT_VERSION,
+                        REFINE_PROMPT_VERSION,
                         self.model,
                         f"novice-structure-repair-{attempt}",
                         chapter_title,
