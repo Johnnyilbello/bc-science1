@@ -301,6 +301,13 @@ La spiegazione parte dall'idea generale.
 Le informazioni restano quelle della fonte.
 La struttura viene resa piu leggibile.
 Il testo non aggiunge conoscenze esterne.
+La spiegazione procede dal concetto generale ai dettagli.
+Ogni passaggio resta collegato al materiale sorgente.
+Le definizioni vengono mantenute senza inventare esempi.
+I meccanismi vengono presentati in ordine progressivo.
+Le informazioni utili all'esame non vengono eliminate.
+Il capitolo resta comprensibile anche a chi parte da zero.
+La struttura separa introduzione, spiegazione e ripasso finale.
 
 ### Da ricordare per l'esame
 - Punto importante.
