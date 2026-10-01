@@ -298,6 +298,7 @@ def refine(
             f"retry anti-troncamento: {summarizer.stats.continuation_calls} · "
             f"riparazioni qualita: {summarizer.stats.quality_repairs} · "
             f"riparazioni principiante: {summarizer.stats.novice_repairs} · "
+            f"fix layout: {summarizer.stats.novice_layout_fixes} · "
             f"chiarezza media: {novice_avg:.0f}/100 · "
             f"avvisi materiale: {summarizer.stats.source_warnings} · "
             f"fix struttura: {summarizer.stats.structural_fixes}"

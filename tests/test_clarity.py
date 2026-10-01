@@ -1,5 +1,6 @@
 from bc_science.clarity import (
     audit_novice_document,
+    normalize_novice_layout,
     novice_audit,
     readability_metrics,
 )
@@ -86,3 +87,24 @@ def test_document_audit_detects_missing_chapter():
     assert not passed
     second = next(audit for title, audit in results if title == "Secondo")
     assert any("assente" in issue for issue in second.issues)
+
+
+def test_layout_normalizer_splits_seven_sentence_paragraph_without_rewriting():
+    sentences = [f"Frase numero {index}." for index in range(1, 8)]
+    text = """## Capitolo
+
+### In parole semplici
+""" + " ".join(sentences) + """
+
+### Parole chiave
+- **Termine** — definizione semplice.
+
+### Da ricordare per l'esame
+- Punto importante.
+"""
+    normalized, fixes = normalize_novice_layout(text)
+
+    assert fixes == 1
+    assert all(sentence in normalized for sentence in sentences)
+    assert normalized.index(sentences[0]) < normalized.index(sentences[-1])
+    assert novice_audit(normalized).metrics.max_paragraph_sentences <= 5

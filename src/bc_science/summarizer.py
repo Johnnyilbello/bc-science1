@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .cache import CacheDB
-from .clarity import novice_audit
+from .clarity import normalize_novice_layout, novice_audit
 from .config import AppConfig
 from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
@@ -34,6 +34,7 @@ class SummaryStats:
     novice_repairs: int = 0
     novice_score_total: int = 0
     novice_chapters: int = 0
+    novice_layout_fixes: int = 0
 
 
 @dataclass(slots=True)
@@ -1027,18 +1028,30 @@ class Summarizer:
                         + "; ".join(remaining)
                     )
 
+            polished, layout_fixes = normalize_novice_layout(polished)
+            if layout_fixes:
+                self.stats.novice_layout_fixes += layout_fixes
+                if progress:
+                    progress(
+                        f"    chiarezza automatica: {layout_fixes} "
+                        f"{'paragrafo spezzato' if layout_fixes == 1 else 'paragrafi spezzati'}"
+                    )
+
             clarity = novice_audit(polished)
-            if not clarity.passed:
+            max_clarity_attempts = 4
+            attempt = 0
+            while not clarity.passed and attempt < max_clarity_attempts:
+                attempt += 1
                 self.stats.novice_repairs += 1
                 if progress:
                     progress(
-                        f"    controllo principiante: rigenero {chapter_title} "
-                        f"({'; '.join(clarity.issues)})"
+                        f"    autocorrezione principiante {attempt}/{max_clarity_attempts}: "
+                        f"{chapter_title} ({'; '.join(clarity.issues)})"
                     )
                 novice_key = _key(
                     PROMPT_VERSION,
                     self.model,
-                    "novice-repair",
+                    f"novice-repair-{attempt}",
                     chapter_title,
                     str(source_warning),
                     polished,
@@ -1053,7 +1066,7 @@ class Summarizer:
                         list(clarity.issues),
                         source_warning,
                     ),
-                    num_predict=3800,
+                    num_predict=3800 + (attempt - 1) * 500,
                 )
                 polished, structure_changed = _normalize_refined_structure(
                     polished,
@@ -1062,23 +1075,58 @@ class Summarizer:
                 if structure_changed:
                     self.stats.structural_fixes += 1
 
+                polished, layout_fixes = normalize_novice_layout(polished)
+                if layout_fixes:
+                    self.stats.novice_layout_fixes += layout_fixes
+
                 remaining_structure = _chapter_quality_issues(
                     polished,
                     chapter_title,
                     require_source_warning=source_warning,
                 )
                 if remaining_structure:
-                    raise ValueError(
-                        f"Il capitolo '{chapter_title}' perde la struttura durante "
-                        "la semplificazione: " + "; ".join(remaining_structure)
+                    if progress:
+                        progress(
+                            f"    struttura da correggere durante autocorrezione: "
+                            f"{'; '.join(remaining_structure)}"
+                        )
+                    repair_key = _key(
+                        PROMPT_VERSION,
+                        self.model,
+                        f"novice-structure-repair-{attempt}",
+                        chapter_title,
+                        polished,
+                        "|".join(remaining_structure),
                     )
+                    polished = self._cached_chat(
+                        repair_key,
+                        system,
+                        _repair_refined_chapter_prompt(
+                            chapter_title,
+                            polished,
+                            remaining_structure,
+                            source_warning,
+                        ),
+                        num_predict=4200,
+                    )
+                    polished, structure_changed = _normalize_refined_structure(
+                        polished,
+                        chapter_title,
+                    )
+                    if structure_changed:
+                        self.stats.structural_fixes += 1
+                    polished, layout_fixes = normalize_novice_layout(polished)
+                    if layout_fixes:
+                        self.stats.novice_layout_fixes += layout_fixes
 
                 clarity = novice_audit(polished)
-                if not clarity.passed:
-                    raise ValueError(
-                        f"Il capitolo '{chapter_title}' non e abbastanza comprensibile "
-                        "per un principiante: " + "; ".join(clarity.issues)
-                    )
+
+            if not clarity.passed:
+                raise ValueError(
+                    f"Il capitolo '{chapter_title}' non e ancora abbastanza comprensibile "
+                    f"dopo {max_clarity_attempts} autocorrezioni automatiche: "
+                    + "; ".join(clarity.issues)
+                )
 
             self.stats.novice_score_total += clarity.metrics.score
             self.stats.novice_chapters += 1

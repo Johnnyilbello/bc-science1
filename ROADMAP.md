@@ -24,7 +24,8 @@ non spiegate.
 - progressione quadro generale -> dettagli -> meccanismi -> ripasso;
 - frasi e paragrafi controllati per densità;
 - quality gate deterministico con score 0-100;
-- rigenerazione del solo capitolo che non supera il gate;
+- normalizzazione automatica dei paragrafi troppo densi senza riscrivere il contenuto;
+- autocorrezione iterativa del solo capitolo che non supera il gate, con più tentativi e rivalidazione;
 - comando bc-science clarity;
 - finalize bloccato se anche un solo capitolo non è novice-ready.
 
