@@ -764,11 +764,17 @@ def _save_refine_checkpoint(
 
 
 class Summarizer:
-    def __init__(self, config: AppConfig, profile: str | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        profile: str | None = None,
+        *,
+        db_path: Path | None = None,
+    ) -> None:
         self.config = config
         self.model = config.model_for_profile(profile)
         self.client = OllamaClient(config.ollama_url)
-        self.db = CacheDB()
+        self.db = CacheDB(db_path)
         self.stats = SummaryStats()
 
     def close(self) -> None:
