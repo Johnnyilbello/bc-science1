@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -287,7 +288,7 @@ def _chapter_quality_issues(
         heading.strip().casefold()
         for heading in re.findall(r"(?m)^###\s+(.+?)\s*$", chapter)
     ]
-    duplicate_h3 = [name for name, count in __import__("collections").Counter(h3_lines).items() if count > 1]
+    duplicate_h3 = [name for name, count in Counter(h3_lines).items() if count > 1]
     if duplicate_h3:
         issues.append("contiene sottosezioni H3 duplicate")
 
