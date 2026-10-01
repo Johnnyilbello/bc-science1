@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.3**.
+Versione corrente: **0.8.4**.
 
 
 ### Ripasso globale rapido
@@ -303,3 +303,14 @@ Il gate di chiarezza controlla anche l'integrità editoriale del documento:
 
 La cache di refine usa una nuova versione di prompt, quindi il primo refine dopo l'aggiornamento
 rigenera i capitoli invece di riutilizzare output 0.8.2 che potrebbero contenere difetti già noti.
+
+
+### Autocorrezione qualità 0.8.4
+
+Il controllo editoriale non si ferma più dopo una sola rigenerazione. Se restano problemi
+come sovraccarico di parole chiave, certificazioni scientifiche non ammesse o struttura
+non conforme, `refine` esegue fino a tre autocorrezioni qualità mirate prima di arrendersi.
+
+Il `Ripasso globale` limita inoltre la lunghezza di ogni richiamo: anche quando
+`Da ricordare per l'esame` è scritto come un lungo paragrafo invece che come elenco,
+il front matter non può più essere invaso da centinaia di parole per un singolo capitolo.

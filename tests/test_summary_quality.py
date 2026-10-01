@@ -239,3 +239,102 @@ Testo del capitolo.
 
     assert "rivedi il capitolo" not in recap
     assert "concetto di base" in recap
+
+
+def test_global_recap_truncates_long_prose_exam_section():
+    long_point = " ".join(["informazione"] * 120) + "."
+    chapter = f"""## Capitolo
+
+### In parole semplici
+Introduzione semplice.
+
+### Parole chiave
+- **Uno** — definizione.
+- **Due** — definizione.
+- **Tre** — definizione.
+
+### Da ricordare per l'esame
+{long_point}
+"""
+    recap = _build_global_recap([("Capitolo", chapter)])
+    recap_line = recap.splitlines()[1]
+
+    assert len(recap_line) < 360
+    assert "rivedi il capitolo" not in recap_line
+
+
+def test_refine_retries_quality_gate_until_structure_is_clean(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    summarizer = Summarizer(AppConfig())
+
+    source = """# Corso
+
+## Indice degli argomenti
+- Capitolo
+
+---
+
+## Capitolo
+
+Questo capitolo contiene materiale sorgente sufficiente per il test.
+Mantiene informazioni che non devono essere inventate o perse.
+La struttura iniziale deve essere migliorata.
+
+### Da ricordare per l'esame
+- Punto importante.
+"""
+
+    too_many_10 = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 11)
+    )
+    too_many_9 = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 10)
+    )
+    good_3 = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 4)
+    )
+
+    def chapter(keywords: str) -> str:
+        return f"""## Capitolo
+
+### In parole semplici
+Questo capitolo introduce il contenuto in modo semplice.
+La spiegazione parte dall'idea generale.
+
+### Parole chiave
+{keywords}
+
+### Spiegazione
+Le informazioni restano quelle della fonte.
+La struttura viene resa più leggibile.
+Il testo non aggiunge conoscenze esterne.
+
+### Da ricordare per l'esame
+- Punto importante.
+- Conserva il contenuto della fonte.
+"""
+
+    quality_attempts = 0
+
+    def fake_cached_chat(_cache_key, _system, user, *, num_predict=None):
+        nonlocal quality_attempts
+        if "La precedente generazione non ha superato il controllo qualita" in user:
+            quality_attempts += 1
+            return chapter(too_many_9 if quality_attempts == 1 else good_3)
+        if "Crea SOLO la sezione Markdown" in user:
+            return "## Mappa della materia\n- Capitolo"
+        return chapter(too_many_10)
+
+    monkeypatch.setattr(summarizer, "_cached_chat", fake_cached_chat)
+
+    try:
+        result = summarizer.refine_summary(source, "Corso - Riassunto rifinito")
+    finally:
+        summarizer.close()
+
+    assert quality_attempts == 2
+    assert "Termine 9" not in result
+    assert summarizer.stats.quality_repairs == 2
