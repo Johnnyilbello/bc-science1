@@ -171,6 +171,66 @@ L'uomo ha circa 100 milioni di neuroni. Rapporto: 1 neurone : 9 glie.
     assert note_pos > chapter_pos
 
 
+def test_finalize_applies_conservative_proofreading_and_sensory_title():
+    source = """# Corso
+
+## Ripasso globale
+5. **GUSTO**: gusto e olfatto.
+
+## Indice degli argomenti
+- GUSTO
+
+---
+
+## GUSTO
+
+### In parole semplici
+L'olfatto permette di percepire gli odori.
+Il gusto permette di percepire i sapori.
+Le biomolecole sono le "mattoni" fondamentali.
+In secondo luogo, questa legame attiva il segnale.
+Il segnale passa attraverso una sinapsia.
+Questa enzima aumenta il segnale.
+La trasduzione converte l'energia fisica del stimolo.
+I meccanocettori mediano tatto, propriocezione e equilibrio.
+
+### Da ricordare per l'esame
+- Gusto e olfatto sono sistemi sensoriali.
+"""
+    result, notes, fixes = finalize_markdown(source)
+
+    assert notes == 0
+    assert fixes == 9
+    assert "## GUSTO E OLFATTO" in result
+    assert "- GUSTO E OLFATTO" in result
+    assert "**GUSTO E OLFATTO**:" in result
+    assert 'Le biomolecole sono i "mattoni" fondamentali.' in result
+    assert "questo legame attiva il segnale" in result
+    assert "attraverso una sinapsi" in result
+    assert "Questo enzima aumenta il segnale" in result
+    assert "energia fisica dello stimolo" in result
+    assert "propriocezione ed equilibrio" in result
+    assert 'le "mattoni"' not in result
+    assert "questa legame" not in result
+    assert "sinapsia" not in result
+    assert "Questa enzima" not in result
+
+
+def test_finalize_proofreading_is_idempotent():
+    source = """# Corso
+
+## GUSTO
+L'olfatto e il gusto sono trattati insieme.
+Le biomolecole sono le "mattoni".
+"""
+    first, _notes_first, fixes_first = finalize_markdown(source)
+    second, _notes_second, fixes_second = finalize_markdown(first)
+
+    assert fixes_first > 0
+    assert fixes_second == 0
+    assert second == first
+
+
 def test_finalize_file_rejects_non_novice_ready_summary(tmp_path: Path):
     source = tmp_path / "Materia-riassunto-rifinito.md"
     source.write_text(
