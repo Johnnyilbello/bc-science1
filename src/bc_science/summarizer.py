@@ -15,6 +15,7 @@ from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
 PROMPT_VERSION = "summary-v8-novice-first"
+REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
 
 
 @dataclass(slots=True)
@@ -88,9 +89,11 @@ MODALITA RIASSUNTO SOURCE-ONLY:
 - NON aggiungere conoscenza generale, neppure in sezioni chiamate "Chiarimento".
 - NON correggere scientificamente le dispense usando conoscenze esterne.
 - Puoi correggere solo refusi ortografici evidenti quando il significato e inequivocabile.
-- Se il contenuto dei documenti non corrisponde al titolo del gruppo, segnalalo in una breve
-  nota "Verifica materiale" e riassumi comunque il contenuto realmente presente, senza chiedere
-  conferma all'utente.
+- Usa "Verifica materiale" SOLO quando titolo e contenuto non corrispondono.
+- "Verifica materiale" non deve mai certificare correttezza scientifica, assenza di errori o validita
+  fattuale: in modalita source-only non puoi stabilirlo.
+- Se titolo e contenuto non corrispondono, segnala soltanto il mismatch e riassumi comunque il
+  contenuto realmente presente, senza chiedere conferma all'utente.
 - Non lasciare mai una frase, una lista o una parola incompleta.
 - Una frase deve esprimere preferibilmente una sola idea.
 - Definisci i termini tecnici necessari al primo uso usando solo informazioni presenti nelle fonti.
@@ -321,8 +324,38 @@ def _chapter_quality_issues(
     if duplicate_h3:
         issues.append("contiene sottosezioni H3 duplicate")
 
-    if require_source_warning and "Verifica materiale" not in chapter:
+    has_verification = "Verifica materiale" in chapter
+    if require_source_warning and not has_verification:
         issues.append("manca la nota obbligatoria Verifica materiale")
+    if not require_source_warning and has_verification:
+        issues.append("contiene una sezione Verifica materiale non richiesta")
+
+    unsupported_validation = re.search(
+        r"(?i)(scientificamente corrett|corrett[oa] scientificamente|"
+        r"nessun errore fattuale|senza incongruenze evidenti|non richiede verifiche)",
+        chapter,
+    )
+    if unsupported_validation:
+        issues.append("contiene una certificazione scientifica non ammessa in modalita source-only")
+
+    if re.search(r"(?m)^.+[ \t]+#{3,6}\s+\S+", chapter):
+        issues.append("contiene un heading Markdown incollato alla fine di una frase")
+
+    keyword_match = re.search(
+        r"(?mis)^###\s+Parole chiave\s*$\n(?P<body>.*?)(?=^###\s+|\Z)",
+        chapter,
+    )
+    if keyword_match:
+        keyword_count = sum(
+            1
+            for line in keyword_match.group("body").splitlines()
+            if re.match(r"^\s*(?:[-*]|\d+[.)])\s+", line)
+        )
+        if not 3 <= keyword_count <= 8:
+            issues.append(
+                "Parole chiave deve contenere da 3 a 8 voci "
+                f"(trovate {keyword_count})"
+            )
 
     forbidden_placeholders = (
         "[spiegazione ordinata e semplice]",
@@ -351,8 +384,14 @@ def _chapter_quality_issues(
 def _normalize_refined_structure(chapter: str, title: str) -> tuple[str, bool]:
     """Repair Markdown-only structure without changing the chapter's factual content."""
     normalized = _normalize_chapter_heading(chapter, title)
+    separated = re.sub(
+        r"[ \t]+(?=#{3,6}\s+\S)",
+        "\n\n",
+        normalized,
+    )
+    changed = separated != normalized
+    normalized = separated
     lines = normalized.splitlines()
-    changed = False
 
     # Only the first line may be an H2. Preserve any later section title by demoting it.
     cleaned: list[str] = []
@@ -480,6 +519,9 @@ OBIETTIVO:
 - NON correggere scientificamente il contenuto usando conoscenza esterna;
 - non ripetere il titolo dentro il capitolo;
 - non ripetere piu volte "Da ricordare per l'esame";
+- NON creare "Verifica materiale" se non e richiesta esplicitamente sopra;
+- NON dichiarare mai che il materiale e scientificamente corretto, privo di errori o verificato;
+- ogni heading Markdown deve iniziare su una nuova riga, mai alla fine di una frase;
 - preferisci una idea per frase e paragrafi di massimo 5 frasi quando possibile;
 - termina con una frase completa.
 {warning}
@@ -526,7 +568,10 @@ OBIETTIVI:
 - spezza paragrafi lunghi in blocchi piu piccoli;
 - conserva TUTTE le informazioni distinte, i numeri, le definizioni, le eccezioni e le sequenze;
 - non semplificare eliminando contenuti utili all'esame;
-- non introdurre analogie o esempi non presenti nel capitolo.
+- non introdurre analogie o esempi non presenti nel capitolo;
+- non creare "Verifica materiale" se non e richiesta dal warning;
+- non dichiarare che la fonte e scientificamente corretta, verificata o priva di errori;
+- ogni heading Markdown deve iniziare su una nuova riga.
 {warning}
 STRUTTURA OBBLIGATORIA:
 ## {title}
@@ -593,8 +638,19 @@ def _build_global_recap(refined: list[tuple[str, str]]) -> str:
     for index, (title, chapter) in enumerate(refined, start=1):
         points = _extract_exam_points(chapter)
         if not points:
-            lines.append(f"{index}. **{title}**: rivedi il capitolo.")
-            continue
+            simple = re.search(
+                r"(?mis)^###\s+In parole semplici\s*$\n(?P<body>.*?)(?=^###\s+|\Z)",
+                chapter,
+            )
+            fallback = (
+                re.sub(r"\s+", " ", simple.group("body")).strip()
+                if simple
+                else ""
+            )
+            if not fallback:
+                fallback = re.sub(r"(?m)^#{1,6}\s+.*$", "", chapter)
+                fallback = re.sub(r"\s+", " ", fallback).strip()
+            points = [fallback[:600].rsplit(" ", 1)[0] + "…" if len(fallback) > 600 else fallback]
 
         selected: list[str] = []
         total = 0
@@ -609,7 +665,12 @@ def _build_global_recap(refined: list[tuple[str, str]]) -> str:
             total = projected
 
         recap = " ".join(selected) if selected else points[0]
-        lines.append(f"{index}. **{title}**: {recap}")
+        display_title = (
+            f"{title} (titolo da verificare)"
+            if "Verifica materiale" in chapter
+            else title
+        )
+        lines.append(f"{index}. **{display_title}**: {recap}")
     return "\n".join(lines)
 
 
@@ -622,6 +683,9 @@ def _refine_map_prompt(topic_titles: list[str]) -> str:
 Raggruppa i capitoli seguenti in 4-7 macro-aree logiche e mostra in modo molto breve
 i collegamenti principali. Massimo 12 punti complessivi. Non aggiungere conoscenza
 esterna e non creare altre sezioni.
+
+Se un titolo contiene "[VERIFICA MATERIALE]", NON dedurre dal titolo che il contenuto
+appartenga a quella materia: inseriscilo in una voce separata "Materiale da verificare".
 
 CAPITOLI:
 {topics}
@@ -959,7 +1023,7 @@ class Summarizer:
                 self.stats.source_warnings += 1
 
             cache_key = _key(
-                PROMPT_VERSION,
+                REFINE_PROMPT_VERSION,
                 self.model,
                 "refine-chapter",
                 chapter_title,
@@ -992,7 +1056,7 @@ class Summarizer:
                         f"({'; '.join(issues)})"
                     )
                 repair_key = _key(
-                    PROMPT_VERSION,
+                    REFINE_PROMPT_VERSION,
                     self.model,
                     "refine-repair",
                     chapter_title,
@@ -1049,7 +1113,7 @@ class Summarizer:
                         f"{chapter_title} ({'; '.join(clarity.issues)})"
                     )
                 novice_key = _key(
-                    PROMPT_VERSION,
+                    REFINE_PROMPT_VERSION,
                     self.model,
                     f"novice-repair-{attempt}",
                     chapter_title,
@@ -1091,7 +1155,7 @@ class Summarizer:
                             f"{'; '.join(remaining_structure)}"
                         )
                     repair_key = _key(
-                        PROMPT_VERSION,
+                        REFINE_PROMPT_VERSION,
                         self.model,
                         f"novice-structure-repair-{attempt}",
                         chapter_title,
@@ -1133,18 +1197,26 @@ class Summarizer:
             refined.append((chapter_title, polished))
 
         topic_titles = [chapter_title for chapter_title, _chapter in refined]
-        topic_list = "\n".join(topic_titles)
+        map_topics = [
+            (
+                f"{chapter_title} [VERIFICA MATERIALE]"
+                if "Verifica materiale" in chapter
+                else chapter_title
+            )
+            for chapter_title, chapter in refined
+        ]
+        topic_list = "\n".join(map_topics)
 
         map_key = _key(
-            PROMPT_VERSION,
+            REFINE_PROMPT_VERSION,
             self.model,
-            "refine-map-v1",
+            "refine-map-v2",
             topic_list,
         )
         map_section = self._cached_chat(
             map_key,
             system,
-            _refine_map_prompt(topic_titles),
+            _refine_map_prompt(map_topics),
             num_predict=650,
         ).strip()
         global_recap = _build_global_recap(refined)

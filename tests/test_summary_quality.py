@@ -4,7 +4,10 @@ from bc_science.config import AppConfig
 from bc_science.ollama_client import ChatResult
 from bc_science.summarizer import (
     Summarizer,
+    _build_global_recap,
+    _chapter_quality_issues,
     _normalize_chapter_heading,
+    _normalize_refined_structure,
     _summary_system_prompt,
 )
 
@@ -164,3 +167,75 @@ Ogni blocco tratta un'idea principale.
     assert "### Parole chiave" in result
     assert summarizer.stats.novice_repairs == 2
     assert summarizer.stats.novice_chapters == 1
+
+
+def test_normalizer_detaches_inline_markdown_heading():
+    raw = """## Fibre
+
+### Spiegazione
+Una frase completa. ### Applicazione pratica
+
+Testo applicativo.
+
+### Da ricordare per l'esame
+- Punto.
+"""
+    normalized, changed = _normalize_refined_structure(raw, "Fibre")
+
+    assert changed
+    assert "Una frase completa.\n### Applicazione pratica" in normalized
+    assert "frase completa. ###" not in normalized
+
+
+def test_quality_gate_rejects_too_many_keywords_and_fake_scientific_certification():
+    keywords = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 11)
+    )
+    chapter = f"""## Capitolo
+
+### Verifica materiale
+Il materiale e scientificamente corretto e non richiede verifiche.
+
+### In parole semplici
+Introduzione semplice.
+
+### Parole chiave
+{keywords}
+
+### Da ricordare per l'esame
+- Punto conclusivo.
+"""
+    issues = _chapter_quality_issues(
+        chapter,
+        "Capitolo",
+        require_source_warning=False,
+    )
+
+    assert any("Verifica materiale non richiesta" in issue for issue in issues)
+    assert any("certificazione scientifica" in issue for issue in issues)
+    assert any("3 a 8 voci" in issue for issue in issues)
+
+
+def test_global_recap_never_uses_review_chapter_placeholder():
+    chapter = """## Capitolo
+
+### In parole semplici
+Questo capitolo spiega il concetto di base con parole semplici.
+Mostra poi i dettagli necessari per comprenderlo.
+
+### Parole chiave
+- **Concetto** — idea principale.
+- **Dettaglio** — informazione aggiuntiva.
+- **Sequenza** — ordine dei passaggi.
+
+### Spiegazione
+Testo del capitolo.
+
+### Da ricordare per l'esame
+
+"""
+    recap = _build_global_recap([("Capitolo", chapter)])
+
+    assert "rivedi il capitolo" not in recap
+    assert "concetto di base" in recap

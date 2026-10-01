@@ -256,7 +256,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.8.2**.
+Versione corrente: **0.8.3**.
 
 
 ### Ripasso globale rapido
@@ -289,3 +289,17 @@ La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 Il gate di chiarezza distingue ora correttamente prosa, heading, note e liste Markdown.
 Una lista di 7 elementi non viene più interpretata come un singolo paragrafo di 7 frasi.
 Le liste continuano comunque a contribuire alle metriche globali di lunghezza delle frasi.
+
+
+### Integrità del riassunto 0.8.3
+
+Il gate di chiarezza controlla anche l'integrità editoriale del documento:
+- nessun placeholder `rivedi il capitolo` nel Ripasso globale;
+- `Parole chiave` limitate a 3-8 voci per capitolo;
+- heading Markdown sempre su una riga propria;
+- `In parole semplici` come prima sottosezione e `Da ricordare per l'esame` come ultima;
+- `Verifica materiale` ammessa solo per mismatch titolo/contenuto e mai come certificazione scientifica;
+- il front matter (mappa + ripasso globale) partecipa al gate prima di `finalize`.
+
+La cache di refine usa una nuova versione di prompt, quindi il primo refine dopo l'aggiornamento
+rigenera i capitoli invece di riutilizzare output 0.8.2 che potrebbero contenere difetti già noti.

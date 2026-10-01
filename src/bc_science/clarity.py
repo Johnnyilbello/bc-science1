@@ -235,6 +235,25 @@ def readability_metrics(text: str) -> ReadabilityMetrics:
     )
 
 
+def _section_body(text: str, heading: str) -> str:
+    match = re.search(
+        rf"(?mis)^###\s+{re.escape(heading)}\s*$\n(?P<body>.*?)(?=^###\s+|\Z)",
+        text,
+    )
+    return match.group("body").strip() if match else ""
+
+
+def _keyword_count(text: str) -> int:
+    body = _section_body(text, "Parole chiave")
+    if not body:
+        return 0
+    return sum(
+        1
+        for line in body.splitlines()
+        if re.match(r"^\s*(?:[-*]|\d+[.)])\s+", line)
+    )
+
+
 def novice_audit(text: str) -> NoviceAudit:
     metrics = readability_metrics(text)
     issues: list[str] = []
@@ -243,6 +262,29 @@ def novice_audit(text: str) -> NoviceAudit:
         issues.append("manca la sezione 'In parole semplici'")
     if not metrics.has_keywords:
         issues.append("manca la sezione 'Parole chiave'")
+
+    h3_titles = [
+        match.group(1).strip().casefold()
+        for match in re.finditer(r"(?m)^###\s+(.+?)\s*$", text)
+    ]
+    if h3_titles:
+        if h3_titles[0] != "in parole semplici":
+            issues.append("'In parole semplici' deve essere la prima sottosezione")
+        if len(h3_titles) < 2 or h3_titles[1] != "parole chiave":
+            issues.append("'Parole chiave' deve essere la seconda sottosezione")
+        if h3_titles[-1] != "da ricordare per l'esame":
+            issues.append("'Da ricordare per l'esame' deve essere l'ultima sottosezione")
+
+    keyword_count = _keyword_count(text)
+    if metrics.has_keywords and not 3 <= keyword_count <= 8:
+        issues.append(
+            "la sezione 'Parole chiave' deve contenere da 3 a 8 voci "
+            f"(trovate {keyword_count})"
+        )
+
+    if re.search(r"(?m)^.+[ \t]+###\s+\S+", text):
+        issues.append("contiene un heading Markdown incollato alla fine di una frase")
+
     if metrics.average_sentence_words > 28:
         issues.append(
             "frasi mediamente troppo lunghe per un principiante "
@@ -270,7 +312,7 @@ def novice_audit(text: str) -> NoviceAudit:
 
 
 def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]]]:
-    """Audit chapters listed in the deterministic course index."""
+    """Audit front matter and every chapter listed in the deterministic course index."""
     index_match = re.search(
         r"(?ms)^## Indice degli argomenti\s*$\n(?P<items>.*?)(?:\n---\n|\Z)",
         text,
@@ -278,12 +320,66 @@ def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]
     if not index_match:
         return False, [("documento", novice_audit(text))]
 
+    results: list[tuple[str, NoviceAudit]] = []
+    frontmatter = text[:index_match.start()]
+    front_issues: list[str] = []
+    if "rivedi il capitolo" in frontmatter.casefold():
+        front_issues.append("il Ripasso globale contiene placeholder 'rivedi il capitolo'")
+    if re.search(r"(?m)^.+\s+###\s+\S+", frontmatter):
+        front_issues.append("il front matter contiene heading Markdown inline")
+    if "## Ripasso globale" not in frontmatter:
+        front_issues.append("manca il Ripasso globale")
+    if "## Mappa della materia" not in frontmatter:
+        front_issues.append("manca la Mappa della materia")
+    raw_front_metrics = readability_metrics(frontmatter)
+    front_metrics = ReadabilityMetrics(
+        sentence_count=raw_front_metrics.sentence_count,
+        average_sentence_words=raw_front_metrics.average_sentence_words,
+        max_sentence_words=raw_front_metrics.max_sentence_words,
+        long_sentence_ratio=raw_front_metrics.long_sentence_ratio,
+        max_paragraph_words=raw_front_metrics.max_paragraph_words,
+        max_paragraph_sentences=raw_front_metrics.max_paragraph_sentences,
+        has_simple_intro=True,
+        has_keywords=True,
+        score=100 if not front_issues else 0,
+    )
+
     titles = [
         match.group(1).strip()
         for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", index_match.group("items"))
     ]
+    recap_match = re.search(
+        r"(?ms)^## Ripasso globale\s*$\n(?P<body>.*?)(?=^##\s+|\Z)",
+        frontmatter,
+    )
+    if recap_match:
+        recap_items = re.findall(r"(?m)^\d+\.\s+", recap_match.group("body"))
+        if len(recap_items) != len(titles):
+            front_issues.append(
+                "il Ripasso globale non contiene una voce per ogni capitolo "
+                f"({len(recap_items)}/{len(titles)})"
+            )
+
+    if front_issues and front_metrics.score != 0:
+        front_metrics = ReadabilityMetrics(
+            sentence_count=front_metrics.sentence_count,
+            average_sentence_words=front_metrics.average_sentence_words,
+            max_sentence_words=front_metrics.max_sentence_words,
+            long_sentence_ratio=front_metrics.long_sentence_ratio,
+            max_paragraph_words=front_metrics.max_paragraph_words,
+            max_paragraph_sentences=front_metrics.max_paragraph_sentences,
+            has_simple_intro=True,
+            has_keywords=True,
+            score=0,
+        )
+    results.append(
+        (
+            "Front matter",
+            NoviceAudit(metrics=front_metrics, issues=tuple(front_issues)),
+        )
+    )
+
     body = text[index_match.end():]
-    results: list[tuple[str, NoviceAudit]] = []
 
     for title in titles:
         chapter_match = re.search(

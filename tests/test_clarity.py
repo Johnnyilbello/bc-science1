@@ -54,6 +54,13 @@ def test_document_audit_checks_every_indexed_chapter():
     chapter_b = _novice_chapter("Secondo")
     text = f"""# Corso
 
+## Mappa della materia
+- Primo e Secondo.
+
+## Ripasso globale
+1. **Primo**: concetto principale.
+2. **Secondo**: concetto principale.
+
 ## Indice degli argomenti
 - Primo
 - Secondo
@@ -68,8 +75,8 @@ def test_document_audit_checks_every_indexed_chapter():
 """
     passed, results = audit_novice_document(text)
     assert passed
-    assert len(results) == 2
-    assert all(audit.metrics.score >= 80 for _, audit in results)
+    assert len(results) == 3
+    assert all(audit.passed for _, audit in results)
 
 
 def test_document_audit_detects_missing_chapter():
@@ -134,3 +141,54 @@ Ogni gruppo ha una funzione specifica.
 
     assert audit.metrics.max_paragraph_sentences <= 5
     assert not any("troppe frasi" in issue for issue in audit.issues)
+
+
+def test_novice_audit_rejects_keyword_overload_and_inline_heading():
+    keywords = "\n".join(
+        f"- **Termine {index}** — definizione semplice."
+        for index in range(1, 10)
+    )
+    text = f"""## Capitolo
+
+### In parole semplici
+Introduzione semplice per chi parte da zero.
+
+### Parole chiave
+{keywords}
+
+### Spiegazione
+Frase semplice. ### Applicazione
+
+Altra frase.
+
+### Da ricordare per l'esame
+- Punto.
+"""
+    audit = novice_audit(text)
+
+    assert not audit.passed
+    assert any("3 a 8 voci" in issue for issue in audit.issues)
+    assert any("heading Markdown" in issue for issue in audit.issues)
+
+
+def test_document_audit_rejects_incomplete_global_recap_frontmatter():
+    text = f"""# Corso
+
+## Mappa della materia
+- Primo
+
+## Ripasso globale
+1. **Primo**: rivedi il capitolo.
+
+## Indice degli argomenti
+- Primo
+
+---
+
+{_novice_chapter("Primo")}
+"""
+    passed, results = audit_novice_document(text)
+
+    assert not passed
+    front = next(audit for title, audit in results if title == "Front matter")
+    assert any("rivedi il capitolo" in issue for issue in front.issues)
