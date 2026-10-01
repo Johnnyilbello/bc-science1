@@ -11,6 +11,7 @@ from rich.table import Table
 from .cache import CacheDB
 from .config import AppConfig, app_home, resolve_ask_profile
 from .documents import iter_source_files
+from .finalizer import finalize_file
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
@@ -300,6 +301,94 @@ def refine(
         )
     finally:
         summarizer.close()
+
+
+@app.command()
+def finalize(
+    source: Annotated[
+        Path | None,
+        typer.Option(
+            "--input",
+            "-i",
+            help="Riassunto rifinito Markdown; se omesso usa l'ultimo disponibile",
+        ),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--output-dir",
+            "-o",
+            help="Cartella di destinazione; default: outputs/final",
+        ),
+    ] = None,
+    pdf: Annotated[
+        bool,
+        typer.Option("--pdf/--no-pdf", help="Genera il PDF finale"),
+    ] = True,
+    docx: Annotated[
+        bool,
+        typer.Option("--docx/--no-docx", help="Genera anche il DOCX modificabile"),
+    ] = True,
+) -> None:
+    """Crea la dispensa finale da un riassunto rifinito, senza rileggere i PDF."""
+    outputs = app_home() / "outputs"
+
+    if source is None:
+        candidates = sorted(
+            outputs.glob("*-riassunto-rifinito.md"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not candidates:
+            console.print(
+                "[red]Nessun riassunto rifinito trovato.[/] "
+                "Esegui prima 'bc-science refine'."
+            )
+            raise typer.Exit(1)
+        source = candidates[0]
+
+    source = source.expanduser().resolve()
+    destination = (output_dir or (outputs / "final")).expanduser().resolve()
+
+    console.print(f"Finalizzo [cyan]{source.name}[/].")
+    console.print(
+        "[dim]Il testo eCampus resta invariato; eventuali precisazioni scientifiche "
+        "vengono aggiunte come note separate e citate.[/]"
+    )
+
+    started = time.perf_counter()
+    try:
+        result = finalize_file(
+            source,
+            destination,
+            create_docx=docx,
+            create_pdf=pdf,
+        )
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    elapsed = time.perf_counter() - started
+
+    console.print()
+    console.print(f"[green]Dispensa finale creata:[/] {result.markdown_path}")
+    if result.docx_path:
+        console.print(f"[green]DOCX:[/] {result.docx_path}")
+    if result.pdf_path:
+        console.print(
+            f"[green]PDF:[/] {result.pdf_path} "
+            f"[dim]({result.pdf_pages} pagine)[/]"
+        )
+    console.print(
+        "[dim]"
+        f"Tempo: {elapsed:.1f}s · "
+        f"note scientifiche: {result.scientific_notes} · "
+        f"fix organizzativi: {result.organization_fixes}"
+        "[/]"
+    )
+    console.print(
+        "[yellow]Nota:[/] finalize non sostituisce il testo delle dispense: "
+        "le precisazioni scientifiche restano visivamente separate."
+    )
 
 
 @app.command()
