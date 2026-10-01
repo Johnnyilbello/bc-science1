@@ -129,8 +129,8 @@ def normalize_novice_layout(
     max_sentences_per_paragraph: int = 5,
 ) -> tuple[str, int]:
     """Repair layout deterministically using the same boundaries as the clarity gate."""
-    normalized, heading_fixes = normalize_inline_headings(text)
-    fixes = heading_fixes
+    normalized, _heading_fixes = normalize_inline_headings(text)
+    fixes = 0
     output: list[str] = []
     prose_lines: list[str] = []
 
@@ -147,7 +147,7 @@ def normalize_novice_layout(
             return
 
         chunks = [
-            " ".join(units[start:start + max_sentences_per_paragraph])
+            "\n".join(units[start:start + max_sentences_per_paragraph])
             for start in range(0, len(units), max_sentences_per_paragraph)
         ]
         for index, chunk in enumerate(chunks):
