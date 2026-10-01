@@ -54,6 +54,13 @@ def test_document_audit_checks_every_indexed_chapter():
     chapter_b = _novice_chapter("Secondo")
     text = f"""# Corso
 
+## Mappa della materia
+- Primo e Secondo.
+
+## Ripasso globale
+1. **Primo**: concetto principale.
+2. **Secondo**: concetto principale.
+
 ## Indice degli argomenti
 - Primo
 - Secondo
@@ -68,8 +75,8 @@ def test_document_audit_checks_every_indexed_chapter():
 """
     passed, results = audit_novice_document(text)
     assert passed
-    assert len(results) == 2
-    assert all(audit.metrics.score >= 80 for _, audit in results)
+    assert len(results) == 3
+    assert all(audit.passed for _, audit in results)
 
 
 def test_document_audit_detects_missing_chapter():
