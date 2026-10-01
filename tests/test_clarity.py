@@ -215,3 +215,30 @@ I dettagli vengono aggiunti dopo il quadro generale.
 
     assert audit.passed
     assert not audit.metrics.has_keywords
+
+
+def test_layout_normalizer_handles_mixed_prose_boundaries_and_inline_heading():
+    dense = " ".join(f"Frase {index} descrive un concetto." for index in range(1, 8))
+    text = f"""## Capitolo
+
+### In parole semplici
+{dense}
+> Nota separata che non deve impedire la correzione del paragrafo.
+
+### Spiegazione
+Una frase completa. ### Applicazione pratica
+Testo applicativo semplice.
+
+### Da ricordare per l'esame
+- Punto importante.
+"""
+
+    normalized, fixes = normalize_novice_layout(text)
+    audit = novice_audit(normalized)
+
+    assert fixes >= 1
+    assert "frase completa. ###" not in normalized.casefold()
+    assert "\n### Applicazione pratica\n" in normalized
+    assert audit.metrics.max_paragraph_sentences <= 5
+    assert not any("heading Markdown" in issue for issue in audit.issues)
+    assert not any("troppe frasi" in issue for issue in audit.issues)
