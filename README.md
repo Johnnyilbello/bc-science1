@@ -229,7 +229,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.7.0**.
+Versione corrente: **0.7.1**.
 
 
 ### Ripasso globale rapido
