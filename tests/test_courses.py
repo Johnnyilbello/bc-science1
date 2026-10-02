@@ -126,3 +126,132 @@ def test_different_courses_get_different_workspace_databases(tmp_path: Path, mon
     assert len(scans) == 3
     assert len(db_paths) == 3
     assert all("workspaces" in path.parts for path in db_paths)
+
+
+
+def test_added_document_uses_incremental_course_update(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    root = tmp_path / "SCIENZE MOTORIE"
+    subject = root / "FISIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "Neuroni 1.txt").write_text("contenuto base", encoding="utf-8")
+
+    calls = {"ingest": [], "summarize": 0, "incremental": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        calls["ingest"].append(([path.name for path in files], prune_missing))
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summarize"] += 1
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
+                "## Neuroni\n### In parole semplici\nBase.\n"
+                "### Da ricordare per l'esame\n- Punto base.\n"
+            )
+
+        def incremental_update_course(
+            self,
+            existing_summary,
+            new_files,
+            title,
+            *,
+            progress=None,
+        ):
+            calls["incremental"] += 1
+            assert [path.name for path in new_files] == ["Neuroni 2.txt"]
+            return existing_summary + "\nAggiornato incrementalmente.\n", 1, 0
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+
+    first = build_course(scan_courses(root)[0], AppConfig())
+    assert first.state == "creata"
+    assert calls["summarize"] == 1
+    assert calls["incremental"] == 0
+
+    (subject / "Neuroni 2.txt").write_text("nuove informazioni", encoding="utf-8")
+    status = course_state(scan_courses(root)[0])
+    assert (status.new_files, status.changed_files, status.removed_files) == (1, 0, 0)
+
+    second = build_course(scan_courses(root)[0], AppConfig())
+
+    assert second.incremental_files == 1
+    assert second.updated_chapters == 1
+    assert second.new_chapters == 0
+    assert second.fallback_full_rebuild is False
+    assert calls["summarize"] == 1
+    assert calls["incremental"] == 1
+    assert calls["ingest"] == [
+        (["Neuroni 1.txt"], True),
+        (["Neuroni 2.txt"], False),
+    ]
+    assert second.output_path is not None
+    assert "Aggiornato incrementalmente" in second.output_path.read_text(encoding="utf-8")
+    assert course_state(scan_courses(root)[0]).state == "pronta"
+
+
+def test_incremental_failure_falls_back_to_full_course_rebuild(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    root = tmp_path / "SCIENZE MOTORIE"
+    subject = root / "ANATOMIA"
+    subject.mkdir(parents=True)
+    (subject / "Ossa 1.txt").write_text("base", encoding="utf-8")
+
+    calls = {"summarize": 0, "incremental": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summarize"] += 1
+            return f"# {title}\n\n## Indice degli argomenti\n- Ossa\n"
+
+        def incremental_update_course(
+            self,
+            existing_summary,
+            new_files,
+            title,
+            *,
+            progress=None,
+        ):
+            calls["incremental"] += 1
+            raise ValueError("gate anti-perdita")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+
+    build_course(scan_courses(root)[0], AppConfig())
+    (subject / "Ossa 2.txt").write_text("nuovo", encoding="utf-8")
+    result = build_course(scan_courses(root)[0], AppConfig())
+
+    assert result.incremental_files == 1
+    assert result.fallback_full_rebuild is True
+    assert calls == {"summarize": 2, "incremental": 1}
