@@ -34,6 +34,10 @@ class AppConfig:
     num_predict: int = 1800
     keep_alive: str = "20m"
     profile: str = "standard"
+    scientific_research_enabled: bool = False
+    ncbi_email: str = ""
+    ncbi_api_key: str = ""
+    research_max_sources_per_chapter: int = 3
 
     @property
     def path(self) -> Path:
