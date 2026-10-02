@@ -243,6 +243,20 @@ def courses_build(
                 f"{result.removed_index} rimossi"
                 "[/]"
             )
+            if result.incremental_files:
+                if result.fallback_full_rebuild:
+                    console.print(
+                        "[yellow]Incrementale:[/] "
+                        f"{result.incremental_files} nuovi documenti rilevati, "
+                        "ma il merge non ha superato il gate: rebuild completo eseguito."
+                    )
+                else:
+                    console.print(
+                        "[green]Incrementale:[/] "
+                        f"analizzati solo {result.incremental_files} nuovi documenti · "
+                        f"{result.updated_chapters} capitoli aggiornati · "
+                        f"{result.new_chapters} capitoli nuovi"
+                    )
 
     console.print()
     console.print(
