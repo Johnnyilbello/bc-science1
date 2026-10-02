@@ -148,9 +148,18 @@ class PubMedClient:
             "OR review[Publication Type] OR practice guideline[Publication Type])"
         )
         pmids = self.search(priority_query, retmax=max_sources)
-        if not pmids:
-            pmids = self.search(query, retmax=max_sources)
-        return self.fetch(pmids[:max_sources])
+        priority_sources = [
+            source for source in self.fetch(pmids[:max_sources]) if source.abstract.strip()
+        ]
+        if priority_sources:
+            return priority_sources
+
+        fallback_pmids = self.search(query, retmax=max_sources)
+        return [
+            source
+            for source in self.fetch(fallback_pmids[:max_sources])
+            if source.abstract.strip()
+        ]
 
 
 def _text(node: ET.Element | None) -> str:
@@ -436,6 +445,32 @@ FONTI PUBMED:
             raise ResearchError("Approfondimento privo di citazioni alle fonti recuperate.")
         if any(value < 1 or value > source_count for value in citations):
             raise ResearchError("Approfondimento contiene citazioni a fonti inesistenti.")
+
+        required_sections = (
+            "Cosa aggiunge la letteratura",
+            "Per capire meglio",
+            "Limiti delle evidenze recuperate",
+        )
+        for heading in required_sections:
+            match = re.search(
+                rf"(?ms)^###\s+{re.escape(heading)}\s*$\n"
+                rf"(?P<body>.*?)(?=^###\s+|\Z)",
+                text,
+            )
+            if match is None or not match.group("body").strip():
+                raise ResearchError(f"Approfondimento privo della sezione '{heading}'.")
+            section_citations = [
+                int(value)
+                for value in re.findall(r"\[(\d+)\]", match.group("body"))
+            ]
+            if not section_citations:
+                raise ResearchError(
+                    f"La sezione '{heading}' non cita alcuna fonte recuperata."
+                )
+            if any(value < 1 or value > source_count for value in section_citations):
+                raise ResearchError(
+                    f"La sezione '{heading}' cita una fonte inesistente."
+                )
 
     @staticmethod
     def _bibliography(sources: list[ScientificSource]) -> str:
