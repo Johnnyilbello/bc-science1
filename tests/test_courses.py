@@ -3,8 +3,12 @@ from pathlib import Path
 from bc_science import courses
 from bc_science.config import AppConfig
 from bc_science.courses import (
+    audit_course_summary,
     build_course,
+    course_pdf_path,
     course_state,
+    existing_course_summary_path,
+    scan_course,
     scan_courses,
     workspace_db_path,
 )
@@ -79,7 +83,12 @@ def test_course_build_uses_workspace_manifest_and_skips_unchanged(
 
         def summarize_course(self, files, title, *, progress=None):
             calls["summarize"] += 1
-            return f"# {title}\n\n## Capitolo\nContenuto.\n"
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- lezione\n\n---\n\n"
+                "## lezione\n### In parole semplici\nContenuto di base.\n"
+                "### Da ricordare per l'esame\n- Punto di base.\n"
+            )
 
         def close(self):
             return None
@@ -171,7 +180,12 @@ def test_added_document_uses_incremental_course_update(tmp_path: Path, monkeypat
         ):
             calls["incremental"] += 1
             assert [path.name for path in new_files] == ["Neuroni 2.txt"]
-            return existing_summary + "\nAggiornato incrementalmente.\n", 1, 0
+            return (
+                existing_summary + "\nAggiornato incrementalmente.\n",
+                1,
+                0,
+                {str(new_files[0].resolve()): "Neuroni"},
+            )
 
         def close(self):
             return None
@@ -255,3 +269,211 @@ def test_incremental_failure_falls_back_to_full_course_rebuild(tmp_path: Path, m
     assert result.incremental_files == 1
     assert result.fallback_full_rebuild is True
     assert calls == {"summarize": 2, "incremental": 1}
+
+
+
+def test_existing_current_summary_generates_missing_pdf_without_resummarizing(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    root = tmp_path / "SCIENZE MOTORIE"
+    subject = root / "BIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "Cellula 1.txt").write_text("contenuto", encoding="utf-8")
+
+    calls = {"summarize": 0, "pdf": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summarize"] += 1
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Cellula\n\n---\n\n"
+                "## Cellula\n### In parole semplici\nLa cellula è trattata nelle dispense.\n"
+                "### Da ricordare per l'esame\n- Punto cellula.\n"
+            )
+
+        def close(self):
+            return None
+
+    def fake_pdf(markdown, destination, title):
+        calls["pdf"] += 1
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"%PDF-test")
+        return 7
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+
+    scan = scan_courses(root)[0]
+    first = build_course(scan, AppConfig())
+    assert first.coverage_complete is True
+    assert first.pdf_pages == 7
+    assert calls == {"summarize": 1, "pdf": 1}
+
+    course_pdf_path(scan).unlink()
+    second = build_course(scan_courses(root)[0], AppConfig())
+
+    assert second.state == "riutilizzata"
+    assert second.pdf_generated is True
+    assert second.pdf_pages == 7
+    assert calls == {"summarize": 1, "pdf": 2}
+
+
+def test_legacy_summary_without_verified_manifest_is_rebuilt(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
+    subject.mkdir(parents=True)
+    (subject / "Ossa 1.txt").write_text("ossa", encoding="utf-8")
+    scan = scan_course(subject)
+
+    legacy = tmp_path / "home" / "outputs" / "ANATOMIA-riassunto-unico.md"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text(
+        "# Vecchio\n\n## Indice degli argomenti\n- Ossa\n\n---\n\n## Ossa\nVecchio.",
+        encoding="utf-8",
+    )
+    assert existing_course_summary_path(scan) == legacy
+
+    calls = {"summarize": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summarize"] += 1
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Ossa\n\n---\n\n"
+                "## Ossa\n### In parole semplici\nOssa.\n"
+                "### Da ricordare per l'esame\n- Ossa.\n"
+            )
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(
+        courses,
+        "export_pdf",
+        lambda markdown, destination, title: (
+            destination.parent.mkdir(parents=True, exist_ok=True),
+            destination.write_bytes(b"%PDF-test"),
+            3,
+        )[-1],
+    )
+
+    result = build_course(scan, AppConfig())
+
+    assert calls["summarize"] == 1
+    assert result.coverage_complete is True
+    assert result.output_path is not None and result.output_path != legacy
+    assert result.pdf_path is not None and result.pdf_path.exists()
+
+
+def test_coverage_audit_detects_missing_topic_even_with_summary_file(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "FISIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "Neuroni 1.txt").write_text("neuroni", encoding="utf-8")
+    (subject / "Muscoli 1.txt").write_text("muscoli", encoding="utf-8")
+    scan = scan_course(subject)
+
+    incomplete = """# FISIOLOGIA - Riassunto completo
+
+## Indice degli argomenti
+- Neuroni
+
+---
+
+## Neuroni
+### In parole semplici
+Neuroni.
+### Da ricordare per l'esame
+- Neuroni.
+"""
+    coverage = audit_course_summary(
+        scan,
+        incomplete,
+        source_verified=True,
+    )
+
+    assert coverage.complete is False
+    assert coverage.covered_source_count == 1
+    assert "Muscoli" in coverage.missing_topics
+
+
+def test_course_state_reports_coverage_and_pdf_status(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
+    subject.mkdir(parents=True)
+    (subject / "Ossa 1.txt").write_text("ossa", encoding="utf-8")
+    scan = scan_course(subject)
+
+    calls = {"summary": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summary"] += 1
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Ossa\n\n---\n\n"
+                "## Ossa\n### In parole semplici\nOssa.\n"
+                "### Da ricordare per l'esame\n- Ossa.\n"
+            )
+
+        def close(self):
+            return None
+
+    def fake_pdf(markdown, destination, title):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"%PDF-test")
+        return 4
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+
+    build_course(scan, AppConfig())
+    state = course_state(scan)
+
+    assert state.state == "pronta"
+    assert state.coverage_state == "completa"
+    assert state.pdf_state == "aggiornato"
