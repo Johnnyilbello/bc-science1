@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from bc_science.config import AppConfig
-from bc_science.summarizer import Summarizer
+from bc_science.summarizer import Summarizer, group_course_files, normalize_topic_stem
 
 
 def test_incremental_summary_updates_only_matching_chapter(tmp_path: Path, monkeypatch):
@@ -256,3 +256,45 @@ Questa struttura permette di studiare insieme le informazioni precedenti e quell
     assert source_mapping == {str(new_file.resolve()): "Neuroni"}
     assert result.count("## Neuroni") == 1
     assert "comunicano attraverso sinapsi" in result
+
+
+def test_real_ecampus_filename_variants_merge_into_base_topics(tmp_path: Path):
+    names = [
+        "BIOSINTESI DEGLI ACIDI GRASSI.pdf",
+        "BIOSINTESI DEGLI ACIDI GRASSI 2.pdf",
+        "BIOSINTESI DEGLI ACIDI GRASSI FAQ.pdf",
+        "Il trasporto attivo.pdf",
+        "Il trasporto attivo quiz.pdf",
+        "Fosforilazione ossidativa parte I.pdf",
+        "Fosforilazione ossidativa parte 2.pdf",
+        "GLICOLISI e via dei pentoso fosfati.pdf",
+        "GLICOLISI e via dei pentoso fosfati. 2pdf.pdf",
+        "la biochimica dell'esercizio.pdf",
+        "la biochimica dell'esercizio2 .pdf",
+        "La genetica delle popolazioni.pdf",
+        "La genetica delle popolazioni 1p.pdf",
+    ]
+    files = []
+    for name in names:
+        path = tmp_path / name
+        path.write_text("x", encoding="utf-8")
+        files.append(path)
+
+    groups = group_course_files(files)
+    grouped = {group.title: [path.name for path in group.files] for group in groups}
+
+    assert len(grouped["BIOSINTESI DEGLI ACIDI GRASSI"]) == 3
+    assert len(grouped["Il trasporto attivo"]) == 2
+    assert len(grouped["Fosforilazione ossidativa"]) == 2
+    assert len(grouped["GLICOLISI e via dei pentoso fosfati"]) == 2
+    assert len(grouped["la biochimica dell'esercizio"]) == 2
+    assert len(grouped["La genetica delle popolazioni"]) == 2
+
+
+def test_topic_normalization_preserves_scientific_numbers():
+    assert normalize_topic_stem("Diabete tipo 2") == "Diabete tipo 2"
+    assert normalize_topic_stem("Fase 2") == "Fase 2"
+    assert normalize_topic_stem("Vitamina B12") == "Vitamina B12"
+    assert normalize_topic_stem("CO2") == "CO2"
+    assert normalize_topic_stem("pH 7") == "pH 7"
+    assert normalize_topic_stem("Omega 3") == "Omega 3"
