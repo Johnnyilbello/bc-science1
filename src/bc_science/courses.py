@@ -35,6 +35,7 @@ IGNORED_DIR_NAMES = {
 IGNORED_FILE_SUFFIXES = {".tmp", ".bak", ".part", ".crdownload"}
 GENERATED_MARKERS = (
     "-riassunto-unico",
+    "-riassunto-studio",
     "-riassunto-rifinito",
     "-dispensa-finale",
 )
@@ -75,6 +76,7 @@ class CourseState:
     removed_files: int = 0
     coverage_state: str = "manca"
     pdf_state: str = "manca"
+    study_state: str = "manca"
     existing_summary_path: Path | None = None
 
 
@@ -95,6 +97,10 @@ class CourseBuildResult:
     pdf_path: Path | None = None
     pdf_pages: int = 0
     pdf_generated: bool = False
+    study_path: Path | None = None
+    study_pdf_path: Path | None = None
+    study_pdf_pages: int = 0
+    study_generated: bool = False
 
 
 def _is_hidden_or_ignored_dir(name: str) -> bool:
@@ -185,6 +191,14 @@ def course_pdf_path(scan: CourseScan) -> Path:
     return app_home() / "outputs" / "courses" / scan.name / "riassunto-unico.pdf"
 
 
+def course_study_output_path(scan: CourseScan) -> Path:
+    return app_home() / "outputs" / "courses" / scan.name / "riassunto-studio.md"
+
+
+def course_study_pdf_path(scan: CourseScan) -> Path:
+    return app_home() / "outputs" / "courses" / scan.name / "riassunto-studio.pdf"
+
+
 def _legacy_summary_path(scan: CourseScan) -> Path | None:
     root = app_home() / "outputs"
     exact = root / f"{scan.name}-riassunto-unico.md"
@@ -244,7 +258,7 @@ def _load_manifest(scan: CourseScan) -> dict | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return None
-    if not isinstance(data, dict) or data.get("schema") not in {1, 2}:
+    if not isinstance(data, dict) or data.get("schema") not in {1, 2, 3}:
         return None
     return data
 
@@ -334,7 +348,7 @@ def audit_course_summary(
             missing_topics.append(group.title)
 
     manifest_verified = False
-    if manifest is not None and manifest.get("schema") == 2:
+    if manifest is not None and manifest.get("schema") in {2, 3}:
         manifest_verified = (
             manifest.get("fingerprint") == current_fingerprint
             and manifest.get("summary_sha256") == _summary_sha256(summary_text)
@@ -374,7 +388,7 @@ def audit_course_summary(
 
 
 def _manifest_baseline_verified(summary_text: str, manifest: dict | None) -> bool:
-    if not manifest or manifest.get("schema") != 2:
+    if not manifest or manifest.get("schema") not in {2, 3}:
         return False
     if manifest.get("summary_sha256") != _summary_sha256(summary_text):
         return False
@@ -410,6 +424,39 @@ def _pdf_is_current(scan: CourseScan, manifest: dict | None, summary_text: str) 
     )
 
 
+
+def _study_is_current(
+    scan: CourseScan,
+    manifest: dict | None,
+    summary_text: str,
+) -> bool:
+    if not manifest or manifest.get("schema") != 3:
+        return False
+    study = manifest.get("study")
+    if not isinstance(study, dict):
+        return False
+
+    markdown = course_study_output_path(scan)
+    pdf = course_study_pdf_path(scan)
+    if not markdown.exists() or not pdf.exists():
+        return False
+
+    try:
+        study_text = markdown.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+    pdf_info = study.get("pdf")
+    return (
+        study.get("source_summary_sha256") == _summary_sha256(summary_text)
+        and study.get("summary_sha256") == _summary_sha256(study_text)
+        and study.get("path") == str(markdown)
+        and isinstance(pdf_info, dict)
+        and pdf_info.get("path") == str(pdf)
+        and pdf_info.get("summary_sha256") == _summary_sha256(study_text)
+    )
+
+
 def _write_manifest(
     scan: CourseScan,
     snapshot: list[dict[str, str | int]],
@@ -419,12 +466,16 @@ def _write_manifest(
     *,
     pdf_path: Path | None,
     pdf_pages: int,
+    study_path: Path | None = None,
+    study_text: str | None = None,
+    study_pdf_path: Path | None = None,
+    study_pdf_pages: int = 0,
 ) -> None:
     target = _manifest_path(scan)
     target.parent.mkdir(parents=True, exist_ok=True)
     chapter_titles = _chapter_titles(summary_text)
     payload = {
-        "schema": 2,
+        "schema": 3,
         "course": scan.name,
         "source": str(scan.path),
         "fingerprint": _fingerprint(snapshot),
@@ -443,6 +494,24 @@ def _write_manifest(
                 "summary_sha256": _summary_sha256(summary_text),
             }
             if pdf_path is not None
+            else None
+        ),
+        "study": (
+            {
+                "path": str(study_path),
+                "source_summary_sha256": _summary_sha256(summary_text),
+                "summary_sha256": _summary_sha256(study_text),
+                "pdf": {
+                    "path": str(study_pdf_path),
+                    "pages": study_pdf_pages,
+                    "summary_sha256": _summary_sha256(study_text),
+                },
+            }
+            if (
+                study_path is not None
+                and study_text is not None
+                and study_pdf_path is not None
+            )
             else None
         ),
     }
@@ -518,6 +587,54 @@ def _ensure_pdf(
     return pdf, pages, True
 
 
+def _ensure_study(
+    scan: CourseScan,
+    summary_text: str,
+    config: AppConfig,
+    profile: str,
+    *,
+    db_path: Path,
+    manifest: dict | None,
+    progress: Callable[[str], None] | None,
+) -> tuple[Path | None, str | None, Path | None, int, bool]:
+    if _study_is_current(scan, manifest, summary_text):
+        study_path = course_study_output_path(scan)
+        study_text = study_path.read_text(encoding="utf-8")
+        study_info = manifest.get("study") if manifest else {}
+        pdf_info = study_info.get("pdf") if isinstance(study_info, dict) else {}
+        pages = int(pdf_info.get("pages", 0)) if isinstance(pdf_info, dict) else 0
+        return study_path, study_text, course_study_pdf_path(scan), pages, False
+
+    summarizer = Summarizer(config, profile, db_path=db_path)
+    try:
+        builder = getattr(summarizer, "build_study_summary", None)
+        if not callable(builder):
+            return None, None, None, 0, False
+
+        checkpoint = workspace_path(scan) / "study.checkpoint.json"
+        study_text = builder(
+            summary_text,
+            title=f"{scan.name} - Riassunto studio",
+            progress=progress,
+            checkpoint_path=checkpoint,
+        )
+    finally:
+        summarizer.close()
+
+    if not study_text.strip():
+        raise ValueError(f"La versione studio di {scan.name} risulta vuota.")
+
+    study_path = course_study_output_path(scan)
+    _save_summary(study_path, study_text)
+    pdf_path = course_study_pdf_path(scan)
+    pages = export_pdf(
+        study_text,
+        pdf_path,
+        f"{scan.name} - Riassunto studio",
+    )
+    return study_path, study_text, pdf_path, pages, True
+
+
 def course_state(scan: CourseScan) -> CourseState:
     output = course_output_path(scan)
     existing = existing_course_summary_path(scan)
@@ -538,6 +655,7 @@ def course_state(scan: CourseScan) -> CourseState:
     removed_files = 0
     coverage_state = "manca"
     pdf_state = "manca"
+    study_state = "manca"
 
     if not scan.supported_files:
         state = "vuota"
@@ -581,6 +699,16 @@ def course_state(scan: CourseScan) -> CourseState:
                 else "da aggiornare"
             )
 
+        if callable(getattr(Summarizer, "build_study_summary", None)):
+            if _study_is_current(scan, manifest, summary_text):
+                study_state = "aggiornato"
+            elif course_study_output_path(scan).exists():
+                study_state = "da aggiornare"
+            else:
+                study_state = "manca"
+            if state == "pronta" and study_state != "aggiornato":
+                state = "modificata"
+
     return CourseState(
         scan=scan,
         state=state,
@@ -592,6 +720,7 @@ def course_state(scan: CourseScan) -> CourseState:
         removed_files=removed_files,
         coverage_state=coverage_state,
         pdf_state=pdf_state,
+        study_state=study_state,
         existing_summary_path=existing,
     )
 
@@ -669,6 +798,21 @@ def build_course(
                 manifest=manifest,
             )
             coverage_map = _coverage_map_from_manifest(manifest)
+            (
+                study_path,
+                study_text,
+                study_pdf,
+                study_pages,
+                study_generated,
+            ) = _ensure_study(
+                scan,
+                existing_text,
+                config,
+                profile,
+                db_path=workspace_db_path(scan),
+                manifest=manifest,
+                progress=progress,
+            )
             _write_manifest(
                 scan,
                 snapshot,
@@ -677,6 +821,10 @@ def build_course(
                 coverage_map,
                 pdf_path=pdf,
                 pdf_pages=pages,
+                study_path=study_path,
+                study_text=study_text,
+                study_pdf_path=study_pdf,
+                study_pdf_pages=study_pages,
             )
             return CourseBuildResult(
                 scan=scan,
@@ -686,6 +834,10 @@ def build_course(
                 pdf_path=pdf,
                 pdf_pages=pages,
                 pdf_generated=pdf_generated,
+                study_path=study_path,
+                study_pdf_path=study_pdf,
+                study_pdf_pages=study_pages,
+                study_generated=study_generated,
             )
 
     workspace = workspace_path(scan)
@@ -825,6 +977,21 @@ def build_course(
         summary,
         manifest=None,
     )
+    (
+        study_path,
+        study_text,
+        study_pdf,
+        study_pages,
+        study_generated,
+    ) = _ensure_study(
+        scan,
+        summary,
+        config,
+        profile,
+        db_path=db_path,
+        manifest=None,
+        progress=progress,
+    )
     _write_manifest(
         scan,
         snapshot,
@@ -833,6 +1000,10 @@ def build_course(
         coverage_map,
         pdf_path=pdf,
         pdf_pages=pages,
+        study_path=study_path,
+        study_text=study_text,
+        study_pdf_path=study_pdf,
+        study_pdf_pages=study_pages,
     )
 
     return CourseBuildResult(
@@ -851,6 +1022,10 @@ def build_course(
         pdf_path=pdf,
         pdf_pages=pages,
         pdf_generated=pdf_generated,
+        study_path=study_path,
+        study_pdf_path=study_pdf,
+        study_pdf_pages=study_pages,
+        study_generated=study_generated,
     )
 
 
