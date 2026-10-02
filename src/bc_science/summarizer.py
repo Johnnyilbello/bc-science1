@@ -64,14 +64,20 @@ def normalize_topic_stem(stem: str) -> str:
     return text or stem.strip()
 
 
+def topic_key(title: str) -> str:
+    """Return a stable comparison key for course topic titles."""
+    normalized = normalize_topic_stem(title).casefold()
+    normalized = re.sub(r"^(?:i|il|lo|la|gli|le)\s+", "", normalized).strip()
+    return re.sub(r"\s+", " ", normalized)
+
+
 def group_course_files(files: list[Path]) -> list[TopicGroup]:
     grouped: dict[str, TopicGroup] = {}
     order: list[str] = []
 
     for path in files:
         title = normalize_topic_stem(path.stem)
-        key = title.casefold()
-        key = re.sub(r"^(?:i|il|lo|la|gli|le)\s+", "", key).strip()
+        key = topic_key(title)
         if key not in grouped:
             grouped[key] = TopicGroup(title=title, files=[])
             order.append(key)
@@ -656,6 +662,113 @@ def _build_global_recap(refined: list[tuple[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _incremental_merge_prompt(
+    title: str,
+    existing_chapter: str,
+    new_chapter: str,
+) -> str:
+    return f"""Aggiorna il capitolo "{title}" usando ESCLUSIVAMENTE due fonti:
+1. il capitolo BC Science gia esistente;
+2. il nuovo materiale appena aggiunto.
+
+OBIETTIVO:
+- conserva TUTTE le informazioni distinte gia presenti nel capitolo esistente;
+- integra soltanto le informazioni nuove supportate dal nuovo materiale;
+- elimina soltanto duplicazioni reali;
+- non aggiungere conoscenza esterna;
+- non correggere scientificamente le fonti in modo silenzioso;
+- mantieni numeri, definizioni, classificazioni, sequenze ed eccezioni;
+- scrivi per una persona che parte da zero;
+- non citare nomi di file;
+- termina con una frase completa.
+
+STRUTTURA OBBLIGATORIA:
+## {title}
+### In parole semplici
+[quadro mentale aggiornato]
+### Parole chiave
+[solo se utili e supportate]
+[testo completo integrato in sottosezioni chiare]
+### Da ricordare per l'esame
+[punti essenziali che includano anche quelli gia validi prima dell'aggiornamento]
+
+CAPITOLO ESISTENTE:
+{existing_chapter}
+
+NUOVO MATERIALE:
+{new_chapter}
+"""
+
+
+def _incremental_merge_repair_prompt(
+    title: str,
+    existing_chapter: str,
+    new_chapter: str,
+    candidate: str,
+) -> str:
+    return f"""Correggi il candidato di aggiornamento del capitolo "{title}".
+
+Il candidato ha perso informazioni del capitolo precedente o non rispetta la struttura.
+Rigeneralo integralmente usando SOLO il capitolo esistente e il nuovo materiale.
+
+REGOLE NON NEGOZIABILI:
+- nessuna informazione distinta del capitolo esistente puo essere eliminata;
+- aggiungi le nuove informazioni senza duplicarle;
+- nessuna conoscenza esterna;
+- un solo H2 "## {title}";
+- "### In parole semplici" all'inizio delle sottosezioni;
+- una sola "### Da ricordare per l'esame" alla fine;
+- frase finale completa.
+
+CAPITOLO ESISTENTE:
+{existing_chapter}
+
+NUOVO MATERIALE:
+{new_chapter}
+
+CANDIDATO DA CORREGGERE:
+{candidate}
+"""
+
+
+def _preserves_existing_exam_points(existing: str, candidate: str) -> bool:
+    """Detect catastrophic information loss during an incremental chapter merge."""
+    points = _extract_exam_points(existing)
+    if not points:
+        return len(candidate) >= max(200, int(len(existing) * 0.65))
+
+    candidate_tokens = {
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", candidate.casefold())
+        if len(token) >= 4
+    }
+    for point in points:
+        tokens = {
+            token
+            for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", point.casefold())
+            if len(token) >= 4
+        }
+        if not tokens:
+            continue
+        overlap = len(tokens & candidate_tokens) / len(tokens)
+        if overlap < 0.55:
+            return False
+    return True
+
+
+def _existing_map_section(text: str) -> str:
+    match = re.search(
+        r"(?ms)^## Mappa della materia\s*$\n.*?(?=^## Ripasso globale\s*$|^## Indice degli argomenti\s*$)",
+        text,
+    )
+    return match.group(0).strip() if match else ""
+
+
+def _frontmatter_prefix_before_map(text: str) -> str:
+    match = re.search(r"(?m)^## Mappa della materia\s*$", text)
+    return text[:match.start()].rstrip() if match else ""
+
+
 def _refine_map_prompt(topic_titles: list[str]) -> str:
     topics = "\n".join(f"- {item}" for item in topic_titles)
     return f"""Crea SOLO la sezione Markdown:
@@ -1043,6 +1156,167 @@ class Summarizer:
             + separator.join(chapters)
             + "\n"
         )
+
+    def incremental_update_course(
+        self,
+        existing_summary: str,
+        new_files: list[Path],
+        title: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> tuple[str, int, int]:
+        """Update only chapters affected by newly added source files."""
+        chapters = _extract_summary_chapters(existing_summary)
+        if not chapters:
+            raise ValueError("Il riassunto esistente non contiene capitoli aggiornabili.")
+
+        groups = group_course_files(new_files)
+        if not groups:
+            return existing_summary, 0, 0
+
+        records = list(chapters)
+        existing_by_key = {
+            topic_key(chapter_title): index
+            for index, (chapter_title, _chapter) in enumerate(records)
+        }
+        updated_chapters = 0
+        new_chapters = 0
+
+        for group_index, group in enumerate(groups, start=1):
+            if progress:
+                progress(
+                    f"[incrementale {group_index}/{len(groups)}] Analizzo {group.title} "
+                    f"({len(group.files)} {'documento' if len(group.files) == 1 else 'documenti'})"
+                )
+
+            new_material = self._summarize_topic(group, progress=progress)
+            if not new_material:
+                raise ValueError(f"Il nuovo materiale {group.title} non produce contenuto.")
+
+            key = topic_key(group.title)
+            existing_index = existing_by_key.get(key)
+            if existing_index is None:
+                normalized = _normalize_chapter_heading(new_material, group.title)
+                records.append((group.title, normalized))
+                existing_by_key[key] = len(records) - 1
+                new_chapters += 1
+                if progress:
+                    progress(f"Nuovo capitolo: {group.title}")
+                continue
+
+            chapter_title, old_chapter = records[existing_index]
+            _, domain = classify_domain(old_chapter + "\n\n" + new_material)
+            system = _summary_system_prompt(domain)
+            cache_key = _key(
+                "incremental-course-v1",
+                self.model,
+                chapter_title,
+                old_chapter,
+                new_material,
+            )
+            merged = self._cached_chat(
+                cache_key,
+                system,
+                _incremental_merge_prompt(chapter_title, old_chapter, new_material),
+                num_predict=3000,
+            )
+            merged = _normalize_chapter_heading(
+                _dedupe_exact_blocks(merged),
+                chapter_title,
+            )
+
+            issues = _chapter_quality_issues(merged, chapter_title)
+            preserved = _preserves_existing_exam_points(old_chapter, merged)
+            if issues or not preserved:
+                repair_key = _key(
+                    "incremental-course-repair-v1",
+                    self.model,
+                    chapter_title,
+                    old_chapter,
+                    new_material,
+                    merged,
+                )
+                merged = self._cached_chat(
+                    repair_key,
+                    system,
+                    _incremental_merge_repair_prompt(
+                        chapter_title,
+                        old_chapter,
+                        new_material,
+                        merged,
+                    ),
+                    num_predict=3400,
+                )
+                merged = _normalize_chapter_heading(
+                    _dedupe_exact_blocks(merged),
+                    chapter_title,
+                )
+                issues = _chapter_quality_issues(merged, chapter_title)
+                preserved = _preserves_existing_exam_points(old_chapter, merged)
+
+            if issues or not preserved:
+                detail = "; ".join(issues) if issues else "perdita di contenuti preesistenti"
+                raise ValueError(
+                    f"Merge incrementale non sicuro per {chapter_title}: {detail}."
+                )
+
+            records[existing_index] = (chapter_title, merged)
+            updated_chapters += 1
+            if progress:
+                progress(f"Capitolo aggiornato: {chapter_title}")
+
+        prefix = _frontmatter_prefix_before_map(existing_summary)
+        if not prefix:
+            prefix = f"# {title}"
+
+        if new_chapters:
+            titles_for_map = [
+                (
+                    f"{chapter_title} [VERIFICA MATERIALE]"
+                    if "Verifica materiale" in chapter
+                    else chapter_title
+                )
+                for chapter_title, chapter in records
+            ]
+            map_key = _key(
+                "incremental-map-v1",
+                self.model,
+                title,
+                "\n".join(titles_for_map),
+            )
+            map_section = self._cached_chat(
+                map_key,
+                _summary_system_prompt("Scienze Motorie"),
+                _refine_map_prompt(titles_for_map),
+                num_predict=900,
+            ).strip()
+            if not map_section.startswith("## Mappa della materia"):
+                map_section = _existing_map_section(existing_summary)
+        else:
+            map_section = _existing_map_section(existing_summary)
+
+        if not map_section:
+            map_section = "## Mappa della materia\n- Consulta l'indice degli argomenti."
+
+        recap = _build_global_recap(records)
+        toc = "## Indice degli argomenti\n" + "\n".join(
+            f"- {chapter_title}" for chapter_title, _chapter in records
+        )
+        separator = "\n\n---\n\n"
+        updated = (
+            prefix
+            + "\n\n"
+            + map_section
+            + "\n\n"
+            + recap
+            + "\n\n"
+            + toc
+            + separator
+            + separator.join(chapter for _title, chapter in records)
+            + "\n"
+        )
+        return updated, updated_chapters, new_chapters
+
 
     def refine_summary(
         self,
