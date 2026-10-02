@@ -65,6 +65,18 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Normalizzazione dispense eCampus — 0.9.4
+
+La normalizzazione dei nomi file usa ora regole conservative basate sul corpus reale:
+
+- `Argomento 2`, `Argomento 3` -> stesso argomento;
+- `Argomento FAQ` e `Argomento quiz` -> stesso capitolo principale;
+- `parte I`, `parte II`, `parte 2` -> stesso argomento;
+- artefatti come `2pdf`, `1p` e suffissi attaccati come `esercizio2` vengono rimossi quando sono marcatori di variante;
+- numeri scientificamente significativi come `tipo 2`, `fase 2`, `B12`, `CO2`, `pH 7`, `Omega 3` vengono preservati.
+
+Questo evita capitoli duplicati o artificiali nei riassunti unici senza cancellare numeri che fanno parte del contenuto scientifico.
+
 ## Riassunto unico verificato + PDF — 0.9.3
 
 `bc-science courses build` non considera più sufficiente la semplice presenza di un file chiamato `riassunto-unico.md`. Prima di riutilizzarlo verifica che sia realmente basato sulle dispense correnti e che tutti gli argomenti siano rappresentati.
@@ -367,7 +379,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.9.3**.
+Versione corrente: **0.9.4**.
 
 
 ### Ripasso globale rapido
