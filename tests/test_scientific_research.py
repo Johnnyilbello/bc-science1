@@ -1,6 +1,6 @@
 import json
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import httpx
 
@@ -14,7 +14,6 @@ from bc_science.scientific_research import (
     research_output_path,
     research_state,
 )
-
 
 PUBMED_XML = """<?xml version="1.0"?>
 <PubmedArticleSet>
