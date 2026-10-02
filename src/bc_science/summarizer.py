@@ -1207,15 +1207,18 @@ class Summarizer:
         title: str,
         *,
         progress: Callable[[str], None] | None = None,
-    ) -> tuple[str, int, int]:
-        """Update only chapters affected by newly added source files."""
+    ) -> tuple[str, int, int, dict[str, str]]:
+        """Update only chapters affected by newly added source files.
+
+        The returned mapping records which chapter consumed each newly added source file.
+        """
         chapters = _extract_summary_chapters(existing_summary)
         if not chapters:
             raise ValueError("Il riassunto esistente non contiene capitoli aggiornabili.")
 
         groups = group_course_files(new_files)
         if not groups:
-            return existing_summary, 0, 0
+            return existing_summary, 0, 0, {}
 
         records = list(chapters)
         existing_by_key = {
@@ -1224,6 +1227,7 @@ class Summarizer:
         }
         updated_chapters = 0
         new_chapters = 0
+        source_chapters: dict[str, str] = {}
 
         for group_index, group in enumerate(groups, start=1):
             if progress:
@@ -1276,6 +1280,8 @@ class Summarizer:
                 records.append((group.title, normalized))
                 existing_by_key[key] = len(records) - 1
                 new_chapters += 1
+                for source_file in group.files:
+                    source_chapters[str(source_file.resolve())] = group.title
                 if progress:
                     progress(f"Nuovo capitolo: {group.title}")
                 continue
@@ -1346,6 +1352,8 @@ class Summarizer:
                 )
 
             records[existing_index] = (chapter_title, merged)
+            for source_file in group.files:
+                source_chapters[str(source_file.resolve())] = chapter_title
             updated_chapters += 1
             if progress:
                 progress(f"Capitolo aggiornato: {chapter_title}")
@@ -1400,7 +1408,7 @@ class Summarizer:
             + separator.join(chapter for _title, chapter in records)
             + "\n"
         )
-        return updated, updated_chapters, new_chapters
+        return updated, updated_chapters, new_chapters, source_chapters
 
 
     def refine_summary(
