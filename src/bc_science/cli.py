@@ -313,6 +313,7 @@ def courses_status(
     table.add_column("Delta")
     table.add_column("Copertura")
     table.add_column("PDF")
+    table.add_column("Studio")
     table.add_column("Output")
 
     state_style = {
@@ -337,6 +338,7 @@ def courses_status(
             delta,
             item.coverage_state,
             item.pdf_state,
+            item.study_state,
             str(item.existing_summary_path) if item.existing_summary_path else "—",
         )
 
@@ -414,6 +416,16 @@ def courses_build(
                     f"[dim]PDF unico già aggiornato: {result.pdf_path} "
                     f"({result.pdf_pages} pagine)[/]"
                 )
+            if result.study_generated and result.study_pdf_path is not None:
+                console.print(
+                    f"[green]Versione studio generata:[/] {result.study_pdf_path} "
+                    f"({result.study_pdf_pages} pagine)"
+                )
+            elif result.study_pdf_path is not None:
+                console.print(
+                    f"[dim]Versione studio già aggiornata: {result.study_pdf_path} "
+                    f"({result.study_pdf_pages} pagine)[/]"
+                )
         elif result.state == "vuota":
             empty += 1
             console.print("[yellow]Nessun documento supportato: materia saltata.[/]")
@@ -447,6 +459,11 @@ def courses_build(
                 console.print(
                     f"[green]PDF unico:[/] {result.pdf_path} "
                     f"({result.pdf_pages} pagine)"
+                )
+            if result.study_pdf_path is not None:
+                console.print(
+                    f"[green]PDF studio:[/] {result.study_pdf_path} "
+                    f"({result.study_pdf_pages} pagine)"
                 )
 
         if config.scientific_research_enabled and result.output_path is not None:

@@ -6,6 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from .cache import CacheDB
@@ -17,6 +18,7 @@ from .ollama_client import OllamaClient
 
 PROMPT_VERSION = "summary-v8-novice-first"
 REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
+STUDY_PROMPT_VERSION = "study-v1-semantic-dedupe"
 
 
 @dataclass(slots=True)
@@ -358,6 +360,206 @@ def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
     return chapters
 
 
+
+_STUDY_TITLE_REPLACEMENTS = {
+    "cavitò": "cavità",
+    "introduzone": "introduzione",
+    "mebrane": "membrane",
+    "celulla": "cellula",
+    "nuucleo": "nucleo",
+}
+
+_STUDY_STOPWORDS = {
+    "anche",
+    "come",
+    "dalla",
+    "delle",
+    "degli",
+    "della",
+    "dello",
+    "dell",
+    "sono",
+    "viene",
+    "questo",
+    "questa",
+    "quello",
+    "quella",
+    "nella",
+    "nelle",
+    "negli",
+    "alla",
+    "alle",
+    "agli",
+    "attraverso",
+    "durante",
+    "quando",
+    "perché",
+    "perche",
+    "dopo",
+    "prima",
+    "ogni",
+    "tutti",
+    "tutte",
+}
+
+
+def _clean_study_title(title: str) -> str:
+    """Normalize obvious editorial noise only in the study-layer title."""
+    value = re.sub(r"\s+", " ", title).strip()
+    for wrong, right in _STUDY_TITLE_REPLACEMENTS.items():
+        value = re.sub(rf"(?i)\b{re.escape(wrong)}\b", right, value)
+
+    # Real corpus example: "Dispendio energeticoDispendio energetico".
+    repeated = re.match(r"(?is)^(.{6,}?)\1$", value)
+    if repeated:
+        value = repeated.group(1).strip()
+
+    return re.sub(r"\s+", " ", value).strip(" -_.,") or title.strip()
+
+
+def _study_token_set(chapter: str) -> set[str]:
+    body = re.sub(r"(?m)^#{1,6}\s+.*$", " ", chapter)
+    body = re.sub(
+        r"(?i)\s*\((?:fonte|fonti)\s*:[^)\n]{1,320}\)",
+        " ",
+        body,
+    )
+    return {
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ]{4,}", body.casefold())
+        if token not in _STUDY_STOPWORDS
+    }
+
+
+def _study_content_overlap(left: str, right: str) -> float:
+    left_tokens = _study_token_set(left)
+    right_tokens = _study_token_set(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
+
+
+def _study_chapters_should_merge(
+    left_title: str,
+    left_chapter: str,
+    right_title: str,
+    right_chapter: str,
+) -> bool:
+    """Conservatively merge near-duplicate chapters only when content also overlaps."""
+    left_key = topic_key(_clean_study_title(left_title))
+    right_key = topic_key(_clean_study_title(right_title))
+    if left_key == right_key:
+        return True
+
+    overlap = _study_content_overlap(left_chapter, right_chapter)
+
+    # A trailing number is treated as an export/lesson variant only when a matching
+    # base chapter exists and the actual chapter content substantially overlaps.
+    left_base = re.sub(r"\s+\d+$", "", left_key).strip()
+    right_base = re.sub(r"\s+\d+$", "", right_key).strip()
+    if left_base == right_base and left_key != right_key:
+        return overlap >= 0.30
+
+    title_similarity = SequenceMatcher(None, left_key, right_key).ratio()
+    return title_similarity >= 0.94 and overlap >= 0.45
+
+
+def _chapter_without_h2(chapter: str) -> str:
+    lines = chapter.strip().splitlines()
+    if lines and re.match(r"^##\s+", lines[0]):
+        lines = lines[1:]
+    return "\n".join(lines).strip()
+
+
+def _prepare_study_source(text: str, *, title: str) -> str:
+    """Build a deduplicated source document before the model performs study compression."""
+    chapters = _extract_summary_chapters(text)
+    if not chapters:
+        raise ValueError(
+            "Il riassunto completo non contiene un indice BC Science valido."
+        )
+
+    groups: list[dict[str, object]] = []
+    for chapter_title, chapter in chapters:
+        cleaned_title = _clean_study_title(chapter_title)
+        target: dict[str, object] | None = None
+        for candidate in groups:
+            candidate_title = str(candidate["title"])
+            candidate_chapters = candidate["chapters"]
+            if not isinstance(candidate_chapters, list) or not candidate_chapters:
+                continue
+            first_chapter = str(candidate_chapters[0])
+            if _study_chapters_should_merge(
+                candidate_title,
+                first_chapter,
+                cleaned_title,
+                chapter,
+            ):
+                target = candidate
+                break
+
+        if target is None:
+            groups.append({"title": cleaned_title, "chapters": [chapter]})
+            continue
+
+        target_chapters = target["chapters"]
+        if isinstance(target_chapters, list):
+            target_chapters.append(chapter)
+
+        # Prefer the cleaner/shorter title when two variants represent the same topic.
+        current_title = str(target["title"])
+        if len(cleaned_title) < len(current_title):
+            target["title"] = cleaned_title
+
+    records: list[tuple[str, str]] = []
+    for group in groups:
+        chapter_title = str(group["title"])
+        raw_chapters = group["chapters"]
+        if not isinstance(raw_chapters, list):
+            continue
+        bodies = [
+            _chapter_without_h2(str(chapter))
+            for chapter in raw_chapters
+            if str(chapter).strip()
+        ]
+        merged_body = _dedupe_exact_blocks("\n\n".join(bodies))
+        records.append(
+            (
+                chapter_title,
+                f"## {chapter_title}\n\n{merged_body}".strip(),
+            )
+        )
+
+    toc = "## Indice degli argomenti\n" + "\n".join(
+        f"- {chapter_title}" for chapter_title, _chapter in records
+    )
+    separator = "\n\n---\n\n"
+    return (
+        f"# {title}\n\n"
+        + toc
+        + separator
+        + separator.join(chapter for _chapter_title, chapter in records)
+        + "\n"
+    )
+
+
+def _strip_study_citations(text: str) -> str:
+    """Hide source-page noise in the study copy while the complete copy keeps traceability."""
+    cleaned = re.sub(
+        r"(?i)\s*\((?:fonte|fonti)\s*:[^)\n]{1,320}\)",
+        "",
+        text,
+    )
+    cleaned = re.sub(
+        r"(?i)\s*\[(?:fonte|fonti)\s*:[^\]\n]{1,320}\]",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"[ \t]+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned
+
+
 def _chapter_title_supported(title: str, chapter: str) -> bool:
     body = re.sub(r"(?m)^#{1,6}\s+.*$", "", chapter).casefold()
     tokens = [
@@ -576,7 +778,8 @@ OBIETTIVO:
 VINCOLI STRUTTURALI:
 - esattamente UN heading H2: "## {title}", solo come prima riga;
 - subito dopo eventuale "Verifica materiale", inserisci "### In parole semplici";
-- "### Parole chiave" e FACOLTATIVA: se aiuta davvero, usa poche definizioni semplici supportate dal capitolo; altrimenti omettila;
+- inserisci "### Concetti chiave" con definizioni o relazioni essenziali supportate dal capitolo;
+- inserisci "### Spiegazione ordinata" e concentra qui tutti i dettagli distinti, una sola volta;
 - nessun altro heading H2 nel capitolo;
 - esattamente UNA sezione finale "### Da ricordare per l'esame";
 - dopo "Da ricordare per l'esame" usa punti brevi, senza riscrivere tutto il capitolo.
@@ -625,9 +828,10 @@ STRUTTURA OBBLIGATORIA:
 ## {title}
 ### In parole semplici
 3-5 frasi introduttive, senza conoscenze pregresse richieste.
-[FACOLTATIVO: ### Parole chiave
-solo se aiuta davvero la comprensione; usa termini gia presenti nel capitolo e spiegazioni supportate dalla fonte]
-[resto del capitolo in ordine progressivo]
+### Concetti chiave
+[termini, relazioni e definizioni davvero necessarie, supportate dal capitolo]
+### Spiegazione ordinata
+[spiega tutti i contenuti distinti in ordine logico, senza duplicazioni]
 ### Da ricordare per l'esame
 [una sola sezione finale]
 
@@ -858,6 +1062,22 @@ def _preserves_existing_exam_points(existing: str, candidate: str) -> bool:
         overlap = len(tokens & candidate_tokens) / len(tokens)
         if overlap < 0.55:
             return False
+    return True
+
+
+def _preserves_exam_numbers(existing: str, candidate: str) -> bool:
+    """Require numerical facts present in exam-recap bullets to survive study compression."""
+    candidate_text = _strip_study_citations(candidate).casefold()
+    for point in _extract_exam_points(existing):
+        source_point = _strip_study_citations(point)
+        expressions = re.findall(
+            r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[A-Za-zÀ-ÿµ°]+))?",
+            source_point,
+        )
+        for expression in expressions:
+            normalized = re.sub(r"\s+", " ", expression).strip().casefold()
+            if normalized and normalized not in candidate_text:
+                return False
     return True
 
 
@@ -1783,6 +2003,72 @@ class Summarizer:
         )
         if checkpoint_path is not None:
             checkpoint_path.unlink(missing_ok=True)
+        return result
+
+
+    def build_study_summary(
+        self,
+        text: str,
+        title: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+        checkpoint_path: Path | None = None,
+    ) -> str:
+        """Create the compact study copy from the verified complete course summary."""
+        prepared = _prepare_study_source(
+            text,
+            title=f"{title} - sorgente consolidata",
+        )
+        if progress:
+            source_chapters = len(_extract_summary_chapters(text))
+            merged_chapters = len(_extract_summary_chapters(prepared))
+            progress(
+                "Versione studio: semantic merge "
+                f"{source_chapters} -> {merged_chapters} capitoli prima della compressione."
+            )
+
+        result = self.refine_summary(
+            prepared,
+            title=title,
+            progress=progress,
+            checkpoint_path=checkpoint_path,
+        )
+        prepared_chapters = {
+            topic_key(chapter_title): chapter
+            for chapter_title, chapter in _extract_summary_chapters(prepared)
+        }
+        result_chapters = {
+            topic_key(chapter_title): chapter
+            for chapter_title, chapter in _extract_summary_chapters(result)
+        }
+        for chapter_key, source_chapter in prepared_chapters.items():
+            candidate = result_chapters.get(chapter_key)
+            if candidate is None:
+                raise ValueError(
+                    "Versione studio non sicura: un capitolo consolidato è scomparso."
+                )
+            source_points = _extract_exam_points(source_chapter)
+            if source_points and not _preserves_existing_exam_points(
+                source_chapter,
+                candidate,
+            ):
+                raise ValueError(
+                    "Versione studio non sicura: perdita di punti d'esame durante "
+                    "la compressione didattica."
+                )
+            if not _preserves_exam_numbers(source_chapter, candidate):
+                raise ValueError(
+                    "Versione studio non sicura: perdita di un valore numerico presente "
+                    "nei punti d'esame."
+                )
+
+        result = _strip_study_citations(result)
+        result = result.replace(
+            "> Versione rifinita dell'ultimo riassunto BC Science; "
+            "non sostituisce la verifica sui PDF originali.",
+            "> Versione studio derivata dal riassunto completo verificato; "
+            "le citazioni di pagina restano disponibili nella versione completa.",
+        )
         return result
 
     def summarize_file(self, path: Path) -> str:

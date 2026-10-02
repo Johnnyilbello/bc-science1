@@ -7,6 +7,8 @@ from bc_science.courses import (
     build_course,
     course_pdf_path,
     course_state,
+    course_study_output_path,
+    course_study_pdf_path,
     existing_course_summary_path,
     scan_course,
     scan_courses,
@@ -472,3 +474,84 @@ def test_course_state_reports_coverage_and_pdf_status(tmp_path: Path, monkeypatc
     assert state.state == "pronta"
     assert state.coverage_state == "completa"
     assert state.pdf_state == "aggiornato"
+
+
+def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "FISIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "Neuroni 1.txt").write_text("neuroni", encoding="utf-8")
+    scan = scan_course(subject)
+
+    calls = {"summary": 0, "study": 0, "pdf": 0}
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            calls["summary"] += 1
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
+                "## Neuroni\n### In parole semplici\nNeuroni.\n"
+                "### Da ricordare per l'esame\n- Neuroni.\n"
+            )
+
+        def build_study_summary(
+            self,
+            text,
+            title,
+            *,
+            progress=None,
+            checkpoint_path=None,
+        ):
+            calls["study"] += 1
+            assert "Neuroni" in text
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
+                "## Neuroni\n### In parole semplici\nVersione studio.\n"
+                "### Da ricordare per l'esame\n- Punto studio.\n"
+            )
+
+        def close(self):
+            return None
+
+    def fake_pdf(markdown, destination, title):
+        calls["pdf"] += 1
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"%PDF-test")
+        return 5 if destination.name == "riassunto-unico.pdf" else 3
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+
+    first = build_course(scan, AppConfig())
+
+    assert first.study_generated is True
+    assert first.study_path == course_study_output_path(scan)
+    assert first.study_pdf_path == course_study_pdf_path(scan)
+    assert first.study_pdf_pages == 3
+    assert first.study_path.exists()
+    assert first.study_pdf_path.exists()
+    assert calls == {"summary": 1, "study": 1, "pdf": 2}
+
+    state = course_state(scan)
+    assert state.state == "pronta"
+    assert state.study_state == "aggiornato"
+
+    second = build_course(scan_course(subject), AppConfig())
+    assert second.state == "riutilizzata"
+    assert second.study_generated is False
+    assert calls == {"summary": 1, "study": 1, "pdf": 2}

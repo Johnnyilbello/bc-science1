@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from bc_science.config import AppConfig
-from bc_science.summarizer import Summarizer, group_course_files, normalize_topic_stem
+from bc_science.summarizer import (
+    Summarizer,
+    _prepare_study_source,
+    _strip_study_citations,
+    group_course_files,
+    normalize_topic_stem,
+)
 
 
 def test_incremental_summary_updates_only_matching_chapter(tmp_path: Path, monkeypatch):
@@ -298,3 +304,76 @@ def test_topic_normalization_preserves_scientific_numbers():
     assert normalize_topic_stem("CO2") == "CO2"
     assert normalize_topic_stem("pH 7") == "pH 7"
     assert normalize_topic_stem("Omega 3") == "Omega 3"
+
+
+def test_study_source_merges_semantic_duplicates_without_erasing_real_numbers():
+    complete = """# Corso - Riassunto completo
+
+## Indice degli argomenti
+- Colonna vertebrale e vertebre tipo 2
+- Colonna vertebrale e vertebre tipo
+- Dispendio energeticoDispendio energetico
+- Dispendio energetico
+- Diabete tipo 2
+
+---
+
+## Colonna vertebrale e vertebre tipo 2
+### In parole semplici
+La colonna vertebrale sostiene il tronco e protegge il midollo spinale.
+### Da ricordare per l'esame
+- La colonna protegge il midollo spinale.
+
+---
+
+## Colonna vertebrale e vertebre tipo
+### In parole semplici
+La colonna vertebrale sostiene il tronco, protegge il midollo spinale e contiene vertebre.
+### Da ricordare per l'esame
+- La colonna sostiene il tronco e protegge il midollo spinale.
+
+---
+
+## Dispendio energeticoDispendio energetico
+### In parole semplici
+Il dispendio energetico descrive l'energia usata dal corpo durante la giornata.
+### Da ricordare per l'esame
+- Comprende l'energia usata dal corpo.
+
+---
+
+## Dispendio energetico
+### In parole semplici
+Il dispendio energetico comprende metabolismo e attività fisica durante la giornata.
+### Da ricordare per l'esame
+- Comprende metabolismo e attività fisica.
+
+---
+
+## Diabete tipo 2
+### In parole semplici
+Il materiale tratta il diabete tipo 2 come argomento numerato scientificamente.
+### Da ricordare per l'esame
+- Il numero 2 fa parte del nome dell'argomento.
+"""
+
+    prepared = _prepare_study_source(complete, title="Corso - Studio")
+
+    assert prepared.count("- Colonna vertebrale e vertebre tipo\n") == 1
+    assert "- Colonna vertebrale e vertebre tipo 2\n" not in prepared
+    assert prepared.count("- Dispendio energetico\n") == 1
+    assert "Dispendio energeticoDispendio energetico" not in prepared
+    assert "- Diabete tipo 2\n" in prepared
+
+
+def test_study_copy_removes_page_citations_but_keeps_facts():
+    text = (
+        "L'ATP rilascia energia (fonte: pag. 1, 3). "
+        "La fosfocreatina è presente nel muscolo (Fonte: Dispensa Pagina 8)."
+    )
+
+    cleaned = _strip_study_citations(text)
+
+    assert "fonte:" not in cleaned.casefold()
+    assert "ATP rilascia energia" in cleaned
+    assert "fosfocreatina è presente nel muscolo" in cleaned
