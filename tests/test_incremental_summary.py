@@ -175,7 +175,6 @@ Le articolazioni collegano segmenti ossei.
     assert "Ossa e articolazioni" in result
 
 
-
 def test_incremental_summary_routes_ambiguous_filename_by_content(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     summarizer = Summarizer(AppConfig())
