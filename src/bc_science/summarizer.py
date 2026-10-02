@@ -662,6 +662,49 @@ def _build_global_recap(refined: list[tuple[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _incremental_route_prompt(
+    source_title: str,
+    new_chapter: str,
+    existing_titles: list[str],
+) -> str:
+    choices = "\n".join(f"- {title}" for title in existing_titles)
+    return f"""Decidi dove appartiene il NUOVO materiale in un riassunto universitario.
+
+Puoi rispondere in UNO SOLO di questi modi:
+MATCH: <titolo esatto di un capitolo esistente>
+NEW
+
+Usa MATCH solo se il contenuto tratta chiaramente lo stesso argomento del capitolo.
+Se il collegamento e incerto, rispondi NEW.
+Non aggiungere spiegazioni.
+
+NOME DEL NUOVO MATERIALE:
+{source_title}
+
+CAPITOLI ESISTENTI:
+{choices}
+
+NUOVO MATERIALE RIASSUNTO:
+{new_chapter}
+"""
+
+
+def _parse_incremental_route(response: str, existing_titles: list[str]) -> str | None:
+    value = response.strip()
+    if value.casefold() == "new":
+        return None
+
+    match = re.fullmatch(r"(?i)MATCH:\s*(.+?)\s*", value)
+    if not match:
+        raise ValueError("routing incrementale non interpretabile")
+
+    requested = match.group(1).strip().casefold()
+    for title in existing_titles:
+        if title.casefold() == requested:
+            return title
+    raise ValueError("routing incrementale verso un capitolo inesistente")
+
+
 def _incremental_merge_prompt(
     title: str,
     existing_chapter: str,
@@ -1195,6 +1238,43 @@ class Summarizer:
 
             key = topic_key(group.title)
             existing_index = existing_by_key.get(key)
+            if existing_index is None:
+                existing_titles = [chapter_title for chapter_title, _chapter in records]
+                route_key = _key(
+                    "incremental-route-v1",
+                    self.model,
+                    group.title,
+                    "\n".join(existing_titles),
+                    new_material,
+                )
+                route = self._cached_chat(
+                    route_key,
+                    _summary_system_prompt("Scienze Motorie"),
+                    _incremental_route_prompt(
+                        group.title,
+                        new_material,
+                        existing_titles,
+                    ),
+                    num_predict=80,
+                )
+                routed_title = _parse_incremental_route(route, existing_titles)
+                if routed_title is not None:
+                    candidate_index = next(
+                        index
+                        for index, (chapter_title, _chapter) in enumerate(records)
+                        if chapter_title == routed_title
+                    )
+                    candidate_chapter = records[candidate_index][1]
+                    if (
+                        _chapter_title_supported(routed_title, new_material)
+                        or _chapter_title_supported(routed_title, candidate_chapter)
+                    ):
+                        existing_index = candidate_index
+                        if progress:
+                            progress(
+                                f"Nuovo materiale associato a: {routed_title}"
+                            )
+
             if existing_index is None:
                 normalized = _normalize_chapter_heading(new_material, group.title)
                 records.append((group.title, normalized))
