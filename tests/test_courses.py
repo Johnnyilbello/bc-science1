@@ -501,10 +501,10 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
         def summarize_course(self, files, title, *, progress=None):
             calls["summary"] += 1
             return (
-                f"# {title}\\n\\n"
-                "## Indice degli argomenti\\n- Neuroni\\n\\n---\\n\\n"
-                "## Neuroni\\n### In parole semplici\\nNeuroni.\\n"
-                "### Da ricordare per l'esame\\n- Neuroni.\\n"
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
+                "## Neuroni\n### In parole semplici\nNeuroni.\n"
+                "### Da ricordare per l'esame\n- Neuroni.\n"
             )
 
         def build_study_summary(
@@ -518,10 +518,10 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
             calls["study"] += 1
             assert "Neuroni" in text
             return (
-                f"# {title}\\n\\n"
-                "## Indice degli argomenti\\n- Neuroni\\n\\n---\\n\\n"
-                "## Neuroni\\n### In parole semplici\\nVersione studio.\\n"
-                "### Da ricordare per l'esame\\n- Punto studio.\\n"
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
+                "## Neuroni\n### In parole semplici\nVersione studio.\n"
+                "### Da ricordare per l'esame\n- Punto studio.\n"
             )
 
         def close(self):
