@@ -50,14 +50,63 @@ def _key(*parts: str) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def normalize_topic_stem(stem: str) -> str:
-    """Collapse lesson-number variants into one human-readable topic title."""
-    text = stem.replace("_", " ").strip()
-    text = re.sub(
-        r"(?i)\b(?:parte|lezione|capitolo)?\s*\d+\b",
+_SEMANTIC_TRAILING_NUMBER_PREFIXES = {
+    "tipo",
+    "fase",
+    "stadio",
+    "classe",
+    "livello",
+    "gruppo",
+    "zona",
+    "omega",
+    "polimerasi",
+    "complesso",
+}
+
+
+def _strip_trailing_file_variant(text: str) -> str:
+    """Remove filename-only sequence markers without erasing scientific numbers."""
+    value = text.strip()
+
+    # Explicit lesson/part labels are always editorial filename markers.
+    value = re.sub(
+        r"(?i)\b(?:parte|lezione|capitolo)\s*(?:\d+|[ivxlcdm]+)\b",
         " ",
-        text,
+        value,
     )
+
+    # Supplementary exercise files belong to the base topic.
+    value = re.sub(r"(?i)\s+(?:faq|quiz)\s*$", " ", value)
+
+    # Common export/scan artefacts seen in real eCampus filenames.
+    value = re.sub(r"(?i)\s+\d+\s*pdf\s*$", " ", value)
+    value = re.sub(r"(?i)\s+\d+p\s*$", " ", value)
+
+    # Attached duplicate suffix, e.g. "esercizio2", but keep B12, CO2, D3.
+    attached = re.search(r"(?i)([A-Za-zÀ-ÿ]{4,})(\d+)\s*$", value)
+    if attached:
+        value = value[: attached.start(2)]
+
+    # Standalone trailing sequence number, e.g. "Fotosintesi 2".
+    trailing = re.search(r"(?i)^(.*\S)\s+(\d+)\s*$", value)
+    if trailing:
+        prefix = trailing.group(1).rstrip()
+        words = re.findall(r"[A-Za-zÀ-ÿ]+", prefix)
+        previous = words[-1].casefold() if words else ""
+        # Short scientific symbols such as pH 7 / B 12 are kept.
+        if (
+            previous not in _SEMANTIC_TRAILING_NUMBER_PREFIXES
+            and len(previous) > 2
+        ):
+            value = prefix
+
+    return value
+
+
+def normalize_topic_stem(stem: str) -> str:
+    """Collapse filename variants into one conservative human-readable topic title."""
+    text = stem.replace("_", " ").strip()
+    text = _strip_trailing_file_variant(text)
     text = re.sub(r"\s+([)\]])", r"\1", text)
     text = re.sub(r"([(\[])\s+", r"\1", text)
     text = re.sub(r"\s+", " ", text).strip(" -_.,")
