@@ -414,7 +414,7 @@ def _manifest_baseline_verified(summary_text: str, manifest: dict | None) -> boo
 
 def _pdf_is_current(scan: CourseScan, manifest: dict | None, summary_text: str) -> bool:
     pdf = course_pdf_path(scan)
-    if not pdf.exists() or not manifest or manifest.get("schema") != 2:
+    if not pdf.exists() or not manifest or manifest.get("schema") not in {2, 3}:
         return False
     pdf_info = manifest.get("pdf")
     return (
