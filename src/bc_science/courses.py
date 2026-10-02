@@ -11,8 +11,14 @@ from pathlib import Path
 from .cache import CacheDB
 from .config import AppConfig, app_home
 from .documents import SUPPORTED, file_sha256
+from .finalizer import export_pdf
 from .indexer import ingest_files
-from .summarizer import Summarizer
+from .summarizer import (
+    Summarizer,
+    _extract_summary_chapters,
+    group_course_files,
+    topic_key,
+)
 
 IGNORED_DIR_NAMES = {
     ".git",
@@ -45,6 +51,19 @@ class CourseScan:
 
 
 @dataclass(frozen=True, slots=True)
+class CourseCoverage:
+    complete: bool
+    document_set_verified: bool
+    source_count: int
+    covered_source_count: int
+    expected_topics: tuple[str, ...]
+    covered_topics: tuple[str, ...]
+    missing_topics: tuple[str, ...]
+    chapter_titles: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class CourseState:
     scan: CourseScan
     state: str
@@ -54,6 +73,9 @@ class CourseState:
     new_files: int = 0
     changed_files: int = 0
     removed_files: int = 0
+    coverage_state: str = "manca"
+    pdf_state: str = "manca"
+    existing_summary_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +90,11 @@ class CourseBuildResult:
     updated_chapters: int = 0
     new_chapters: int = 0
     fallback_full_rebuild: bool = False
+    coverage_complete: bool = False
+    missing_topics: tuple[str, ...] = ()
+    pdf_path: Path | None = None
+    pdf_pages: int = 0
+    pdf_generated: bool = False
 
 
 def _is_hidden_or_ignored_dir(name: str) -> bool:
@@ -127,12 +154,11 @@ def scan_courses(root: Path) -> list[CourseScan]:
     if not base.is_dir():
         raise ValueError(f"Cartella radice non valida: {base}")
 
-    courses = [
+    return [
         scan_course(path)
         for path in sorted(base.iterdir(), key=lambda item: item.name.casefold())
         if path.is_dir() and not _is_hidden_or_ignored_dir(path.name)
     ]
-    return courses
 
 
 def _workspace_slug(scan: CourseScan) -> str:
@@ -155,6 +181,34 @@ def course_output_path(scan: CourseScan) -> Path:
     return app_home() / "outputs" / "courses" / scan.name / "riassunto-unico.md"
 
 
+def course_pdf_path(scan: CourseScan) -> Path:
+    return app_home() / "outputs" / "courses" / scan.name / "riassunto-unico.pdf"
+
+
+def _legacy_summary_path(scan: CourseScan) -> Path | None:
+    root = app_home() / "outputs"
+    exact = root / f"{scan.name}-riassunto-unico.md"
+    if exact.exists():
+        return exact
+
+    if not root.exists():
+        return None
+
+    wanted = topic_key(scan.name)
+    for candidate in root.glob("*-riassunto-unico.md"):
+        stem = candidate.stem.removesuffix("-riassunto-unico")
+        if topic_key(stem) == wanted:
+            return candidate
+    return None
+
+
+def existing_course_summary_path(scan: CourseScan) -> Path | None:
+    canonical = course_output_path(scan)
+    if canonical.exists():
+        return canonical
+    return _legacy_summary_path(scan)
+
+
 def _snapshot(scan: CourseScan) -> list[dict[str, str | int]]:
     rows: list[dict[str, str | int]] = []
     for path in scan.supported_files:
@@ -174,6 +228,10 @@ def _fingerprint(snapshot: list[dict[str, str | int]]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _summary_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _manifest_path(scan: CourseScan) -> Path:
     return workspace_path(scan) / "manifest.json"
 
@@ -186,23 +244,207 @@ def _load_manifest(scan: CourseScan) -> dict | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get("schema") == 1 else None
+    if not isinstance(data, dict) or data.get("schema") not in {1, 2}:
+        return None
+    return data
+
+
+def _coverage_map_from_manifest(manifest: dict | None) -> dict[str, str]:
+    if not manifest:
+        return {}
+    rows = manifest.get("coverage")
+    if not isinstance(rows, list):
+        return {}
+
+    result: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source = row.get("source")
+        chapter = row.get("chapter")
+        if isinstance(source, str) and isinstance(chapter, str) and source and chapter:
+            result[source] = chapter
+    return result
+
+
+def _relative_source(scan: CourseScan, source: Path | str) -> str:
+    path = Path(source).expanduser().resolve()
+    return path.relative_to(scan.path).as_posix()
+
+
+def _chapter_titles(summary_text: str) -> list[str]:
+    return [title for title, _chapter in _extract_summary_chapters(summary_text)]
+
+
+def _full_build_coverage_map(scan: CourseScan, summary_text: str) -> dict[str, str]:
+    chapter_titles = _chapter_titles(summary_text)
+    chapter_by_key = {topic_key(title): title for title in chapter_titles}
+    mapping: dict[str, str] = {}
+
+    for group in group_course_files(list(scan.supported_files)):
+        chapter = chapter_by_key.get(topic_key(group.title))
+        if chapter is None:
+            continue
+        for path in group.files:
+            mapping[path.relative_to(scan.path).as_posix()] = chapter
+    return mapping
+
+
+def audit_course_summary(
+    scan: CourseScan,
+    summary_text: str,
+    *,
+    manifest: dict | None = None,
+    coverage_map: dict[str, str] | None = None,
+    source_verified: bool = False,
+    snapshot: list[dict[str, str | int]] | None = None,
+) -> CourseCoverage:
+    current_snapshot = snapshot if snapshot is not None else _snapshot(scan)
+    current_fingerprint = _fingerprint(current_snapshot)
+    current_sources = {str(row["path"]) for row in current_snapshot}
+    chapter_titles = _chapter_titles(summary_text)
+    chapter_keys = {topic_key(title) for title in chapter_titles}
+
+    mapping = (
+        dict(coverage_map)
+        if coverage_map is not None
+        else _coverage_map_from_manifest(manifest)
+    )
+    if not mapping:
+        mapping = _full_build_coverage_map(scan, summary_text)
+
+    mapped_sources = {
+        source
+        for source, chapter in mapping.items()
+        if source in current_sources and topic_key(chapter) in chapter_keys
+    }
+
+    expected_groups = group_course_files(list(scan.supported_files))
+    expected_topics = tuple(group.title for group in expected_groups)
+    covered_topics: list[str] = []
+    missing_topics: list[str] = []
+    for group in expected_groups:
+        group_sources = {
+            path.relative_to(scan.path).as_posix()
+            for path in group.files
+        }
+        if group_sources and group_sources <= mapped_sources:
+            covered_topics.append(group.title)
+        else:
+            missing_topics.append(group.title)
+
+    manifest_verified = False
+    if manifest is not None and manifest.get("schema") == 2:
+        manifest_verified = (
+            manifest.get("fingerprint") == current_fingerprint
+            and manifest.get("summary_sha256") == _summary_sha256(summary_text)
+            and set(_coverage_map_from_manifest(manifest)) == current_sources
+        )
+
+    document_set_verified = source_verified or manifest_verified
+    complete = (
+        document_set_verified
+        and bool(chapter_titles)
+        and len(mapped_sources) == len(current_sources)
+        and not missing_topics
+    )
+
+    if not chapter_titles:
+        reason = "il file non contiene un vero indice/capitoli BC Science"
+    elif not document_set_verified:
+        reason = "non esiste una prova hash che il riassunto usi tutte le dispense attuali"
+    elif missing_topics:
+        reason = "mancano argomenti o documenti associati a capitoli"
+    elif len(mapped_sources) != len(current_sources):
+        reason = "non tutti i documenti correnti risultano rappresentati"
+    else:
+        reason = "copertura completa verificata"
+
+    return CourseCoverage(
+        complete=complete,
+        document_set_verified=document_set_verified,
+        source_count=len(current_sources),
+        covered_source_count=len(mapped_sources),
+        expected_topics=expected_topics,
+        covered_topics=tuple(covered_topics),
+        missing_topics=tuple(missing_topics),
+        chapter_titles=tuple(chapter_titles),
+        reason=reason,
+    )
+
+
+def _manifest_baseline_verified(summary_text: str, manifest: dict | None) -> bool:
+    if not manifest or manifest.get("schema") != 2:
+        return False
+    if manifest.get("summary_sha256") != _summary_sha256(summary_text):
+        return False
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        return False
+    previous_sources = {
+        str(row["path"])
+        for row in files
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    mapping = _coverage_map_from_manifest(manifest)
+    if set(mapping) != previous_sources:
+        return False
+
+    chapter_keys = {topic_key(title) for title in _chapter_titles(summary_text)}
+    return bool(chapter_keys) and all(
+        topic_key(chapter) in chapter_keys
+        for chapter in mapping.values()
+    )
+
+
+def _pdf_is_current(scan: CourseScan, manifest: dict | None, summary_text: str) -> bool:
+    pdf = course_pdf_path(scan)
+    if not pdf.exists() or not manifest or manifest.get("schema") != 2:
+        return False
+    pdf_info = manifest.get("pdf")
+    return (
+        isinstance(pdf_info, dict)
+        and pdf_info.get("summary_sha256") == _summary_sha256(summary_text)
+        and pdf_info.get("path") == str(pdf)
+    )
 
 
 def _write_manifest(
     scan: CourseScan,
     snapshot: list[dict[str, str | int]],
     output_path: Path,
+    summary_text: str,
+    coverage_map: dict[str, str],
+    *,
+    pdf_path: Path | None,
+    pdf_pages: int,
 ) -> None:
     target = _manifest_path(scan)
     target.parent.mkdir(parents=True, exist_ok=True)
+    chapter_titles = _chapter_titles(summary_text)
     payload = {
-        "schema": 1,
+        "schema": 2,
         "course": scan.name,
         "source": str(scan.path),
         "fingerprint": _fingerprint(snapshot),
         "files": snapshot,
         "output": str(output_path),
+        "summary_sha256": _summary_sha256(summary_text),
+        "chapters": chapter_titles,
+        "coverage": [
+            {"source": source, "chapter": chapter}
+            for source, chapter in sorted(coverage_map.items())
+        ],
+        "pdf": (
+            {
+                "path": str(pdf_path),
+                "pages": pdf_pages,
+                "summary_sha256": _summary_sha256(summary_text),
+            }
+            if pdf_path is not None
+            else None
+        ),
     }
     temporary = target.with_name(target.name + ".tmp")
     temporary.write_text(
@@ -249,8 +491,36 @@ def _source_changes(
     return added, changed, removed
 
 
+def _save_summary(output: Path, summary_text: str) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(output.name + ".tmp")
+    temporary.write_text(summary_text, encoding="utf-8")
+    temporary.replace(output)
+
+
+def _ensure_pdf(
+    scan: CourseScan,
+    summary_text: str,
+    *,
+    manifest: dict | None,
+) -> tuple[Path, int, bool]:
+    pdf = course_pdf_path(scan)
+    if _pdf_is_current(scan, manifest, summary_text):
+        pdf_info = manifest.get("pdf") if manifest else {}
+        pages = int(pdf_info.get("pages", 0)) if isinstance(pdf_info, dict) else 0
+        return pdf, pages, False
+
+    pages = export_pdf(
+        summary_text,
+        pdf,
+        f"{scan.name} - Riassunto unico",
+    )
+    return pdf, pages, True
+
+
 def course_state(scan: CourseScan) -> CourseState:
     output = course_output_path(scan)
+    existing = existing_course_summary_path(scan)
     workspace = workspace_path(scan)
     manifest = _load_manifest(scan)
 
@@ -266,12 +536,17 @@ def course_state(scan: CourseScan) -> CourseState:
     new_files = 0
     changed_files = 0
     removed_files = 0
+    coverage_state = "manca"
+    pdf_state = "manca"
 
     if not scan.supported_files:
         state = "vuota"
-    elif manifest is None:
+    elif existing is None:
         state = "da creare"
         new_files = len(scan.supported_files)
+    elif existing != output:
+        state = "da verificare"
+        coverage_state = "non verificata"
     else:
         snapshot = _snapshot(scan)
         added_paths, changed_files, removed_files = _source_changes(
@@ -280,12 +555,31 @@ def course_state(scan: CourseScan) -> CourseState:
             manifest,
         )
         new_files = len(added_paths)
+        summary_text = output.read_text(encoding="utf-8")
+        coverage = audit_course_summary(
+            scan,
+            summary_text,
+            manifest=manifest,
+            snapshot=snapshot,
+        )
+        coverage_state = "completa" if coverage.complete else "incompleta"
 
         current = _fingerprint(snapshot)
-        if manifest.get("fingerprint") == current and output.exists():
+        if (
+            manifest is not None
+            and manifest.get("fingerprint") == current
+            and coverage.complete
+        ):
             state = "pronta"
         else:
             state = "modificata"
+
+        if course_pdf_path(scan).exists():
+            pdf_state = (
+                "aggiornato"
+                if _pdf_is_current(scan, manifest, summary_text)
+                else "da aggiornare"
+            )
 
     return CourseState(
         scan=scan,
@@ -296,116 +590,20 @@ def course_state(scan: CourseScan) -> CourseState:
         new_files=new_files,
         changed_files=changed_files,
         removed_files=removed_files,
+        coverage_state=coverage_state,
+        pdf_state=pdf_state,
+        existing_summary_path=existing,
     )
 
 
-def build_course(
+def _full_rebuild(
     scan: CourseScan,
     config: AppConfig,
+    profile: str,
     *,
-    profile: str = "standard",
-    progress: Callable[[str], None] | None = None,
-) -> CourseBuildResult:
-    if not scan.supported_files:
-        return CourseBuildResult(scan=scan, state="vuota", output_path=None)
-
-    snapshot = _snapshot(scan)
-    fingerprint = _fingerprint(snapshot)
-    output = course_output_path(scan)
-    manifest = _load_manifest(scan)
-
-    if (
-        manifest is not None
-        and manifest.get("fingerprint") == fingerprint
-        and output.exists()
-    ):
-        return CourseBuildResult(
-            scan=scan,
-            state="riutilizzata",
-            output_path=output,
-        )
-
-    workspace = workspace_path(scan)
-    workspace.mkdir(parents=True, exist_ok=True)
-    db_path = workspace_db_path(scan)
-    added_files, changed_files, removed_files = _source_changes(
-        scan,
-        snapshot,
-        manifest,
-    )
-
-    incremental_candidate = (
-        manifest is not None
-        and output.exists()
-        and bool(added_files)
-        and changed_files == 0
-        and removed_files == 0
-    )
-
-    if incremental_candidate:
-        if progress:
-            progress(
-                f"Aggiornamento incrementale: analizzo solo {len(added_files)} "
-                f"{'nuovo documento' if len(added_files) == 1 else 'nuovi documenti'}."
-            )
-
-        index_result = ingest_files(
-            added_files,
-            config,
-            db_path=db_path,
-            prune_missing=False,
-        )
-        summarizer = Summarizer(config, profile, db_path=db_path)
-        try:
-            existing_summary = output.read_text(encoding="utf-8")
-            try:
-                summary, updated_chapters, new_chapters = (
-                    summarizer.incremental_update_course(
-                        existing_summary,
-                        added_files,
-                        title=f"{scan.name} - Riassunto completo",
-                        progress=progress,
-                    )
-                )
-            except ValueError as exc:
-                if progress:
-                    progress(
-                        f"Incrementale non sicuro ({exc}); eseguo rebuild completo."
-                    )
-                summary = summarizer.summarize_course(
-                    list(scan.supported_files),
-                    title=f"{scan.name} - Riassunto completo",
-                    progress=progress,
-                )
-                updated_chapters = 0
-                new_chapters = 0
-                fallback = True
-            else:
-                fallback = False
-        finally:
-            summarizer.close()
-
-        if not summary.strip():
-            raise ValueError(f"Nessun contenuto riassumibile per {scan.name}.")
-
-        temporary = output.with_name(output.name + ".tmp")
-        temporary.write_text(summary, encoding="utf-8")
-        temporary.replace(output)
-        _write_manifest(scan, snapshot, output)
-
-        return CourseBuildResult(
-            scan=scan,
-            state="creata",
-            output_path=output,
-            indexed=index_result["indexed"],
-            reused_index=index_result["skipped"],
-            removed_index=0,
-            incremental_files=len(added_files),
-            updated_chapters=updated_chapters,
-            new_chapters=new_chapters,
-            fallback_full_rebuild=fallback,
-        )
-
+    db_path: Path,
+    progress: Callable[[str], None] | None,
+) -> tuple[str, dict[str, str], dict[str, int]]:
     index_result = ingest_files(
         list(scan.supported_files),
         config,
@@ -426,11 +624,216 @@ def build_course(
     if not summary.strip():
         raise ValueError(f"Nessun contenuto riassumibile per {scan.name}.")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(output.name + ".tmp")
-    temporary.write_text(summary, encoding="utf-8")
-    temporary.replace(output)
-    _write_manifest(scan, snapshot, output)
+    coverage_map = _full_build_coverage_map(scan, summary)
+    return summary, coverage_map, index_result
+
+
+def build_course(
+    scan: CourseScan,
+    config: AppConfig,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> CourseBuildResult:
+    if not scan.supported_files:
+        return CourseBuildResult(scan=scan, state="vuota", output_path=None)
+
+    snapshot = _snapshot(scan)
+    fingerprint = _fingerprint(snapshot)
+    output = course_output_path(scan)
+    manifest = _load_manifest(scan)
+    existing = existing_course_summary_path(scan)
+
+    if existing is not None and existing != output and progress:
+        progress(
+            f"Riassunto unico precedente rilevato: {existing}. "
+            "Manca un manifest verificabile per le dispense correnti: lo ricostruisco."
+        )
+
+    if output.exists():
+        existing_text = output.read_text(encoding="utf-8")
+        existing_coverage = audit_course_summary(
+            scan,
+            existing_text,
+            manifest=manifest,
+            snapshot=snapshot,
+        )
+        if (
+            manifest is not None
+            and manifest.get("fingerprint") == fingerprint
+            and existing_coverage.complete
+        ):
+            pdf, pages, pdf_generated = _ensure_pdf(
+                scan,
+                existing_text,
+                manifest=manifest,
+            )
+            coverage_map = _coverage_map_from_manifest(manifest)
+            _write_manifest(
+                scan,
+                snapshot,
+                output,
+                existing_text,
+                coverage_map,
+                pdf_path=pdf,
+                pdf_pages=pages,
+            )
+            return CourseBuildResult(
+                scan=scan,
+                state="riutilizzata",
+                output_path=output,
+                coverage_complete=True,
+                pdf_path=pdf,
+                pdf_pages=pages,
+                pdf_generated=pdf_generated,
+            )
+
+    workspace = workspace_path(scan)
+    workspace.mkdir(parents=True, exist_ok=True)
+    db_path = workspace_db_path(scan)
+    added_files, changed_files, removed_files = _source_changes(
+        scan,
+        snapshot,
+        manifest,
+    )
+
+    baseline_text = output.read_text(encoding="utf-8") if output.exists() else ""
+    incremental_candidate = (
+        bool(baseline_text)
+        and _manifest_baseline_verified(baseline_text, manifest)
+        and bool(added_files)
+        and changed_files == 0
+        and removed_files == 0
+    )
+
+    incremental_files = 0
+    updated_chapters = 0
+    new_chapters = 0
+    fallback = False
+
+    if incremental_candidate:
+        if progress:
+            progress(
+                f"Aggiornamento incrementale: analizzo solo {len(added_files)} "
+                f"{'nuovo documento' if len(added_files) == 1 else 'nuovi documenti'}."
+            )
+
+        index_result = ingest_files(
+            added_files,
+            config,
+            db_path=db_path,
+            prune_missing=False,
+        )
+        summarizer = Summarizer(config, profile, db_path=db_path)
+        try:
+            try:
+                (
+                    summary,
+                    updated_chapters,
+                    new_chapters,
+                    new_source_mapping,
+                ) = summarizer.incremental_update_course(
+                    baseline_text,
+                    added_files,
+                    title=f"{scan.name} - Riassunto completo",
+                    progress=progress,
+                )
+            except ValueError as exc:
+                if progress:
+                    progress(
+                        f"Incrementale non sicuro ({exc}); eseguo rebuild completo."
+                    )
+                fallback = True
+                summary = ""
+                new_source_mapping = {}
+        finally:
+            summarizer.close()
+
+        incremental_files = len(added_files)
+        coverage_map = _coverage_map_from_manifest(manifest)
+        for source, chapter in new_source_mapping.items():
+            coverage_map[_relative_source(scan, source)] = chapter
+
+        if not fallback:
+            coverage = audit_course_summary(
+                scan,
+                summary,
+                coverage_map=coverage_map,
+                source_verified=True,
+                snapshot=snapshot,
+            )
+            if not coverage.complete:
+                fallback = True
+                if progress:
+                    missing = ", ".join(coverage.missing_topics[:5]) or coverage.reason
+                    progress(
+                        "L'aggiornamento incrementale non copre tutte le dispense "
+                        f"({missing}); eseguo rebuild completo."
+                    )
+
+        if fallback:
+            summary, coverage_map, index_result = _full_rebuild(
+                scan,
+                config,
+                profile,
+                db_path=db_path,
+                progress=progress,
+            )
+            updated_chapters = 0
+            new_chapters = 0
+    else:
+        if output.exists() and progress:
+            current_text = output.read_text(encoding="utf-8")
+            current_coverage = audit_course_summary(
+                scan,
+                current_text,
+                manifest=manifest,
+                snapshot=snapshot,
+            )
+            if not current_coverage.complete:
+                missing = ", ".join(current_coverage.missing_topics[:5])
+                detail = missing or current_coverage.reason
+                progress(
+                    "Riassunto unico esistente non verificato/completo "
+                    f"({detail}); rigenero sui documenti attuali."
+                )
+
+        summary, coverage_map, index_result = _full_rebuild(
+            scan,
+            config,
+            profile,
+            db_path=db_path,
+            progress=progress,
+        )
+
+    coverage = audit_course_summary(
+        scan,
+        summary,
+        coverage_map=coverage_map,
+        source_verified=True,
+        snapshot=snapshot,
+    )
+    if not coverage.complete:
+        missing = ", ".join(coverage.missing_topics) or coverage.reason
+        raise ValueError(
+            f"Il riassunto unico di {scan.name} non supera il gate di copertura: {missing}."
+        )
+
+    _save_summary(output, summary)
+    pdf, pages, pdf_generated = _ensure_pdf(
+        scan,
+        summary,
+        manifest=None,
+    )
+    _write_manifest(
+        scan,
+        snapshot,
+        output,
+        summary,
+        coverage_map,
+        pdf_path=pdf,
+        pdf_pages=pages,
+    )
 
     return CourseBuildResult(
         scan=scan,
@@ -439,6 +842,15 @@ def build_course(
         indexed=index_result["indexed"],
         reused_index=index_result["skipped"],
         removed_index=index_result["removed"],
+        incremental_files=incremental_files,
+        updated_chapters=updated_chapters,
+        new_chapters=new_chapters,
+        fallback_full_rebuild=fallback,
+        coverage_complete=True,
+        missing_topics=(),
+        pdf_path=pdf,
+        pdf_pages=pages,
+        pdf_generated=pdf_generated,
     )
 
 
