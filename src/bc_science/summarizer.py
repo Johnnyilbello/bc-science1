@@ -87,6 +87,19 @@ def _strip_trailing_file_variant(text: str) -> str:
     if attached:
         value = value[: attached.start(2)]
 
+    # Sequence number immediately before a closing bracket, e.g.
+    # "Omeostasi (in allenamento 3)".
+    bracketed = re.search(r"(?i)^(.*\S)\s+(\d+)(\s*[)\]])\s*$", value)
+    if bracketed:
+        prefix = bracketed.group(1).rstrip()
+        words = re.findall(r"[A-Za-zÀ-ÿ]+", prefix)
+        previous = words[-1].casefold() if words else ""
+        if (
+            previous not in _SEMANTIC_TRAILING_NUMBER_PREFIXES
+            and len(previous) > 2
+        ):
+            value = prefix + bracketed.group(3)
+
     # Standalone trailing sequence number, e.g. "Fotosintesi 2".
     trailing = re.search(r"(?i)^(.*\S)\s+(\d+)\s*$", value)
     if trailing:
