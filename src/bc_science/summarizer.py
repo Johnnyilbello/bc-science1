@@ -1065,6 +1065,23 @@ def _preserves_existing_exam_points(existing: str, candidate: str) -> bool:
     return True
 
 
+
+def _preserves_exam_numbers(existing: str, candidate: str) -> bool:
+    """Require numerical facts present in exam-recap bullets to survive study compression."""
+    candidate_text = _strip_study_citations(candidate).casefold()
+    for point in _extract_exam_points(existing):
+        source_point = _strip_study_citations(point)
+        expressions = re.findall(
+            r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[A-Za-zÀ-ÿµ°]+))?",
+            source_point,
+        )
+        for expression in expressions:
+            normalized = re.sub(r"\s+", " ", expression).strip().casefold()
+            if normalized and normalized not in candidate_text:
+                return False
+    return True
+
+
 def _existing_map_section(text: str) -> str:
     match = re.search(
         r"(?ms)^## Mappa della materia\s*$\n.*?(?=^## Ripasso globale\s*$|^## Indice degli argomenti\s*$)",
@@ -2017,6 +2034,35 @@ class Summarizer:
             progress=progress,
             checkpoint_path=checkpoint_path,
         )
+        prepared_chapters = {
+            topic_key(chapter_title): chapter
+            for chapter_title, chapter in _extract_summary_chapters(prepared)
+        }
+        result_chapters = {
+            topic_key(chapter_title): chapter
+            for chapter_title, chapter in _extract_summary_chapters(result)
+        }
+        for chapter_key, source_chapter in prepared_chapters.items():
+            candidate = result_chapters.get(chapter_key)
+            if candidate is None:
+                raise ValueError(
+                    "Versione studio non sicura: un capitolo consolidato è scomparso."
+                )
+            source_points = _extract_exam_points(source_chapter)
+            if source_points and not _preserves_existing_exam_points(
+                source_chapter,
+                candidate,
+            ):
+                raise ValueError(
+                    "Versione studio non sicura: perdita di punti d'esame durante "
+                    "la compressione didattica."
+                )
+            if not _preserves_exam_numbers(source_chapter, candidate):
+                raise ValueError(
+                    "Versione studio non sicura: perdita di un valore numerico presente "
+                    "nei punti d'esame."
+                )
+
         result = _strip_study_citations(result)
         result = result.replace(
             "> Versione rifinita dell'ultimo riassunto BC Science; "
