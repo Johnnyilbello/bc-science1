@@ -311,11 +311,14 @@ def courses_status(
     table.add_column("Documenti", justify="right")
     table.add_column("Indicizzati", justify="right")
     table.add_column("Delta")
+    table.add_column("Copertura")
+    table.add_column("PDF")
     table.add_column("Output")
 
     state_style = {
         "pronta": "green",
         "modificata": "yellow",
+        "da verificare": "yellow",
         "da creare": "cyan",
         "vuota": "dim",
     }
@@ -332,7 +335,9 @@ def courses_status(
             str(len(item.scan.supported_files)),
             str(item.indexed_documents),
             delta,
-            str(item.output_path) if item.output_path.exists() else "—",
+            item.coverage_state,
+            item.pdf_state,
+            str(item.existing_summary_path) if item.existing_summary_path else "—",
         )
 
     console.print(table)
@@ -398,7 +403,17 @@ def courses_build(
 
         if result.state == "riutilizzata":
             reused += 1
-            console.print(f"[green]Già aggiornata:[/] {result.output_path}")
+            console.print(f"[green]Riassunto unico verificato:[/] {result.output_path}")
+            if result.pdf_generated:
+                console.print(
+                    f"[green]PDF unico generato:[/] {result.pdf_path} "
+                    f"({result.pdf_pages} pagine)"
+                )
+            elif result.pdf_path is not None:
+                console.print(
+                    f"[dim]PDF unico già aggiornato: {result.pdf_path} "
+                    f"({result.pdf_pages} pagine)[/]"
+                )
         elif result.state == "vuota":
             empty += 1
             console.print("[yellow]Nessun documento supportato: materia saltata.[/]")
@@ -426,6 +441,13 @@ def courses_build(
                         f"{result.updated_chapters} capitoli aggiornati · "
                         f"{result.new_chapters} capitoli nuovi"
                     )
+            if result.coverage_complete:
+                console.print("[green]Copertura:[/] tutti i documenti attuali sono rappresentati.")
+            if result.pdf_path is not None:
+                console.print(
+                    f"[green]PDF unico:[/] {result.pdf_path} "
+                    f"({result.pdf_pages} pagine)"
+                )
 
         if config.scientific_research_enabled and result.output_path is not None:
             console.print("[dim]Aggiorno l'approfondimento scientifico separato...[/]")
