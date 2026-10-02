@@ -152,6 +152,24 @@ Implementato:
 - protezione dei numeri scientificamente significativi (`tipo 2`, `fase 2`, `B12`, `CO2`, `pH 7`, `Omega 3`);
 - test sul corpus reale emerso durante il build di Fondamenti di Biologia e Chimica.
 
+## 0.9.5 — Doppio output completo + studio ✅
+
+Obiettivo: mantenere la copertura totale verificata ma produrre anche una versione realmente studiabile,
+più corta e senza duplicazioni semantiche.
+
+Implementato:
+
+- `riassunto-unico.md/pdf` resta la copia completa e tracciabile;
+- nuovo `riassunto-studio.md/pdf` derivato dal riassunto completo verificato;
+- semantic merge conservativo dei capitoli duplicati o quasi duplicati, con controllo del contenuto;
+- merge delle varianti numerate solo quando esiste il capitolo base e il contenuto coincide sostanzialmente;
+- pulizia dei titoli duplicati/refusi editoriali nella sola versione studio;
+- rifinitura didattica con `In parole semplici`, `Concetti chiave`, `Spiegazione ordinata` e `Da ricordare per l'esame`;
+- rimozione delle citazioni di pagina dalla copia studio, mantenute nella copia completa;
+- manifest v3 con hash della sorgente completa e della versione studio;
+- `courses status` espone anche lo stato della versione studio;
+- test dedicati a deduplica semantica, preservazione dei numeri scientifici e doppio output.
+
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.
