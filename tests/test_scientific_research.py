@@ -3,11 +3,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import httpx
+import pytest
 
 from bc_science.config import AppConfig
 from bc_science.courses import course_output_path, scan_course
 from bc_science.scientific_research import (
     PubMedClient,
+    ResearchError,
     ScientificResearchBuilder,
     ScientificSource,
     _parse_pubmed_xml,
@@ -246,3 +248,28 @@ def test_config_serializes_research_settings(tmp_path: Path, monkeypatch):
     assert payload["ncbi_email"] == "student@example.com"
     assert payload["research_max_sources_per_chapter"] == 4
     assert AppConfig.load().ncbi_email == "student@example.com"
+
+
+def test_scientific_enrichment_requires_citations_in_each_section():
+    valid = """### Cosa aggiunge la letteratura
+Dato supportato [1].
+
+### Per capire meglio
+Spiegazione supportata [1].
+
+### Limiti delle evidenze recuperate
+Limite dell'abstract [1].
+"""
+    ScientificResearchBuilder._validate_citations(valid, 1)
+
+    invalid = """### Cosa aggiunge la letteratura
+Dato supportato [1].
+
+### Per capire meglio
+Spiegazione senza fonte.
+
+### Limiti delle evidenze recuperate
+Limite dell'abstract [1].
+"""
+    with pytest.raises(ResearchError, match="Per capire meglio"):
+        ScientificResearchBuilder._validate_citations(invalid, 1)
