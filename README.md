@@ -65,6 +65,36 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Riassunto unico verificato + PDF — 0.9.3
+
+`bc-science courses build` non considera più sufficiente la semplice presenza di un file chiamato `riassunto-unico.md`. Prima di riutilizzarlo verifica che sia realmente basato sulle dispense correnti e che tutti gli argomenti siano rappresentati.
+
+Per ogni materia vengono mantenuti insieme:
+
+    %LOCALAPPDATA%\BCScience\outputs\courses\<MATERIA>\riassunto-unico.md
+    %LOCALAPPDATA%\BCScience\outputs\courses\<MATERIA>\riassunto-unico.pdf
+
+Il manifest del workspace salva gli hash dei documenti, l'hash del Markdown, la mappa documento -> capitolo e l'hash del riassunto usato per creare il PDF.
+
+Il gate di copertura controlla:
+
+- che l'insieme dei documenti corrisponda esattamente alle dispense attuali;
+- che il file abbia un vero indice BC Science e capitoli riconoscibili;
+- che ogni documento sia associato a un capitolo realmente presente;
+- che ogni gruppo/argomento delle dispense sia rappresentato;
+- che il PDF corrisponda esattamente al Markdown verificato corrente.
+
+Comportamento automatico:
+
+- riassunto completo + PDF aggiornato: riuso totale, senza Ollama;
+- riassunto completo ma PDF mancante/obsoleto: genera soltanto il PDF;
+- nuove dispense additive: usa l'aggiornamento incrementale 0.9.1, rivalida la copertura e rigenera il PDF;
+- documenti modificati/rimossi o copertura incompleta: rebuild del riassunto sui documenti attuali e nuovo PDF;
+- vecchio `*-riassunto-unico.md` senza manifest verificabile: viene rilevato ma non considerato completo per fiducia; viene ricostruito una volta sulle dispense attuali;
+- manifest precedenti alla 0.9.3: vengono migrati attraverso lo stesso controllo conservativo.
+
+`courses status` mostra ora anche le colonne `Copertura` e `PDF`.
+
 ## Approfondimento scientifico oltre eCampus — 0.9.2
 
 BC Science può creare un **secondo documento separato** dal riassunto d'esame. Il riassunto eCampus resta source-only; l'approfondimento usa letteratura scientifica esterna recuperata da PubMed/NCBI.
@@ -337,7 +367,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.9.2**.
+Versione corrente: **0.9.3**.
 
 
 ### Ripasso globale rapido
@@ -361,6 +391,7 @@ La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 - 0.9: multi-materia e workspace — implementato;
 - 0.9.1: aggiornamento incrementale sicuro per documenti aggiunti — implementato;
 - 0.9.2: approfondimento scientifico separato PubMed/NCBI — implementato;
+- 0.9.3: riassunto unico verificato + PDF per materia — implementato;
 - 0.10: audit di copertura e coerenza;
 - 0.10.5: Scientific Enrichment — nucleo anticipato in 0.9.2;
 - 0.11: modalità esame;
