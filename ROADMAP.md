@@ -116,6 +116,29 @@ perche un merge additivo non puo determinare in sicurezza quali informazioni pre
 debbano essere eliminate. La 0.12 estendera l'incrementale a questi casi tramite dipendenze
 file -> argomento -> capitolo e invalidazione selettiva.
 
+## 0.9.3 — Riassunto unico verificato e PDF ✅
+
+Obiettivo: garantire che ogni materia abbia un solo riassunto realmente costruito sui documenti
+correnti e un PDF sincronizzato, inclusi gli output creati con versioni precedenti.
+
+Implementato:
+
+- rilevamento del riassunto unico canonico e dei vecchi `*-riassunto-unico.md`;
+- manifest schema 2 con hash delle dispense, hash del riassunto e mappa documento -> capitolo;
+- gate documento -> argomento -> capitolo prima del riuso;
+- rilevamento di argomenti/documenti non rappresentati;
+- rebuild conservativo quando un vecchio output non puo dimostrare la propria copertura;
+- riuso totale quando documenti, copertura, Markdown e PDF sono tutti sincronizzati;
+- generazione del solo PDF quando il Markdown verificato e gia corrente;
+- rigenerazione automatica del PDF dopo update incrementale o rebuild;
+- output `riassunto-unico.pdf` accanto a `riassunto-unico.md` per ogni materia;
+- stato CLI separato per copertura e PDF;
+- nessuna aggiunta scientifica esterna al PDF eCampus: resta la versione source-only del riassunto.
+
+Criterio di uscita: nessun PDF multi-materia viene considerato aggiornato se non e possibile
+dimostrare tramite manifest e coverage map che deriva dal riassunto basato su tutte le dispense
+correnti della materia.
+
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.
