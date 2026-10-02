@@ -424,7 +424,6 @@ def _pdf_is_current(scan: CourseScan, manifest: dict | None, summary_text: str) 
     )
 
 
-
 def _study_is_current(
     scan: CourseScan,
     manifest: dict | None,
