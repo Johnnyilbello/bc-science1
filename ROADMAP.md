@@ -90,6 +90,32 @@ Implementazione 0.9.0: motore multi-materia, scansione/preflight, workspace e DB
 manifest con hash, status incrementale e build selettivo sono disponibili. Il collaudo reale
 su almeno tre materie complete resta il passaggio operativo da eseguire sul corpus utente.
 
+## 0.9.1 — Aggiornamento incrementale additivo ✅
+
+Obiettivo: quando in una materia vengono aggiunte nuove dispense, evitare la rilettura e la
+rigenerazione dell'intero corso.
+
+Implementato:
+
+- confronto manifest/hash per identificare esattamente i documenti aggiunti;
+- indicizzazione dei soli nuovi documenti;
+- raggruppamento per argomento tramite nome normalizzato;
+- routing content-aware conservativo verso un capitolo esistente quando il nome non basta;
+- analisi source-only esclusivamente del nuovo materiale;
+- merge del nuovo materiale con il solo capitolo coinvolto;
+- gate anti-perdita sui punti gia presenti in "Da ricordare per l'esame";
+- un secondo tentativo di repair se il primo merge non supera il gate;
+- fallback automatico al rebuild completo se l'incrementale non e sicuro;
+- inserimento di un nuovo capitolo quando il materiale introduce davvero un nuovo argomento;
+- aggiornamento deterministico di Ripasso globale e indice;
+- rigenerazione della Mappa della materia solo quando compare un nuovo capitolo;
+- nessuna chiamata Ollama quando non esistono cambiamenti.
+
+Limite intenzionale: file esistenti modificati o rimossi usano ancora il rebuild completo,
+perche un merge additivo non puo determinare in sicurezza quali informazioni precedenti
+debbano essere eliminate. La 0.12 estendera l'incrementale a questi casi tramite dipendenze
+file -> argomento -> capitolo e invalidazione selettiva.
+
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.
