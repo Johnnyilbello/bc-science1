@@ -132,7 +132,7 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
-## 0.10.5 — Scientific Enrichment oltre eCampus
+## 0.10.5 — Scientific Enrichment oltre eCampus ✅
 
 Obiettivo: affiancare al materiale d'esame un secondo documento di approfondimento scientifico
 che vada oltre eCampus senza modificare, correggere o contaminare il riassunto source-only.
@@ -164,6 +164,11 @@ Comandi previsti:
 
 Criterio di uscita: almeno tre materie devono produrre un approfondimento separato con fonti
 scientifiche verificabili e nessuna modifica al corrispondente riassunto eCampus.
+
+Implementazione anticipata in 0.9.2: PubMed/NCBI, output separato, ricerca automatica opt-in,
+manifest/cache, preferenza per review/meta-analisi/linee guida, PMID/DOI, quality gate delle
+citazioni e isolamento dagli output eCampus sono disponibili. Provider scientifici aggiuntivi
+potranno essere aggiunti successivamente senza cambiare questo contratto.
 
 ## 0.11 — Modalità esame
 
