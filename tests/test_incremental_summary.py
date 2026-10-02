@@ -142,9 +142,12 @@ Le articolazioni collegano segmenti ossei.
 
     monkeypatch.setattr(summarizer, "_summarize_topic", fake_topic)
 
-    calls = {"map": 0}
+    calls = {"route": 0, "map": 0}
 
     def fake_cached(cache_key, system, user, *, num_predict=None):
+        if "Decidi dove appartiene il NUOVO materiale" in user:
+            calls["route"] += 1
+            return "NEW"
         assert "## Mappa della materia" in user
         calls["map"] += 1
         return "## Mappa della materia\n- Ossa e articolazioni."
@@ -162,7 +165,82 @@ Le articolazioni collegano segmenti ossei.
 
     assert updated == 0
     assert created == 1
-    assert calls["map"] == 1
+    assert calls == {"route": 1, "map": 1}
     assert "- Articolazioni" in result
     assert "## Articolazioni" in result
     assert "Ossa e articolazioni" in result
+
+
+
+def test_incremental_summary_routes_ambiguous_filename_by_content(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    summarizer = Summarizer(AppConfig())
+
+    existing = """# FISIOLOGIA - Riassunto completo
+
+## Mappa della materia
+- Sistema nervoso.
+
+## Ripasso globale
+1. **Neuroni**: I neuroni trasmettono segnali.
+
+## Indice degli argomenti
+- Neuroni
+
+---
+
+## Neuroni
+### In parole semplici
+I neuroni trasmettono segnali.
+### Da ricordare per l'esame
+- I neuroni trasmettono segnali.
+"""
+
+    new_file = tmp_path / "Lezione speciale.txt"
+    new_file.write_text("sinapsi e neuroni", encoding="utf-8")
+
+    new_material = """## Lezione speciale
+### In parole semplici
+I neuroni comunicano attraverso sinapsi.
+### Da ricordare per l'esame
+- I neuroni comunicano attraverso sinapsi.
+"""
+    merged = """## Neuroni
+### In parole semplici
+I neuroni trasmettono segnali e comunicano attraverso sinapsi.
+### Da ricordare per l'esame
+- I neuroni trasmettono segnali.
+- I neuroni comunicano attraverso sinapsi.
+"""
+
+    monkeypatch.setattr(
+        summarizer,
+        "_summarize_topic",
+        lambda group, progress=None: new_material,
+    )
+
+    calls = {"route": 0, "merge": 0}
+
+    def fake_cached(cache_key, system, user, *, num_predict=None):
+        if "Decidi dove appartiene il NUOVO materiale" in user:
+            calls["route"] += 1
+            return "MATCH: Neuroni"
+        calls["merge"] += 1
+        return merged
+
+    monkeypatch.setattr(summarizer, "_cached_chat", fake_cached)
+
+    try:
+        result, updated, created = summarizer.incremental_update_course(
+            existing,
+            [new_file],
+            "FISIOLOGIA - Riassunto completo",
+        )
+    finally:
+        summarizer.close()
+
+    assert calls == {"route": 1, "merge": 1}
+    assert updated == 1
+    assert created == 0
+    assert result.count("## Neuroni") == 1
+    assert "comunicano attraverso sinapsi" in result
