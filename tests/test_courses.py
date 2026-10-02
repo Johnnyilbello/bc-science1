@@ -13,7 +13,6 @@ from bc_science.courses import (
     workspace_db_path,
 )
 
-
 def test_scan_courses_discovers_direct_subjects_and_ignores_noise(tmp_path: Path):
     root = tmp_path / "SCIENZE MOTORIE"
     anatomy = root / "ANATOMIA"
@@ -49,7 +48,6 @@ def test_scan_courses_discovers_direct_subjects_and_ignores_noise(tmp_path: Path
     assert anatomy_scan.folders_visited == 2
     assert anatomy_scan.total_files == 4
     assert anatomy_scan.ignored_files == 2
-
 
 def test_course_build_uses_workspace_manifest_and_skips_unchanged(
     tmp_path: Path,
@@ -120,7 +118,6 @@ def test_course_build_uses_workspace_manifest_and_skips_unchanged(
     assert calls == {"ingest": 2, "summarize": 2}
     assert course_state(changed_scan).state == "pronta"
 
-
 def test_different_courses_get_different_workspace_databases(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     root = tmp_path / "SCIENZE MOTORIE"
@@ -135,8 +132,6 @@ def test_different_courses_get_different_workspace_databases(tmp_path: Path, mon
     assert len(scans) == 3
     assert len(db_paths) == 3
     assert all("workspaces" in path.parts for path in db_paths)
-
-
 
 def test_added_document_uses_incremental_course_update(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
@@ -218,7 +213,6 @@ def test_added_document_uses_incremental_course_update(tmp_path: Path, monkeypat
     assert "Aggiornato incrementalmente" in second.output_path.read_text(encoding="utf-8")
     assert course_state(scan_courses(root)[0]).state == "pronta"
 
-
 def test_incremental_failure_falls_back_to_full_course_rebuild(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     root = tmp_path / "SCIENZE MOTORIE"
@@ -243,7 +237,12 @@ def test_incremental_failure_falls_back_to_full_course_rebuild(tmp_path: Path, m
 
         def summarize_course(self, files, title, *, progress=None):
             calls["summarize"] += 1
-            return f"# {title}\n\n## Indice degli argomenti\n- Ossa\n"
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Ossa\n\n---\n\n"
+                "## Ossa\n### In parole semplici\nOssa.\n"
+                "### Da ricordare per l'esame\n- Ossa.\n"
+            )
 
         def incremental_update_course(
             self,
@@ -269,8 +268,6 @@ def test_incremental_failure_falls_back_to_full_course_rebuild(tmp_path: Path, m
     assert result.incremental_files == 1
     assert result.fallback_full_rebuild is True
     assert calls == {"summarize": 2, "incremental": 1}
-
-
 
 def test_existing_current_summary_generates_missing_pdf_without_resummarizing(
     tmp_path: Path,
@@ -333,7 +330,6 @@ def test_existing_current_summary_generates_missing_pdf_without_resummarizing(
     assert second.pdf_pages == 7
     assert calls == {"summarize": 1, "pdf": 2}
 
-
 def test_legacy_summary_without_verified_manifest_is_rebuilt(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     subject = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
@@ -395,7 +391,6 @@ def test_legacy_summary_without_verified_manifest_is_rebuilt(tmp_path: Path, mon
     assert result.output_path is not None and result.output_path != legacy
     assert result.pdf_path is not None and result.pdf_path.exists()
 
-
 def test_coverage_audit_detects_missing_topic_even_with_summary_file(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     subject = tmp_path / "SCIENZE MOTORIE" / "FISIOLOGIA"
@@ -426,7 +421,6 @@ Neuroni.
     assert coverage.complete is False
     assert coverage.covered_source_count == 1
     assert "Muscoli" in coverage.missing_topics
-
 
 def test_course_state_reports_coverage_and_pdf_status(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
