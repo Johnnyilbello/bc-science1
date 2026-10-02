@@ -132,6 +132,39 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
+## 0.10.5 — Scientific Enrichment oltre eCampus
+
+Obiettivo: affiancare al materiale d'esame un secondo documento di approfondimento scientifico
+che vada oltre eCampus senza modificare, correggere o contaminare il riassunto source-only.
+
+Output separato previsto:
+
+    outputs\research\<MATERIA>\approfondimento-scientifico.md
+
+Principi:
+
+- il riassunto eCampus resta invariato e continua a usare esclusivamente le dispense;
+- la ricerca scientifica produce sempre un documento separato chiaramente marcato "oltre eCampus";
+- ricerca automatica opt-in: dopo la configurazione viene aggiornata quando cambia il riassunto della materia;
+- fonti primarie iniziali: PubMed/NCBI tramite API ufficiali;
+- preferenza per systematic review, meta-analisi, review e linee guida quando disponibili;
+- ogni affermazione aggiuntiva deve essere riconducibile alle fonti recuperate;
+- citazioni con PMID, DOI quando disponibile, rivista e anno;
+- nessuna fonte web generica deve essere trattata come equivalente alla letteratura scientifica;
+- il modello locale sintetizza soltanto titoli/abstract recuperati, senza inventare risultati mancanti;
+- se non esistono fonti sufficienti, il capitolo deve dichiararlo invece di riempire il vuoto;
+- cache/manifest separato per evitare nuove ricerche quando il riassunto e le fonti non sono cambiate;
+- un errore di rete o della ricerca non deve mai bloccare la generazione del materiale eCampus.
+
+Comandi previsti:
+
+    bc-science research configure --email <email>
+    bc-science research status "C:\Studio\SCIENZE MOTORIE"
+    bc-science research build "C:\Studio\SCIENZE MOTORIE"
+
+Criterio di uscita: almeno tre materie devono produrre un approfondimento separato con fonti
+scientifiche verificabili e nessuna modifica al corrispondente riassunto eCampus.
+
 ## 0.11 — Modalità esame
 
 Obiettivo: trasformare la dispensa in allenamento attivo.
