@@ -1225,7 +1225,12 @@ class Summarizer:
                 chapter_title,
             )
 
-            issues = _chapter_quality_issues(merged, chapter_title)
+            require_source_warning = "Verifica materiale" in old_chapter
+            issues = _chapter_quality_issues(
+                merged,
+                chapter_title,
+                require_source_warning=require_source_warning,
+            )
             preserved = _preserves_existing_exam_points(old_chapter, merged)
             if issues or not preserved:
                 repair_key = _key(
@@ -1251,7 +1256,11 @@ class Summarizer:
                     _dedupe_exact_blocks(merged),
                     chapter_title,
                 )
-                issues = _chapter_quality_issues(merged, chapter_title)
+                issues = _chapter_quality_issues(
+                    merged,
+                    chapter_title,
+                    require_source_warning=require_source_warning,
+                )
                 preserved = _preserves_existing_exam_points(old_chapter, merged)
 
             if issues or not preserved:
