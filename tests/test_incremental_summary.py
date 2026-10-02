@@ -68,6 +68,10 @@ I neuroni trasmettono segnali nel sistema nervoso e comunicano tramite sinapsi.
 ### Dettagli
 La membrana permette la trasmissione del segnale.
 Le sinapsi permettono la comunicazione tra neuroni.
+Il capitolo mantiene le informazioni precedenti e integra il nuovo materiale in modo progressivo.
+La spiegazione distingue il ruolo della membrana dalla comunicazione sinaptica e conserva i concetti gia presenti.
+Questa integrazione permette di studiare il nuovo contenuto senza perdere il quadro generale costruito dal materiale precedente.
+I termini vengono mantenuti nello stesso contesto del capitolo per evitare duplicazioni e frammentazione.
 ### Da ricordare per l'esame
 - I neuroni trasmettono segnali.
 - La membrana partecipa alla trasmissione.
@@ -208,6 +212,12 @@ I neuroni comunicano attraverso sinapsi.
     merged = """## Neuroni
 ### In parole semplici
 I neuroni trasmettono segnali e comunicano attraverso sinapsi.
+### Dettagli
+Il capitolo conserva il concetto di trasmissione dei segnali e aggiunge la comunicazione sinaptica come nuova informazione.
+La spiegazione resta organizzata in modo progressivo, mantenendo il contenuto precedente e integrando il nuovo materiale senza sostituirlo.
+Le informazioni vengono presentate nello stesso capitolo perché riguardano chiaramente i neuroni e il loro modo di comunicare.
+Il testo mantiene separati i concetti distinti ed evita di trasformare il nuovo documento in un capitolo duplicato.
+Questa struttura permette di studiare insieme le informazioni precedenti e quelle aggiunte successivamente.
 ### Da ricordare per l'esame
 - I neuroni trasmettono segnali.
 - I neuroni comunicano attraverso sinapsi.
