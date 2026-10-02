@@ -57,7 +57,8 @@ Per ogni materia vengono creati:
 - un workspace separato in `%LOCALAPPDATA%\\BCScience\\workspaces\\courses\\...`;
 - un database dedicato per indice semantico e cache di generazione;
 - un manifest con hash dei documenti per rilevare modifiche;
-- un solo riassunto coerente in `outputs\\courses\\<materia>\\riassunto-unico.md`.
+- il riassunto completo verificato in `outputs\\courses\\<materia>\\riassunto-unico.md/.pdf`;
+- una versione studio deduplicata e più compatta in `outputs\\courses\\<materia>\\riassunto-studio.md/.pdf`.
 
 File temporanei, nascosti, output precedenti e formati non supportati vengono esclusi dalla pipeline e conteggiati nel preflight. Se una materia non è cambiata e l'output esiste, il build la riutilizza senza richiamare Ollama.
 
@@ -76,6 +77,19 @@ La normalizzazione dei nomi file usa ora regole conservative basate sul corpus r
 - numeri scientificamente significativi come `tipo 2`, `fase 2`, `B12`, `CO2`, `pH 7`, `Omega 3` vengono preservati.
 
 Questo evita capitoli duplicati o artificiali nei riassunti unici senza cancellare numeri che fanno parte del contenuto scientifico.
+
+## Versione studio automatica — 0.9.5
+
+Dopo aver verificato la copertura del riassunto completo, `courses build` crea anche una seconda copia pensata per lo studio rapido:
+
+    %LOCALAPPDATA%\\BCScience\\outputs\\courses\\<MATERIA>\\riassunto-studio.md
+    %LOCALAPPDATA%\\BCScience\\outputs\\courses\\<MATERIA>\\riassunto-studio.pdf
+
+La versione studio parte esclusivamente dal riassunto completo verificato. Prima della compressione esegue un merge conservativo dei capitoli duplicati o quasi duplicati, rimuove ripetizioni e citazioni di pagina, ma conserva fatti distinti, numeri, definizioni, classificazioni, sequenze ed eccezioni. I riferimenti di pagina restano disponibili nel `riassunto-unico` completo.
+
+La struttura didattica usa `In parole semplici`, `Concetti chiave`, `Spiegazione ordinata` e una sola sezione finale `Da ricordare per l'esame`. Il manifest v3 lega la versione studio all'hash esatto del riassunto completo, quindi non viene rigenerata quando nulla è cambiato.
+
+`courses status` mostra la colonna `Studio` con `aggiornato`, `da aggiornare` o `manca`.
 
 ## Riassunto unico verificato + PDF — 0.9.3
 
@@ -105,7 +119,7 @@ Comportamento automatico:
 - vecchio `*-riassunto-unico.md` senza manifest verificabile: viene rilevato ma non considerato completo per fiducia; viene ricostruito una volta sulle dispense attuali;
 - manifest precedenti alla 0.9.3: vengono migrati attraverso lo stesso controllo conservativo.
 
-`courses status` mostra ora anche le colonne `Copertura` e `PDF`.
+`courses status` mostra le colonne `Copertura`, `PDF` e, dalla 0.9.5, `Studio`.
 
 ## Approfondimento scientifico oltre eCampus — 0.9.2
 
