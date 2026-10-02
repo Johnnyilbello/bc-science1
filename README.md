@@ -59,7 +59,11 @@ Per ogni materia vengono creati:
 - un manifest con hash dei documenti per rilevare modifiche;
 - un solo riassunto coerente in `outputs\\courses\\<materia>\\riassunto-unico.md`.
 
-File temporanei, nascosti, output precedenti e formati non supportati vengono esclusi dalla pipeline e conteggiati nel preflight. Se una materia non è cambiata e l'output esiste, il build la riutilizza senza richiamare Ollama. Se alcuni file sono cambiati, la materia viene aggiornata riutilizzando cache e indice dei documenti invariati.
+File temporanei, nascosti, output precedenti e formati non supportati vengono esclusi dalla pipeline e conteggiati nel preflight. Se una materia non è cambiata e l'output esiste, il build la riutilizza senza richiamare Ollama.
+
+Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, BC Science usa un aggiornamento incrementale: indicizza e analizza soltanto i file aggiunti, li associa a un capitolo esistente tramite titolo normalizzato e, quando necessario, routing content-aware; poi fonde il nuovo materiale nel solo capitolo coinvolto. Il `Ripasso globale` e l'indice vengono ricostruiti deterministicamente, mentre la Mappa della materia viene rigenerata soltanto se nasce un nuovo capitolo. Un gate anti-perdita verifica che i punti d'esame già presenti non scompaiano; se il merge non è sicuro, il sistema esegue automaticamente un rebuild completo.
+
+File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
 ## Primo utilizzo
 
@@ -291,7 +295,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.9.0**.
+Versione corrente: **0.9.1**.
 
 
 ### Ripasso globale rapido
@@ -313,9 +317,10 @@ La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 
 - 0.8: comprensibilità per principianti;
 - 0.9: multi-materia e workspace — implementato;
+- 0.9.1: aggiornamento incrementale sicuro per documenti aggiunti — implementato;
 - 0.10: audit di copertura e coerenza;
 - 0.11: modalità esame;
-- 0.12: aggiornamento incrementale;
+- 0.12: aggiornamento incrementale completo per modifiche/rimozioni;
 - 1.0: comando one-shot bc-science build.
 
 
