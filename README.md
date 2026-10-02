@@ -65,6 +65,48 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Approfondimento scientifico oltre eCampus — 0.9.2
+
+BC Science può creare un **secondo documento separato** dal riassunto d'esame. Il riassunto eCampus resta source-only; l'approfondimento usa letteratura scientifica esterna recuperata da PubMed/NCBI.
+
+Configurazione iniziale:
+
+    bc-science research configure --email nome@example.com
+
+L'email viene inviata a NCBI come identificativo richiesto dalle E-utilities. L'API key NCBI è facoltativa:
+
+    bc-science research configure --email nome@example.com --api-key LA_TUA_KEY
+
+Stato degli approfondimenti:
+
+    bc-science research status "C:\Studio\SCIENZE MOTORIE"
+
+Generazione manuale:
+
+    bc-science research build "C:\Studio\SCIENZE MOTORIE"
+
+Output:
+
+    %LOCALAPPDATA%\BCScience\outputs\research\<MATERIA>\approfondimento-scientifico.md
+
+Una volta abilitata con `research configure`, la ricerca diventa automatica dopo `courses build`: viene eseguita solo se il riassunto della materia è cambiato. Il relativo manifest impedisce ricerche e sintesi duplicate quando l'input è invariato.
+
+Per ogni capitolo BC Science:
+
+- genera localmente una query bibliografica PubMed basata sul contenuto eCampus;
+- cerca prima systematic review, meta-analisi, review e practice guideline;
+- recupera record PubMed tramite le E-utilities ufficiali;
+- usa solo fonti con abstract disponibile per la sintesi;
+- crea sezioni `Cosa aggiunge la letteratura`, `Per capire meglio` e `Limiti delle evidenze recuperate`;
+- richiede citazioni `[1]`, `[2]`, ecc. valide in ogni sezione;
+- aggiunge deterministicamente titolo, rivista, anno, PMID, DOI quando disponibile e link PubMed;
+- non modifica mai il riassunto eCampus;
+- non salva un approfondimento non verificabile se il quality gate delle citazioni fallisce.
+
+Se PubMed/NCBI non è raggiungibile durante `courses build`, il riassunto eCampus continua normalmente e viene mostrato solo un avviso per l'approfondimento.
+
+Nota metodologica: la modalità automatica lavora su titoli, metadati e abstract PubMed. È un supporto allo studio e non equivale a una revisione sistematica completa della letteratura.
+
 ## Primo utilizzo
 
 ### Riassumere un intero corso o ZIP in un unico file
@@ -295,7 +337,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.9.1**.
+Versione corrente: **0.9.2**.
 
 
 ### Ripasso globale rapido
@@ -318,7 +360,9 @@ La roadmap completa è in ROADMAP.md. Le tappe principali sono:
 - 0.8: comprensibilità per principianti;
 - 0.9: multi-materia e workspace — implementato;
 - 0.9.1: aggiornamento incrementale sicuro per documenti aggiunti — implementato;
+- 0.9.2: approfondimento scientifico separato PubMed/NCBI — implementato;
 - 0.10: audit di copertura e coerenza;
+- 0.10.5: Scientific Enrichment — nucleo anticipato in 0.9.2;
 - 0.11: modalità esame;
 - 0.12: aggiornamento incrementale completo per modifiche/rimozioni;
 - 1.0: comando one-shot bc-science build.
