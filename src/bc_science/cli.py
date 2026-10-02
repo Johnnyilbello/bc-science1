@@ -19,6 +19,11 @@ from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
 from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
+from .scientific_research import (
+    ResearchError,
+    ScientificResearchBuilder,
+    research_state,
+)
 from .summarizer import Summarizer
 
 app = typer.Typer(
@@ -28,8 +33,10 @@ app = typer.Typer(
 )
 models_app = typer.Typer(help="Gestione modelli locali.")
 courses_app = typer.Typer(help="Gestione multi-materia da una cartella radice.")
+research_app = typer.Typer(help="Approfondimenti scientifici separati oltre eCampus.")
 app.add_typer(models_app, name="models")
 app.add_typer(courses_app, name="courses")
+app.add_typer(research_app, name="research")
 console = Console()
 
 
@@ -83,6 +90,168 @@ def doctor() -> None:
         f"{stats['summaries']} risultati in cache",
     )
     console.print(table)
+
+
+@research_app.command("configure")
+def research_configure(
+    email: Annotated[
+        str | None,
+        typer.Option(
+            "--email",
+            help="Email usata nelle richieste NCBI E-utilities",
+        ),
+    ] = None,
+    api_key: Annotated[
+        str | None,
+        typer.Option("--api-key", help="API key NCBI facoltativa"),
+    ] = None,
+    enabled: Annotated[
+        bool,
+        typer.Option("--enable/--disable", help="Aggiornamento automatico dopo courses build"),
+    ] = True,
+) -> None:
+    """Configura la ricerca PubMed/NCBI per gli approfondimenti oltre eCampus."""
+    config = _config()
+
+    if email is not None:
+        email = email.strip()
+        if "@" not in email or " " in email:
+            console.print("[red]Email NCBI non valida.[/]")
+            raise typer.Exit(1)
+        config.ncbi_email = email
+
+    if enabled and not config.ncbi_email:
+        console.print(
+            "[red]Serve una email per usare le E-utilities NCBI.[/] "
+            "Esegui: bc-science research configure --email nome@example.com"
+        )
+        raise typer.Exit(1)
+
+    if api_key is not None:
+        config.ncbi_api_key = api_key.strip()
+
+    config.scientific_research_enabled = enabled
+    path = config.save()
+
+    state = "[green]ATTIVA[/]" if enabled else "[yellow]DISATTIVA[/]"
+    console.print(f"Ricerca scientifica automatica: {state}")
+    if config.ncbi_email:
+        console.print(f"Email NCBI: {config.ncbi_email}")
+    console.print(f"[dim]Configurazione: {path}[/]")
+
+
+@research_app.command("status")
+def research_status(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="standard o quality"),
+    ] = "standard",
+) -> None:
+    """Mostra quali approfondimenti scientifici sono pronti o da aggiornare."""
+    config = _config()
+    try:
+        scans = scan_courses(root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    table = Table(title=f"BC Science - Ricerca scientifica · {root.expanduser().resolve()}")
+    table.add_column("Materia")
+    table.add_column("Stato")
+
+    for scan in scans:
+        state = research_state(scan, config, profile=profile)
+        style = {
+            "pronta": "green",
+            "da aggiornare": "yellow",
+            "non configurata": "cyan",
+            "manca riassunto": "dim",
+        }.get(state, "white")
+        table.add_row(scan.name, f"[{style}]{state}[/]")
+
+    console.print(table)
+
+
+@research_app.command("build")
+def research_build(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+    profile: Annotated[
+        str,
+        typer.Option("--profile", "-p", help="standard o quality"),
+    ] = "standard",
+    max_sources: Annotated[
+        int | None,
+        typer.Option(
+            "--max-sources",
+            min=1,
+            max=5,
+            help="Fonti PubMed massime per capitolo",
+        ),
+    ] = None,
+) -> None:
+    """Crea un approfondimento scientifico separato per ogni materia."""
+    config = _config()
+    if not config.ncbi_email:
+        console.print(
+            "[red]Ricerca non configurata.[/] "
+            "Esegui prima 'bc-science research configure --email nome@example.com'."
+        )
+        raise typer.Exit(1)
+
+    try:
+        scans = scan_courses(root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    _ensure_model(config, profile)
+    builder = ScientificResearchBuilder(config, profile=profile)
+
+    created = 0
+    reused = 0
+    missing = 0
+    for index, scan in enumerate(scans, start=1):
+        console.print()
+        console.print(f"[bold][{index}/{len(scans)}] {scan.name}[/]")
+
+        def show_progress(message: str, *, course_name: str = scan.name) -> None:
+            console.print(f"[dim]{course_name}: {message}[/]")
+
+        try:
+            result = builder.build_course(
+                scan,
+                max_sources=max_sources,
+                progress=show_progress,
+            )
+        except ResearchError as exc:
+            console.print(f"[red]Ricerca fallita per {scan.name}:[/] {exc}")
+            continue
+
+        if result.state == "riutilizzata":
+            reused += 1
+            console.print(f"[green]Approfondimento già aggiornato:[/] {result.output_path}")
+        elif result.state == "manca riassunto":
+            missing += 1
+            console.print("[yellow]Riassunto eCampus non trovato: materia saltata.[/]")
+        else:
+            created += 1
+            console.print(f"[green]Approfondimento creato:[/] {result.output_path}")
+            console.print(
+                f"[dim]{result.chapters} capitoli · {result.sources} fonti PubMed[/]"
+            )
+
+    console.print()
+    console.print(
+        "[green]Ricerca scientifica completata.[/] "
+        f"{created} create/aggiornate · {reused} riutilizzate · {missing} senza riassunto"
+    )
 
 
 @courses_app.command("list")
@@ -256,6 +425,30 @@ def courses_build(
                         f"analizzati solo {result.incremental_files} nuovi documenti · "
                         f"{result.updated_chapters} capitoli aggiornati · "
                         f"{result.new_chapters} capitoli nuovi"
+                    )
+
+        if config.scientific_research_enabled and result.output_path is not None:
+            console.print("[dim]Aggiorno l'approfondimento scientifico separato...[/]")
+            try:
+                research_result = ScientificResearchBuilder(
+                    config,
+                    profile=profile,
+                ).build_course(
+                    scan,
+                    progress=show_progress,
+                )
+            except (ResearchError, ValueError) as exc:
+                console.print(
+                    "[yellow]Approfondimento scientifico non aggiornato:[/] "
+                    f"{exc}. Il riassunto eCampus resta valido."
+                )
+            else:
+                if research_result.state == "riutilizzata":
+                    console.print("[dim]Approfondimento scientifico già aggiornato.[/]")
+                elif research_result.output_path is not None:
+                    console.print(
+                        f"[green]Approfondimento scientifico:[/] "
+                        f"{research_result.output_path}"
                     )
 
     console.print()
