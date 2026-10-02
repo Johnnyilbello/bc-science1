@@ -13,6 +13,7 @@ from bc_science.courses import (
     workspace_db_path,
 )
 
+
 def test_scan_courses_discovers_direct_subjects_and_ignores_noise(tmp_path: Path):
     root = tmp_path / "SCIENZE MOTORIE"
     anatomy = root / "ANATOMIA"
