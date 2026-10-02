@@ -1264,11 +1264,7 @@ class Summarizer:
                         for index, (chapter_title, _chapter) in enumerate(records)
                         if chapter_title == routed_title
                     )
-                    candidate_chapter = records[candidate_index][1]
-                    if (
-                        _chapter_title_supported(routed_title, new_material)
-                        or _chapter_title_supported(routed_title, candidate_chapter)
-                    ):
+                    if _chapter_title_supported(routed_title, new_material):
                         existing_index = candidate_index
                         if progress:
                             progress(
