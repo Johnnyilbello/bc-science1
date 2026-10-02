@@ -64,6 +64,10 @@ class CourseBuildResult:
     indexed: int = 0
     reused_index: int = 0
     removed_index: int = 0
+    incremental_files: int = 0
+    updated_chapters: int = 0
+    new_chapters: int = 0
+    fallback_full_rebuild: bool = False
 
 
 def _is_hidden_or_ignored_dir(name: str) -> bool:
@@ -208,6 +212,43 @@ def _write_manifest(
     temporary.replace(target)
 
 
+def _source_changes(
+    scan: CourseScan,
+    snapshot: list[dict[str, str | int]],
+    manifest: dict | None,
+) -> tuple[list[Path], int, int]:
+    if manifest is None:
+        return list(scan.supported_files), 0, 0
+
+    previous_rows = manifest.get("files")
+    previous_files = {
+        str(row["path"]): str(row["sha256"])
+        for row in previous_rows
+        if isinstance(row, dict) and "path" in row and "sha256" in row
+    } if isinstance(previous_rows, list) else {}
+
+    current_files = {
+        str(row["path"]): str(row["sha256"])
+        for row in snapshot
+    }
+    by_relative = {
+        path.relative_to(scan.path).as_posix(): path
+        for path in scan.supported_files
+    }
+
+    added = [
+        by_relative[path]
+        for path in sorted(current_files.keys() - previous_files.keys())
+    ]
+    changed = sum(
+        1
+        for path in current_files.keys() & previous_files.keys()
+        if current_files[path] != previous_files[path]
+    )
+    removed = len(previous_files.keys() - current_files.keys())
+    return added, changed, removed
+
+
 def course_state(scan: CourseScan) -> CourseState:
     output = course_output_path(scan)
     workspace = workspace_path(scan)
@@ -233,21 +274,12 @@ def course_state(scan: CourseScan) -> CourseState:
         new_files = len(scan.supported_files)
     else:
         snapshot = _snapshot(scan)
-        current_files = {str(row["path"]): str(row["sha256"]) for row in snapshot}
-        previous_rows = manifest.get("files")
-        previous_files = {
-            str(row["path"]): str(row["sha256"])
-            for row in previous_rows
-            if isinstance(row, dict) and "path" in row and "sha256" in row
-        } if isinstance(previous_rows, list) else {}
-
-        new_files = len(current_files.keys() - previous_files.keys())
-        removed_files = len(previous_files.keys() - current_files.keys())
-        changed_files = sum(
-            1
-            for path in current_files.keys() & previous_files.keys()
-            if current_files[path] != previous_files[path]
+        added_paths, changed_files, removed_files = _source_changes(
+            scan,
+            snapshot,
+            manifest,
         )
+        new_files = len(added_paths)
 
         current = _fingerprint(snapshot)
         if manifest.get("fingerprint") == current and output.exists():
@@ -296,6 +328,83 @@ def build_course(
     workspace = workspace_path(scan)
     workspace.mkdir(parents=True, exist_ok=True)
     db_path = workspace_db_path(scan)
+    added_files, changed_files, removed_files = _source_changes(
+        scan,
+        snapshot,
+        manifest,
+    )
+
+    incremental_candidate = (
+        manifest is not None
+        and output.exists()
+        and bool(added_files)
+        and changed_files == 0
+        and removed_files == 0
+    )
+
+    if incremental_candidate:
+        if progress:
+            progress(
+                f"Aggiornamento incrementale: analizzo solo {len(added_files)} "
+                f"{'nuovo documento' if len(added_files) == 1 else 'nuovi documenti'}."
+            )
+
+        index_result = ingest_files(
+            added_files,
+            config,
+            db_path=db_path,
+            prune_missing=False,
+        )
+        summarizer = Summarizer(config, profile, db_path=db_path)
+        try:
+            existing_summary = output.read_text(encoding="utf-8")
+            try:
+                summary, updated_chapters, new_chapters = (
+                    summarizer.incremental_update_course(
+                        existing_summary,
+                        added_files,
+                        title=f"{scan.name} - Riassunto completo",
+                        progress=progress,
+                    )
+                )
+            except ValueError as exc:
+                if progress:
+                    progress(
+                        f"Incrementale non sicuro ({exc}); eseguo rebuild completo."
+                    )
+                summary = summarizer.summarize_course(
+                    list(scan.supported_files),
+                    title=f"{scan.name} - Riassunto completo",
+                    progress=progress,
+                )
+                updated_chapters = 0
+                new_chapters = 0
+                fallback = True
+            else:
+                fallback = False
+        finally:
+            summarizer.close()
+
+        if not summary.strip():
+            raise ValueError(f"Nessun contenuto riassumibile per {scan.name}.")
+
+        temporary = output.with_name(output.name + ".tmp")
+        temporary.write_text(summary, encoding="utf-8")
+        temporary.replace(output)
+        _write_manifest(scan, snapshot, output)
+
+        return CourseBuildResult(
+            scan=scan,
+            state="creata",
+            output_path=output,
+            indexed=index_result["indexed"],
+            reused_index=index_result["skipped"],
+            removed_index=0,
+            incremental_files=len(added_files),
+            updated_chapters=updated_chapters,
+            new_chapters=new_chapters,
+            fallback_full_rebuild=fallback,
+        )
 
     index_result = ingest_files(
         list(scan.supported_files),
