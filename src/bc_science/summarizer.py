@@ -1065,7 +1065,6 @@ def _preserves_existing_exam_points(existing: str, candidate: str) -> bool:
     return True
 
 
-
 def _preserves_exam_numbers(existing: str, candidate: str) -> bool:
     """Require numerical facts present in exam-recap bullets to survive study compression."""
     candidate_text = _strip_study_citations(candidate).casefold()
