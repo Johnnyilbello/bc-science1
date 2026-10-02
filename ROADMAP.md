@@ -139,6 +139,19 @@ Criterio di uscita: nessun PDF multi-materia viene considerato aggiornato se non
 dimostrare tramite manifest e coverage map che deriva dal riassunto basato su tutte le dispense
 correnti della materia.
 
+## 0.9.4 — Normalizzazione corpus reale eCampus ✅
+
+Obiettivo: evitare falsi capitoli separati causati da suffissi dei file eCampus.
+
+Implementato:
+
+- merge di varianti numerate dello stesso argomento;
+- merge di FAQ e quiz nel capitolo principale;
+- supporto a parti numeriche e romane;
+- rimozione di artefatti `2pdf`, `1p` e numeri duplicato attaccati al titolo;
+- protezione dei numeri scientificamente significativi (`tipo 2`, `fase 2`, `B12`, `CO2`, `pH 7`, `Omega 3`);
+- test sul corpus reale emerso durante il build di Fondamenti di Biologia e Chimica.
+
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.
