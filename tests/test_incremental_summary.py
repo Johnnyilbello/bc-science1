@@ -88,7 +88,7 @@ I termini vengono mantenuti nello stesso contesto del capitolo per evitare dupli
     monkeypatch.setattr(summarizer, "_cached_chat", fake_cached)
 
     try:
-        result, updated, created = summarizer.incremental_update_course(
+        result, updated, created, source_mapping = summarizer.incremental_update_course(
             existing,
             [new_file],
             "FISIOLOGIA - Riassunto completo",
@@ -98,6 +98,7 @@ I termini vengono mantenuti nello stesso contesto del capitolo per evitare dupli
 
     assert updated == 1
     assert created == 0
+    assert source_mapping == {str(new_file.resolve()): "Neuroni"}
     assert "Le sinapsi permettono la comunicazione tra neuroni." in result
     assert "La membrana partecipa alla trasmissione." in result
     assert "## Muscoli" in result
@@ -159,7 +160,7 @@ Le articolazioni collegano segmenti ossei.
     monkeypatch.setattr(summarizer, "_cached_chat", fake_cached)
 
     try:
-        result, updated, created = summarizer.incremental_update_course(
+        result, updated, created, source_mapping = summarizer.incremental_update_course(
             existing,
             [new_file],
             "ANATOMIA - Riassunto completo",
@@ -169,6 +170,7 @@ Le articolazioni collegano segmenti ossei.
 
     assert updated == 0
     assert created == 1
+    assert source_mapping == {str(new_file.resolve()): "Articolazioni"}
     assert calls == {"route": 1, "map": 1}
     assert "- Articolazioni" in result
     assert "## Articolazioni" in result
@@ -240,7 +242,7 @@ Questa struttura permette di studiare insieme le informazioni precedenti e quell
     monkeypatch.setattr(summarizer, "_cached_chat", fake_cached)
 
     try:
-        result, updated, created = summarizer.incremental_update_course(
+        result, updated, created, source_mapping = summarizer.incremental_update_course(
             existing,
             [new_file],
             "FISIOLOGIA - Riassunto completo",
@@ -251,5 +253,6 @@ Questa struttura permette di studiare insieme le informazioni precedenti e quell
     assert calls == {"route": 1, "merge": 1}
     assert updated == 1
     assert created == 0
+    assert source_mapping == {str(new_file.resolve()): "Neuroni"}
     assert result.count("## Neuroni") == 1
     assert "comunicano attraverso sinapsi" in result
