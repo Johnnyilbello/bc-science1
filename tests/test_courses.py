@@ -503,8 +503,9 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
             return (
                 f"# {title}\n\n"
                 "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
-                "## Neuroni\n### In parole semplici\nNeuroni.\n"
-                "### Da ricordare per l'esame\n- Neuroni.\n"
+                "## Neuroni\n### In parole semplici\nI neuroni trasmettono segnali.\n"
+                "### Spiegazione ordinata\nI neuroni trasmettono segnali nervosi.\n"
+                "### Da ricordare per l'esame\n- I neuroni trasmettono segnali nervosi.\n"
             )
 
         def build_study_summary(
@@ -520,8 +521,12 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
             return (
                 f"# {title}\n\n"
                 "## Indice degli argomenti\n- Neuroni\n\n---\n\n"
-                "## Neuroni\n### In parole semplici\nVersione studio.\n"
-                "### Da ricordare per l'esame\n- Punto studio.\n"
+                "## Mappa della materia\n- Neuroni.\n\n"
+                "## Ripasso globale\n1. **Neuroni**: trasmettono segnali.\n\n"
+                "## Neuroni\n### In parole semplici\nI neuroni trasmettono segnali.\n"
+                "### Concetti chiave\n- Neuroni — trasmettono segnali nervosi.\n"
+                "### Spiegazione ordinata\nI neuroni trasmettono segnali nervosi.\n"
+                "### Da ricordare per l'esame\n- I neuroni trasmettono segnali nervosi.\n"
             )
 
         def close(self):
