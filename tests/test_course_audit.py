@@ -216,3 +216,64 @@ Il valore viene discusso.
         "### Dettagli recuperati dall'audit"
     )
 
+def test_restore_missing_audit_fact_even_if_text_exists_only_in_non_atomic_intro():
+    complete = _document(
+        """### Spiegazione ordinata
+La pressione sistolica riportata è 120 mmHg.
+### Da ricordare per l'esame
+- La pressione sistolica riportata è 120 mmHg.
+"""
+    )
+    study = _document(
+        """### In parole semplici
+La pressione sistolica riportata è 120 mmHg.
+### Da ricordare per l'esame
+- Ricordare la pressione sistolica.
+"""
+    )
+    before = audit_study_pair(complete, study)
+    assert before.missing_numeric_facts >= 1
+
+    repaired, restored = restore_missing_audit_facts(study, before.missing_facts)
+    after = audit_study_pair(complete, repaired)
+
+    assert restored >= 1
+    assert after.missing_numeric_facts == 0
+    assert after.weighted_fact_coverage > before.weighted_fact_coverage
+
+
+def test_restore_missing_audit_fact_maps_numbered_merged_chapter_title():
+    complete = """# Corso
+
+## Indice degli argomenti
+- Sistema linfatico e linfociti B e T 2
+
+---
+
+## Sistema linfatico e linfociti B e T 2
+### Spiegazione ordinata
+Il valore riportato è 42 unità.
+### Da ricordare per l'esame
+- Il valore riportato è 42 unità.
+"""
+    study = """# Corso studio
+
+## Indice degli argomenti
+- Sistema linfatico e linfociti B e T
+
+---
+
+## Sistema linfatico e linfociti B e T
+### Spiegazione ordinata
+Il valore non è riportato.
+### Da ricordare per l'esame
+- Ricordare il sistema linfatico.
+"""
+    before = audit_study_pair(complete, study)
+    repaired, restored = restore_missing_audit_facts(study, before.missing_facts)
+    after = audit_study_pair(complete, repaired)
+
+    assert restored >= 1
+    assert "42 unità" in repaired
+    assert after.missing_numeric_facts == 0
+
