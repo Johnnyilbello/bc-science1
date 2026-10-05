@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import html
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -635,6 +637,157 @@ def export_docx(markdown: str, destination: Path, title: str) -> None:
     document.core_properties.author = "BC Science"
     destination.parent.mkdir(parents=True, exist_ok=True)
     document.save(destination)
+
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def discover_passed_course_studies(courses_dir: Path) -> list[tuple[str, Path]]:
+    """Return every current PASS study output; never silently omit a built subject."""
+    root = courses_dir.expanduser().resolve()
+    if not root.exists():
+        return []
+
+    studies: list[tuple[str, Path]] = []
+    problems: list[str] = []
+
+    for subject_dir in sorted(
+        (path for path in root.iterdir() if path.is_dir()),
+        key=lambda path: path.name.casefold(),
+    ):
+        study_path = subject_dir / "riassunto-studio.md"
+        if not study_path.exists():
+            continue
+
+        audit_path = subject_dir / "audit.json"
+        subject = re.sub(r"\\s+", " ", subject_dir.name).strip()
+        if not audit_path.exists():
+            problems.append(f"{subject}: audit.json mancante")
+            continue
+
+        try:
+            audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            problems.append(f"{subject}: audit.json non leggibile")
+            continue
+
+        if not isinstance(audit, dict):
+            problems.append(f"{subject}: audit.json non valido")
+            continue
+
+        status = str(audit.get("status") or "manca").upper()
+        expected_study_hash = audit.get("study_sha256")
+        actual_study_hash = _file_sha256(study_path)
+        if status != "PASS":
+            problems.append(f"{subject}: audit {status}")
+            continue
+        if expected_study_hash != actual_study_hash:
+            problems.append(f"{subject}: audit obsoleto rispetto al riassunto studio")
+            continue
+        if audit.get("source_coverage_complete") is not True:
+            problems.append(f"{subject}: copertura documentale non completa")
+            continue
+
+        studies.append((subject, study_path))
+
+    if problems:
+        raise ValueError(
+            "Non posso creare la dispensa multi-materia finché tutte le materie "
+            "costruite non hanno un audit PASS corrente. "
+            + "; ".join(problems)
+        )
+    return studies
+
+
+def finalize_course_bundle(
+    courses_dir: Path,
+    output_dir: Path,
+    *,
+    create_docx: bool = True,
+    create_pdf: bool = True,
+) -> FinalizationResult:
+    """Create one final study handbook from all current PASS course study outputs."""
+    studies = discover_passed_course_studies(courses_dir)
+    if not studies:
+        raise ValueError(
+            "Nessuna materia multi-materia pronta. "
+            "Esegui prima 'bc-science courses build <cartella-radice>'."
+        )
+
+    sections: list[str] = [
+        "# SCIENZE MOTORIE eCampus 2026/2027 - Dispensa finale",
+        "",
+        "> Dispensa unica generata dalle versioni studio multi-materia con audit PASS. "
+        "Il testo eCampus resta la base di studio; eventuali precisazioni scientifiche "
+        "sono separate e citate.",
+        "",
+        "## Materie incluse",
+        "",
+    ]
+    sections.extend(f"- {subject}" for subject, _path in studies)
+    sections.extend(["", "---", ""])
+
+    total_notes = 0
+    total_fixes = 0
+    for index, (subject, path) in enumerate(studies, start=1):
+        raw = path.read_text(encoding="utf-8")
+        novice_ready, novice_results = audit_novice_document(raw)
+        if not novice_ready:
+            failed = [
+                f"{title}: {', '.join(audit.issues)}"
+                for title, audit in novice_results
+                if not audit.passed
+            ]
+            preview = "; ".join(failed[:5])
+            more = f" (+{len(failed) - 5} altri)" if len(failed) > 5 else ""
+            raise ValueError(
+                f"{subject} non supera il controllo di comprensibilita per principianti. "
+                f"Problemi: {preview}{more}"
+            )
+
+        finalized, notes, fixes = finalize_markdown(raw)
+        total_notes += notes
+        total_fixes += fixes
+
+        # The bundle owns the main title. Keep the full subject front matter and chapters,
+        # but remove the subject's standalone H1 to avoid duplicate document titles.
+        finalized = re.sub(r"(?m)^#\\s+.+?\\s*$\\n?", "", finalized, count=1).lstrip()
+        sections.extend(
+            [
+                f"# Parte {index} — {subject}",
+                "",
+                finalized.rstrip(),
+                "",
+                "---",
+                "",
+            ]
+        )
+
+    bundled_markdown = "\n".join(sections).rstrip() + "\n"
+    output = output_dir.expanduser().resolve()
+    output.mkdir(parents=True, exist_ok=True)
+
+    stem = "SCIENZE-MOTORIE-eCampus-2026-2027"
+    title = "SCIENZE MOTORIE eCampus 2026/2027 - Dispensa finale"
+    md_path = output / f"{stem}-dispensa-finale.md"
+    docx_path = output / f"{stem}-dispensa-finale.docx" if create_docx else None
+    pdf_path = output / f"{stem}-dispensa-finale.pdf" if create_pdf else None
+
+    md_path.write_text(bundled_markdown, encoding="utf-8")
+    if docx_path:
+        export_docx(bundled_markdown, docx_path, title)
+    pages = export_pdf(bundled_markdown, pdf_path, title) if pdf_path else 0
+
+    return FinalizationResult(
+        markdown_path=md_path,
+        docx_path=docx_path,
+        pdf_path=pdf_path,
+        scientific_notes=total_notes,
+        organization_fixes=total_fixes,
+        pdf_pages=pages,
+    )
 
 
 def finalize_file(
