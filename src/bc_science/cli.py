@@ -320,6 +320,7 @@ def courses_status(
     state_style = {
         "pronta": "green",
         "modificata": "yellow",
+        "da rivedere": "red",
         "da verificare": "yellow",
         "da creare": "cyan",
         "vuota": "dim",
