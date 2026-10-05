@@ -310,7 +310,8 @@ Ogni frase aggiunge un dettaglio utile senza cambiare argomento.
 """,
         encoding="utf-8",
     )
-    digest = hashlib.sha256(study.read_bytes()).hexdigest()
+    normalized_text = study.read_text(encoding="utf-8")
+    digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
     (subject_dir / "audit.json").write_text(
         json.dumps(
             {
