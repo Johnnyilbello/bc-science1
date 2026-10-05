@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bc-science"
-version = "0.9.15"
+version = "0.9.16"
 description = "Local-first study assistant for eCampus Scienze Motorie"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,7 @@ dependencies = [
   "numpy>=2,<3",
   "psutil>=6,<8",
   "pymupdf>=1.26,<2",
+  "pymupdf4llm>=1.28,<2",
   "python-docx>=1.1,<2",
   "reportlab>=4.4,<6",
   "PyYAML>=6,<7",
