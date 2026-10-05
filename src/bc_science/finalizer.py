@@ -17,7 +17,13 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import (
+    HRFlowable,
+    NotAtTopPageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+)
 
 from .clarity import audit_novice_document
 
@@ -353,18 +359,53 @@ def finalize_markdown(text: str) -> tuple[str, int, int]:
     return finalized, scientific_notes, organization_fixes
 
 
+_SUBSCRIPT_TRANSLATION = str.maketrans("0123456789+-=()", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎")
+_SUPERSCRIPT_TRANSLATION = str.maketrans("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾")
+
+
+def _translate_script(value: str, table: dict[int, str]) -> str:
+    translated = value.translate(table)
+    return translated if len(translated) == len(value) else value
+
+
 def _normalize_inline(text: str) -> str:
     replacements = {
         "$\\rightarrow$": "→",
         "$\\to$": "→",
         "\\rightarrow": "→",
+        "\\to": "→",
         "\\ge": "≥",
         "\\le": "≤",
         "\\pm": "±",
+        "\\times": "×",
+        "\\alpha": "α",
+        "\\beta": "β",
+        "\\gamma": "γ",
+        "\\Delta": "Δ",
+        "\\delta": "δ",
+        "\\mu": "μ",
+        "\\pi": "π",
+        "\\Psi": "Ψ",
+        "\\psi": "ψ",
+        "\\ln": "ln",
     }
     value = text
+    value = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"\1/\2", value)
+    value = re.sub(r"\\text\{([^{}]+)\}", r"\1", value)
+    value = value.replace("^{\\circ}", "°").replace("^\\circ", "°")
     for old, new in replacements.items():
         value = value.replace(old, new)
+
+    def subscript(match: re.Match[str]) -> str:
+        raw = match.group(1) or match.group(2) or ""
+        return _translate_script(raw, _SUBSCRIPT_TRANSLATION)
+
+    def superscript(match: re.Match[str]) -> str:
+        raw = match.group(1) or match.group(2) or ""
+        return _translate_script(raw, _SUPERSCRIPT_TRANSLATION)
+
+    value = re.sub(r"_\{([0-9+\-=()]+)\}|_([0-9+\-=()]+)", subscript, value)
+    value = re.sub(r"\^\{([0-9+\-=()]+)\}|\^([0-9+\-=()]+)", superscript, value)
     return value.replace("$", "")
 
 
@@ -520,7 +561,7 @@ def export_pdf(markdown: str, destination: Path, title: str) -> int:
         if stripped.startswith("# "):
             flush_paragraph()
             if seen_h1:
-                story.append(PageBreak())
+                story.append(NotAtTopPageBreak())
             story.append(Paragraph(_reportlab_inline(stripped[2:]), h1))
             seen_h1 = True
             continue
@@ -528,7 +569,7 @@ def export_pdf(markdown: str, destination: Path, title: str) -> int:
         if stripped.startswith("## "):
             flush_paragraph()
             if seen_h2:
-                story.append(PageBreak())
+                story.append(NotAtTopPageBreak())
             story.append(Paragraph(_reportlab_inline(stripped[3:]), h2))
             seen_h2 = True
             continue
@@ -566,6 +607,26 @@ def export_pdf(markdown: str, destination: Path, title: str) -> int:
         paragraph_buffer.append(stripped)
 
     flush_paragraph()
+
+    outline_index = 0
+
+    def add_outline(flowable) -> None:
+        nonlocal outline_index
+        if not isinstance(flowable, Paragraph):
+            return
+        if flowable.style.name not in {"BCH1", "BCH2"}:
+            return
+
+        level = 0 if flowable.style.name == "BCH1" else 1
+        label = flowable.getPlainText().strip()
+        if not label:
+            return
+        key = f"bc-science-heading-{outline_index}"
+        outline_index += 1
+        doc.canv.bookmarkPage(key)
+        doc.canv.addOutlineEntry(label, key, level=level, closed=False)
+
+    doc.afterFlowable = add_outline
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
 
     with pymupdf.open(destination) as pdf:
