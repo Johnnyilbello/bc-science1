@@ -170,6 +170,25 @@ Implementato:
 - `courses status` espone anche lo stato della versione studio;
 - test dedicati a deduplica semantica, preservazione dei numeri scientifici e doppio output.
 
+## 0.9.6 — Atomic Fact Coverage + audit automatico ✅
+
+Obiettivo: misurare in modo ripetibile se la versione studio è davvero più corta senza perdere i fatti ad alta resa del riassunto completo verificato.
+
+Implementato:
+
+- estrazione deterministica di fatti atomici dai capitoli completi e studio;
+- categorie ad alta priorità: numeri, punti d'esame, definizioni, classificazioni, sequenze ed eccezioni;
+- matching conservativo tra fatti sorgente e versione studio con vincolo esplicito sui valori numerici;
+- Fact Coverage pesata e conteggio dei fatti mancanti;
+- rilevazione globale delle ridondanze nella versione studio;
+- metriche di compressione e chiarezza principiante;
+- stati `PASS`, `WARN`, `FAIL`;
+- nuovo comando `bc-science courses audit <RADICE>`;
+- report persistenti `audit.md` e `audit.json` per ogni materia;
+- `courses status` espone lo stato dell'audit e segnala report obsoleti;
+- `courses build` aggiorna automaticamente l'audit dopo la generazione dello studio;
+- modalità `courses audit --strict` per restituire errore quando almeno una materia è in `FAIL`.
+
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.
