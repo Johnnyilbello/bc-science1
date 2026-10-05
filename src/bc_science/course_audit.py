@@ -180,7 +180,10 @@ def _candidate_fact(text: str, section: str, *, is_bullet: bool) -> bool:
         or any(hint in lowered for hint in _CLASSIFICATION_HINTS)
         or any(hint in lowered for hint in _SEQUENCE_HINTS)
         or any(hint in lowered for hint in _EXCEPTION_HINTS)
-        or section.casefold() in {"concetti chiave", "spiegazione ordinata"}
+        or (
+            bool(section)
+            and section.casefold() not in {"in parole semplici", "parole chiave"}
+        )
     )
 
 
