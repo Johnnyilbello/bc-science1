@@ -294,10 +294,14 @@ def _coverage_threshold(fact: AtomicFact) -> float:
 def _global_duplicate_pairs(facts: list[AtomicFact]) -> int:
     pairs = 0
     for index, left in enumerate(facts):
+        if left.exam_recap:
+            continue
         left_tokens = _tokens(left.text)
         if not left_tokens:
             continue
         for right in facts[index + 1:]:
+            if right.exam_recap or right.chapter.casefold() == left.chapter.casefold():
+                continue
             right_tokens = _tokens(right.text)
             if not right_tokens:
                 continue
@@ -369,9 +373,10 @@ def audit_study_pair(
     )
 
     duplicate_pairs = _global_duplicate_pairs(study_facts)
+    duplicate_denominator = sum(1 for fact in study_facts if not fact.exam_recap)
     duplicate_rate = (
-        min(1.0, duplicate_pairs / max(1, len(study_facts)))
-        if study_facts
+        min(1.0, duplicate_pairs / max(1, duplicate_denominator))
+        if duplicate_denominator
         else 0.0
     )
 
