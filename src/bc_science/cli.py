@@ -16,7 +16,8 @@ from .courses import audit_course, build_course, course_state, scan_courses
 from .documents import iter_source_files
 from .finalizer import finalize_course_bundle, finalize_file
 from .hardware import detect_hardware, select_model_plan
-from .indexer import QUERY_INSTRUCTION, ingest as ingest_source
+from .indexer import QUERY_INSTRUCTION
+from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
 from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
