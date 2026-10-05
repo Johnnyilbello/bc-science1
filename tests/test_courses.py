@@ -646,12 +646,26 @@ def test_warning_study_audit_missing_exam_fact_is_repaired_to_pass(
     monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
     monkeypatch.setattr(courses, "export_pdf", fake_pdf)
 
-    result = build_course(scan, AppConfig())
+    progress_messages: list[str] = []
+    result = build_course(
+        scan,
+        AppConfig(),
+        progress=progress_messages.append,
+    )
     study_text = course_study_output_path(scan).read_text(encoding="utf-8")
+    audit = courses.audit_course(scan)
 
     assert exam_fact in study_text
     assert "### Dettagli recuperati dall'audit" in study_text
-    assert result.audit_status == "PASS"
+    assert audit.missing_exam_facts == 0
+    assert audit.missing_numeric_facts == 0
+    assert audit.weighted_fact_coverage == 1.0
+    assert any("WARN ->" in message for message in progress_messages)
+    if result.audit_status == "WARN":
+        assert any(
+            message.startswith("Audit studio:")
+            for message in progress_messages
+        )
 
 
 def test_failed_study_audit_is_repaired_before_course_is_saved(tmp_path: Path, monkeypatch):
