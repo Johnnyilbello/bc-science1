@@ -575,12 +575,13 @@ def _is_exam_recap_heading(line: str) -> bool:
     value = line.strip()
     value = re.sub(r"^#{1,6}\s*", "", value)
     value = re.sub(r"^(?:\*\*|__|\*|_)+\s*", "", value)
+    value = re.sub(r"\s*[:;.,\-–—]+\s*$", "", value)
     value = re.sub(r"\s*(?:\*\*|__|\*|_)+$", "", value)
+    value = re.sub(r"\s*[:;.,\-–—]+\s*$", "", value)
     value = re.sub(r"\s*\([^\n)]{1,60}\)\s*$", "", value)
     value = value.replace("’", "'")
     value = re.sub(r"l'\s+esame", "l'esame", value, flags=re.IGNORECASE)
     value = re.sub(r"\s+", " ", value).strip()
-    value = re.sub(r"\s*[:;.,\-–—]+\s*$", "", value).strip()
     normalized = value.casefold()
     return normalized in {
         "da ricordare per l'esame",
