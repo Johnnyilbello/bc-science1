@@ -8,8 +8,8 @@ from bc_science.summarizer import (
     _extract_summary_chapters,
     _normalize_refined_structure,
     _preserves_exam_numbers,
-    _restore_exam_recap_from_source,
     _preserves_existing_exam_points,
+    _restore_exam_recap_from_source,
     _restore_missing_exam_points,
 )
 
