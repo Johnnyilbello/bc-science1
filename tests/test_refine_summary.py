@@ -9,6 +9,7 @@ from bc_science.summarizer import (
     _normalize_refined_structure,
     _preserves_exam_numbers,
     _preserves_existing_exam_points,
+    _restore_exam_recap_from_source,
     _restore_missing_exam_points,
 )
 
@@ -296,4 +297,68 @@ L'ATP è trattato nelle dispense.
 
     assert restored == 0
     assert repaired == candidate
+
+def test_structural_normalizer_canonicalizes_malformed_exam_recap_variants():
+    chapter = """## Contrazione muscolare
+
+Testo introduttivo abbastanza lungo da rappresentare un capitolo reale.
+
+#### **Da ricordare per l’esame:**
+- Primo gruppo di punti.
+
+### Spiegazione ordinata
+Contenuto intermedio.
+
+**Da ricordare per l'esame**:
+- Secondo gruppo di punti.
+"""
+    normalized, changed = _normalize_refined_structure(
+        chapter,
+        "Contrazione muscolare",
+    )
+
+    assert changed
+    assert normalized.count("### Da ricordare per l'esame") == 1
+    assert "### Punti chiave" in normalized
+    assert "- Primo gruppo di punti." in normalized
+    assert "- Secondo gruppo di punti." in normalized
+    assert normalized.rfind("### Da ricordare per l'esame") > normalized.rfind(
+        "### Spiegazione ordinata"
+    )
+
+
+def test_restore_exam_recap_from_source_when_model_omits_it():
+    source = """## Contrazione muscolare
+
+### In parole semplici
+La contrazione muscolare è descritta nelle dispense.
+
+### Da ricordare per l'esame
+- Il calcio partecipa al processo descritto.
+- L'ATP compare nel meccanismo riportato.
+"""
+    candidate = """## Contrazione muscolare
+
+### In parole semplici
+La contrazione muscolare è descritta nelle dispense.
+
+### Concetti chiave
+- Calcio — elemento citato nel processo.
+
+### Spiegazione ordinata
+Il capitolo presenta il processo in ordine progressivo.
+"""
+
+    repaired, changed = _restore_exam_recap_from_source(
+        candidate,
+        source,
+        "Contrazione muscolare",
+    )
+
+    assert changed
+    assert repaired.count("### Da ricordare per l'esame") == 1
+    assert "- Il calcio partecipa al processo descritto." in repaired
+    assert "- L'ATP compare nel meccanismo riportato." in repaired
+    issues = _chapter_quality_issues(repaired, "Contrazione muscolare")
+    assert not any("Da ricordare per l'esame" in issue for issue in issues)
 
