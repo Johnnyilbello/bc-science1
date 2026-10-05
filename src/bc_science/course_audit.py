@@ -340,10 +340,41 @@ def audit_study_pair(
     covered_weight = 0
     total_weight = sum(fact.weight for fact in source_facts)
 
+    token_index: dict[str, set[int]] = {}
+    number_index: dict[str, set[int]] = {}
+    for candidate_index, candidate in enumerate(study_facts):
+        for token in _tokens(candidate.text):
+            token_index.setdefault(token, set()).add(candidate_index)
+        for number in candidate.numbers:
+            number_index.setdefault(number, set()).add(candidate_index)
+
     for fact in source_facts:
+        candidate_indexes: set[int] = set()
+        for token in _tokens(fact.text):
+            candidate_indexes.update(token_index.get(token, ()))
+
+        if fact.numbers:
+            numeric_indexes: set[int] | None = None
+            for number in fact.numbers:
+                matches = set(number_index.get(number, ()))
+                numeric_indexes = (
+                    matches
+                    if numeric_indexes is None
+                    else numeric_indexes & matches
+                )
+            numeric_indexes = numeric_indexes or set()
+            candidate_indexes = (
+                candidate_indexes & numeric_indexes
+                if candidate_indexes
+                else numeric_indexes
+            )
+
         best = 0.0
-        for candidate in study_facts:
-            similarity = _fact_similarity(fact, candidate)
+        for candidate_index in candidate_indexes:
+            similarity = _fact_similarity(
+                fact,
+                study_facts[candidate_index],
+            )
             if similarity > best:
                 best = similarity
                 if best >= 1.0:
