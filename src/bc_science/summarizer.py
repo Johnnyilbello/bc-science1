@@ -1081,6 +1081,67 @@ def _preserves_exam_numbers(existing: str, candidate: str) -> bool:
     return True
 
 
+def _missing_exam_points(existing: str, candidate: str) -> list[str]:
+    """Return source exam bullets that are not safely represented in the candidate."""
+    candidate_clean = _strip_study_citations(candidate)
+    candidate_tokens = {
+        token
+        for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", candidate_clean.casefold())
+        if len(token) >= 4
+    }
+    candidate_text = candidate_clean.casefold()
+    missing: list[str] = []
+
+    for point in _extract_exam_points(existing):
+        source_point = re.sub(r"\s+", " ", _strip_study_citations(point)).strip()
+        if not source_point:
+            continue
+
+        point_tokens = {
+            token
+            for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", source_point.casefold())
+            if len(token) >= 4
+        }
+        semantic_ok = (
+            not point_tokens
+            or len(point_tokens & candidate_tokens) / len(point_tokens) >= 0.55
+        )
+
+        numerical_ok = True
+        for expression in re.findall(
+            r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[A-Za-zÀ-ÿµ°]+))?",
+            source_point,
+        ):
+            normalized = re.sub(r"\s+", " ", expression).strip().casefold()
+            if normalized and normalized not in candidate_text:
+                numerical_ok = False
+                break
+
+        if not semantic_ok or not numerical_ok:
+            missing.append(source_point)
+
+    return missing
+
+
+def _restore_missing_exam_points(existing: str, candidate: str) -> tuple[str, int]:
+    """Restore missing source exam bullets without asking the model to regenerate a chapter."""
+    missing = _missing_exam_points(existing, candidate)
+    if not missing:
+        return candidate, 0
+
+    exam_heading = re.search(
+        r"(?mi)^###\s+Da ricordare per l['’]esame\s*$",
+        candidate,
+    )
+    if not exam_heading:
+        return candidate, 0
+
+    restored = candidate.rstrip() + "\n" + "\n".join(
+        f"- {point}" for point in missing
+    )
+    return restored, len(missing)
+
+
 def _existing_map_section(text: str) -> str:
     match = re.search(
         r"(?ms)^## Mappa della materia\s*$\n.*?(?=^## Ripasso globale\s*$|^## Indice degli argomenti\s*$)",
@@ -2047,6 +2108,29 @@ class Summarizer:
                 raise ValueError(
                     "Versione studio non sicura: un capitolo consolidato è scomparso."
                 )
+
+            repaired, restored_points = _restore_missing_exam_points(
+                source_chapter,
+                candidate,
+            )
+            if restored_points:
+                result = result.replace(candidate, repaired, 1)
+                candidate = repaired
+                result_chapters[chapter_key] = repaired
+                if progress:
+                    chapter_title = next(
+                        (
+                            title
+                            for title, chapter in _extract_summary_chapters(prepared)
+                            if topic_key(title) == chapter_key
+                        ),
+                        chapter_key,
+                    )
+                    progress(
+                        "Versione studio: recuperati "
+                        f"{restored_points} punti d'esame in {chapter_title}."
+                    )
+
             source_points = _extract_exam_points(source_chapter)
             if source_points and not _preserves_existing_exam_points(
                 source_chapter,
