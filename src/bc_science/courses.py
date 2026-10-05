@@ -761,6 +761,35 @@ def course_state(scan: CourseScan) -> CourseState:
     )
 
 
+def _ensure_course_audit_status(
+    scan: CourseScan,
+    complete_text: str,
+    study_text: str,
+    *,
+    source_coverage_complete: bool,
+) -> tuple[str, Path]:
+    json_path = course_audit_json_path(scan)
+    current, status = audit_report_is_current(
+        json_path,
+        complete_text,
+        study_text,
+    )
+    if current and status:
+        return status, course_audit_markdown_path(scan)
+
+    result = audit_study_pair(
+        complete_text,
+        study_text,
+        source_documents=len(scan.supported_files),
+        source_coverage_complete=source_coverage_complete,
+    )
+    markdown_path, _json_path = write_audit_reports(
+        result,
+        course_output_path(scan).parent,
+    )
+    return result.status, markdown_path
+
+
 def audit_course(scan: CourseScan) -> StudyAuditResult:
     complete_path = course_output_path(scan)
     study_path = course_study_output_path(scan)
@@ -888,7 +917,15 @@ def build_course(
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
             )
-            audit_result = audit_course(scan) if study_text is not None else None
+            if study_text is not None:
+                audit_status, audit_path = _ensure_course_audit_status(
+                    scan,
+                    existing_text,
+                    study_text,
+                    source_coverage_complete=True,
+                )
+            else:
+                audit_status, audit_path = None, None
             return CourseBuildResult(
                 scan=scan,
                 state="riutilizzata",
@@ -901,8 +938,8 @@ def build_course(
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
                 study_generated=study_generated,
-                audit_status=audit_result.status if audit_result else None,
-                audit_path=course_audit_markdown_path(scan) if audit_result else None,
+                audit_status=audit_status,
+                audit_path=audit_path,
             )
 
     workspace = workspace_path(scan)
@@ -1070,7 +1107,15 @@ def build_course(
         study_pdf_path=study_pdf,
         study_pdf_pages=study_pages,
     )
-    audit_result = audit_course(scan) if study_text is not None else None
+    if study_text is not None:
+        audit_status, audit_path = _ensure_course_audit_status(
+            scan,
+            summary,
+            study_text,
+            source_coverage_complete=True,
+        )
+    else:
+        audit_status, audit_path = None, None
 
     return CourseBuildResult(
         scan=scan,
@@ -1092,8 +1137,8 @@ def build_course(
         study_pdf_path=study_pdf,
         study_pdf_pages=study_pages,
         study_generated=study_generated,
-        audit_status=audit_result.status if audit_result else None,
-        audit_path=course_audit_markdown_path(scan) if audit_result else None,
+        audit_status=audit_status,
+        audit_path=audit_path,
     )
 
 
