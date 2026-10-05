@@ -145,10 +145,54 @@ if (-not $SkipOCR) {
         }
     }
 
-    $tessdata = Join-Path $env:ProgramFiles "Tesseract-OCR\tessdata"
-    if (Test-Path $tessdata) {
-        $env:TESSDATA_PREFIX = $tessdata
-        [Environment]::SetEnvironmentVariable("TESSDATA_PREFIX", $tessdata, "User")
+    if ($TesseractExe) {
+        $TesseractDir = Split-Path -Parent $TesseractExe
+        $tessdata = Join-Path $TesseractDir "tessdata"
+
+        $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        $PathItems = @($UserPath -split ";" | Where-Object { $_ })
+        if ($PathItems -notcontains $TesseractDir) {
+            [Environment]::SetEnvironmentVariable(
+                "Path",
+                (($PathItems + $TesseractDir) -join ";"),
+                "User"
+            )
+        }
+        if (($env:Path -split ";") -notcontains $TesseractDir) {
+            $env:Path = "$env:Path;$TesseractDir"
+        }
+
+        if (Test-Path $tessdata) {
+            $env:TESSDATA_PREFIX = $tessdata
+            [Environment]::SetEnvironmentVariable("TESSDATA_PREFIX", $tessdata, "User")
+
+            $ItalianData = Join-Path $tessdata "ita.traineddata"
+            if (-not (Test-Path $ItalianData)) {
+                Write-Host "Modello OCR italiano non trovato: installo ita.traineddata..."
+                try {
+                    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/ita.traineddata" -OutFile $ItalianData
+                } catch {
+                    Write-Warning "Non riesco a installare ita.traineddata: OCR limitato a eng."
+                }
+            }
+
+            if (Test-Path $ItalianData) {
+                $env:BC_SCIENCE_OCR_LANG = "ita+eng"
+                [Environment]::SetEnvironmentVariable(
+                    "BC_SCIENCE_OCR_LANG",
+                    "ita+eng",
+                    "User"
+                )
+                Write-Host "OCR: ita+eng" -ForegroundColor DarkGray
+            } else {
+                $env:BC_SCIENCE_OCR_LANG = "eng"
+                [Environment]::SetEnvironmentVariable(
+                    "BC_SCIENCE_OCR_LANG",
+                    "eng",
+                    "User"
+                )
+            }
+        }
     }
 }
 

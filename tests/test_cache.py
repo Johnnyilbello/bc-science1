@@ -44,3 +44,25 @@ def test_prune_documents_removes_stale_workspace_entries(tmp_path: Path):
         assert db.document_hash("b.txt") is None
     finally:
         db.close()
+
+
+def test_remove_documents_deletes_only_requested_sources(tmp_path: Path):
+    db = CacheDB(tmp_path / "cache.db")
+    try:
+        db.replace_document("source.pdf", "hash-a", "Source", ["uno"], [[1.0, 0.0]])
+        db.replace_document(
+            "corso-dispensa-finale.pdf",
+            "hash-b",
+            "Derived",
+            ["due"],
+            [[0.0, 1.0]],
+        )
+
+        removed = db.remove_documents(["corso-dispensa-finale.pdf"])
+
+        assert removed == 1
+        assert db.document_hash("source.pdf") == "hash-a"
+        assert db.document_hash("corso-dispensa-finale.pdf") is None
+        assert db.stats()["documents"] == 1
+    finally:
+        db.close()

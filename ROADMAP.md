@@ -189,6 +189,27 @@ Implementato:
 - `courses build` aggiorna automaticamente l'audit dopo la generazione dello studio;
 - modalità `courses audit --strict` per restituire errore quando almeno una materia è in `FAIL`.
 
+## 0.9.17 — Source hygiene + retrieval audit ✅
+
+Obiettivo: impedire che gli output derivati contaminino l'indice semantico e rendere
+misurabile la qualita del retrieval prima di costruire ulteriori funzioni sopra il RAG.
+
+Implementato:
+
+- esclusione automatica di `*-dispensa-finale.*`, `*-riassunto-unico.*`,
+  `*-riassunto-studio.*`, approfondimenti, audit e benchmark dalle fonti;
+- rimozione mirata degli artefatti gia presenti nel database senza fare prune globale
+  di documenti appartenenti ad altri corsi;
+- hardening Windows di Tesseract: PATH, `TESSDATA_PREFIX`, modello `ita` e default
+  applicativo `ita+eng` tramite installer;
+- comando `bc-science retrieval-audit`;
+- benchmark deterministico su 20 domande reali distribuite tra Anatomia e Fisiologia;
+- metriche Hit@K, Top-1 e MRR con stati PASS/WARN/FAIL;
+- report Markdown/JSON persistenti e modalita `--strict`.
+
+Criterio di uscita: nessun artefatto BC Science deve comparire tra le fonti indicizzate
+e il retrieval sul corpus reale deve raggiungere PASS prima di usare l'indice come base
+per modalita esame o altre funzioni avanzate.
 ## 0.10 — Audit di copertura e coerenza
 
 Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit manuale.

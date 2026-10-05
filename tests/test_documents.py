@@ -6,6 +6,7 @@ import pymupdf
 from bc_science.documents import (
     chunk_text,
     extract_document,
+    is_generated_artifact,
     iter_source_files,
     normalize_text,
 )
@@ -108,3 +109,25 @@ def test_zip_import_blocks_parent_traversal(tmp_path: Path, monkeypatch):
     files = iter_source_files(archive)
     assert [path.name for path in files] == ["lezione.txt"]
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_generated_artifacts_are_recognized():
+    assert is_generated_artifact(Path("SCIENZE-MOTORIE-eCampus-2026-2027-dispensa-finale.pdf"))
+    assert is_generated_artifact(Path("ANATOMIA-riassunto-unico.md"))
+    assert is_generated_artifact(Path("riassunto-studio.pdf"))
+    assert is_generated_artifact(Path("approfondimento-scientifico.md"))
+    assert is_generated_artifact(Path("benchmark-20261005.md"))
+    assert not is_generated_artifact(Path("Contrazione muscolare.pdf"))
+
+
+def test_iter_source_files_excludes_generated_outputs(tmp_path: Path):
+    (tmp_path / "Contrazione muscolare.pdf").write_bytes(b"%PDF-1.4")
+    (tmp_path / "corso-dispensa-finale.pdf").write_bytes(b"%PDF-1.4")
+    (tmp_path / "riassunto-unico.md").write_text("output", encoding="utf-8")
+    (tmp_path / "lezione.txt").write_text("fonte", encoding="utf-8")
+
+    files = iter_source_files(tmp_path)
+    assert [path.name for path in files] == [
+        "Contrazione muscolare.pdf",
+        "lezione.txt",
+    ]

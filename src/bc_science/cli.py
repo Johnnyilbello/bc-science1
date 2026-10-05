@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Annotated
@@ -15,10 +16,12 @@ from .courses import audit_course, build_course, course_state, scan_courses
 from .documents import iter_source_files
 from .finalizer import finalize_course_bundle, finalize_file
 from .hardware import detect_hardware, select_model_plan
+from .indexer import QUERY_INSTRUCTION
 from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
 from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
+from .retrieval_audit import DEFAULT_RETRIEVAL_CASES, evaluate_retrieval
 from .scientific_research import (
     ResearchError,
     ScientificResearchBuilder,
@@ -609,7 +612,7 @@ def ingest(
     console.print(
         f"[green]Indicizzazione completata.[/] Trovati {result['files_found']} file, "
         f"indicizzati {result['indexed']}, invariati {result['skipped']}, "
-        f"nuovi blocchi {result['chunks']}."
+        f"nuovi blocchi {result['chunks']}, artefatti rimossi {result['removed']}."
     )
 
 
@@ -1149,6 +1152,96 @@ def benchmark(
 
     destination.write_text("\n".join(sections), encoding="utf-8")
     console.print(f"[green]Confronto completo salvato:[/] {destination}")
+
+
+@app.command("retrieval-audit")
+def retrieval_audit(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-k", min=1, max=20, help="Numero di blocchi recuperati per domanda"),
+    ] = 6,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Restituisce errore se il retrieval non raggiunge PASS"),
+    ] = False,
+) -> None:
+    """Misura Hit@K, Top-1 e MRR del retrieval sul corpus indicizzato."""
+    config = _config()
+    client = _require_ollama(config)
+    ensure_model_with_progress(client, config.embedding_model, console)
+
+    cases = list(DEFAULT_RETRIEVAL_CASES)
+    prompts = [QUERY_INSTRUCTION + case.question for case in cases]
+    vectors = client.embed(config.embedding_model, prompts)
+
+    db = CacheDB()
+    try:
+        hits_by_question = [db.search(vector, limit=limit) for vector in vectors]
+    finally:
+        db.close()
+
+    report = evaluate_retrieval(cases, hits_by_question)
+
+    table = Table(title=f"BC Science - Retrieval audit · {report['status']}")
+    table.add_column("Domanda", overflow="fold")
+    table.add_column("Rank", justify="right")
+    table.add_column("Prima fonte", overflow="fold")
+
+    for row in report["results"]:
+        first_source = row["top_sources"][0] if row["top_sources"] else "-"
+        table.add_row(
+            row["question"],
+            str(row["rank"]) if row["rank"] is not None else "-",
+            first_source,
+        )
+    console.print(table)
+    console.print(
+        "[bold]"
+        f"Hit@{limit}: {report['hit_at_k']:.0%} · "
+        f"Top-1: {report['top1']:.0%} · "
+        f"MRR: {report['mrr']:.3f} · "
+        f"Stato: {report['status']}"
+        "[/]"
+    )
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    directory = app_home() / "benchmarks"
+    directory.mkdir(parents=True, exist_ok=True)
+    json_path = directory / f"retrieval-audit-{stamp}.json"
+    md_path = directory / f"retrieval-audit-{stamp}.md"
+
+    payload = {
+        "limit": limit,
+        **report,
+    }
+    json_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    lines = [
+        "# BC Science - Retrieval audit",
+        "",
+        f"- Stato: **{report['status']}**",
+        f"- Casi: {report['cases']}",
+        f"- Hit@{limit}: {report['hit_at_k']:.1%}",
+        f"- Top-1: {report['top1']:.1%}",
+        f"- MRR: {report['mrr']:.3f}",
+        "",
+        "| Domanda | Rank | Top fonti |",
+        "| --- | ---: | --- |",
+    ]
+    for row in report["results"]:
+        sources = ", ".join(row["top_sources"]) or "-"
+        rank = row["rank"] if row["rank"] is not None else "-"
+        lines.append(f"| {row['question']} | {rank} | {sources} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    console.print(f"[dim]Report JSON: {json_path}[/]")
+    console.print(f"[dim]Report Markdown: {md_path}[/]")
+
+    if strict and report["status"] != "PASS":
+        raise typer.Exit(1)
 
 
 @models_app.command("list")

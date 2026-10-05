@@ -17,6 +17,19 @@ SUPPORTED = {".pdf", ".txt", ".md", ".docx"}
 PDF_RECOVERY_TEXT_THRESHOLD = 80
 DEFAULT_OCR_DPI = 150
 
+GENERATED_STEM_SUFFIXES = (
+    "-dispensa-finale",
+    "-riassunto-unico",
+    "-riassunto-studio",
+)
+GENERATED_STEMS = {
+    "riassunto-unico",
+    "riassunto-studio",
+    "approfondimento-scientifico",
+    "audit",
+}
+GENERATED_STEM_PREFIXES = ("benchmark-",)
+
 
 @dataclass(slots=True)
 class ExtractedDocument:
@@ -24,6 +37,16 @@ class ExtractedDocument:
     text: str
     pages: int = 0
     ocr_pages: int = 0
+
+
+def is_generated_artifact(path: Path) -> bool:
+    """Return True for files produced by BC Science rather than primary study sources."""
+    stem = path.stem.casefold()
+    return (
+        stem in GENERATED_STEMS
+        or any(stem.endswith(suffix) for suffix in GENERATED_STEM_SUFFIXES)
+        or any(stem.startswith(prefix) for prefix in GENERATED_STEM_PREFIXES)
+    )
 
 
 def file_sha256(path: Path) -> str:
@@ -228,12 +251,20 @@ def iter_source_files(source: Path) -> list[Path]:
         source = _safe_extract_zip(source)
 
     if source.is_file():
-        return [source] if source.suffix.lower() in SUPPORTED else []
+        return (
+            [source]
+            if source.suffix.lower() in SUPPORTED and not is_generated_artifact(source)
+            else []
+        )
 
     return sorted(
         p
         for p in source.rglob("*")
-        if p.is_file() and p.suffix.lower() in SUPPORTED
+        if (
+            p.is_file()
+            and p.suffix.lower() in SUPPORTED
+            and not is_generated_artifact(p)
+        )
     )
 
 

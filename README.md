@@ -421,7 +421,7 @@ La cartella contiene configurazione, ambiente virtuale, database/cache, import Z
 
 ## Stato
 
-Versione corrente: **0.9.4**.
+Versione corrente: **0.9.17**.
 
 
 ### Ripasso globale rapido
@@ -513,3 +513,18 @@ Prima di richiamare il modello, BC Science:
 
 Questo corregge il caso reale in cui un capitolo continuava a segnalare contemporaneamente
 un heading inline e un paragrafo da 7 frasi nonostante le autocorrezioni AI.
+
+### Source hygiene e retrieval audit 0.9.17
+
+BC Science distingue ora in modo esplicito le fonti primarie dagli artefatti prodotti
+dalla propria pipeline:
+
+- `*-dispensa-finale.*`, `*-riassunto-unico.*`, `*-riassunto-studio.*`,
+  `approfondimento-scientifico.*`, audit e benchmark non vengono indicizzati;
+- gli artefatti derivati gia presenti nel database semantico vengono rimossi
+  automaticamente senza eliminare documenti appartenenti ad altri corsi;
+- l'installer Windows aggiunge Tesseract al PATH, configura `TESSDATA_PREFIX`,
+  installa `ita.traineddata` quando manca e imposta `BC_SCIENCE_OCR_LANG=ita+eng`;
+- `bc-science retrieval-audit` misura Hit@K, Top-1 e MRR su un set fisso di domande
+  di Anatomia/Fisiologia, salvando report Markdown e JSON;
+- `bc-science retrieval-audit --strict` puo essere usato come quality gate locale.
