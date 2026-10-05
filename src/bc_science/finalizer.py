@@ -640,8 +640,10 @@ def export_docx(markdown: str, destination: Path, title: str) -> None:
 
 
 
-def _file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _text_file_sha256(path: Path) -> str:
+    """Hash decoded text so Windows CRLF/LF translation matches audit hashing."""
+    text = path.read_text(encoding="utf-8")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def discover_passed_course_studies(courses_dir: Path) -> list[tuple[str, Path]]:
@@ -679,7 +681,7 @@ def discover_passed_course_studies(courses_dir: Path) -> list[tuple[str, Path]]:
 
         status = str(audit.get("status") or "manca").upper()
         expected_study_hash = audit.get("study_sha256")
-        actual_study_hash = _file_sha256(study_path)
+        actual_study_hash = _text_file_sha256(study_path)
         if status != "PASS":
             problems.append(f"{subject}: audit {status}")
             continue
