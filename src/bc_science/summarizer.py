@@ -570,6 +570,55 @@ def _chapter_title_supported(title: str, chapter: str) -> bool:
     return not tokens or any(token in body for token in tokens)
 
 
+def _is_exam_recap_heading(line: str) -> bool:
+    """Recognize harmless Markdown variants of the final exam-recap heading."""
+    value = line.strip()
+    value = re.sub(r"^#{1,6}\s*", "", value)
+    value = re.sub(r"^(?:\*\*|__|\*|_)+\s*", "", value)
+    value = re.sub(r"\s*(?:\*\*|__|\*|_)+$", "", value)
+    value = re.sub(r"\s*\([^\n)]{1,60}\)\s*$", "", value)
+    value = value.replace("’", "'")
+    value = re.sub(r"l'\s+esame", "l'esame", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"\s*[:;.,\-–—]+\s*$", "", value).strip()
+    normalized = value.casefold()
+    return normalized in {
+        "da ricordare per l'esame",
+        "da ricordare per esame",
+        "da ricordare l'esame",
+        "da ricordare esame",
+    }
+
+
+def _restore_exam_recap_from_source(
+    chapter: str,
+    source_chapter: str,
+    title: str,
+) -> tuple[str, bool]:
+    """Restore the source recap when model output omits every usable recap heading."""
+    if re.search(r"(?mi)^###\s+Da ricordare per l['’]esame\s*$", chapter):
+        return chapter, False
+
+    source_normalized, _changed = _normalize_refined_structure(source_chapter, title)
+    match = re.search(
+        r"(?mis)^###\s+Da ricordare per l['’]esame\s*$\n(?P<body>.*)$",
+        source_normalized,
+    )
+    if not match:
+        return chapter, False
+
+    body = match.group("body").strip()
+    if not body:
+        return chapter, False
+
+    restored = (
+        chapter.rstrip()
+        + "\n\n### Da ricordare per l'esame\n"
+        + body
+    )
+    return restored, True
+
+
 def _chapter_quality_issues(
     chapter: str,
     title: str,
@@ -657,13 +706,10 @@ def _normalize_refined_structure(chapter: str, title: str) -> tuple[str, bool]:
             continue
         cleaned.append(line)
 
-    # Normalize common variants of the exam-recap heading.
-    exam_heading_re = re.compile(
-        r"(?i)^###\s+Da\s+ricordare(?:\s+per)?(?:\s+l['’]?)?esame\s*$"
-    )
+    # Normalize common model variants of the exam-recap heading.
     exam_indices: list[int] = []
     for index, line in enumerate(cleaned):
-        if exam_heading_re.match(line.strip()):
+        if _is_exam_recap_heading(line):
             if line.strip() != "### Da ricordare per l'esame":
                 cleaned[index] = "### Da ricordare per l'esame"
                 changed = True
@@ -1846,6 +1892,13 @@ class Summarizer:
             )
             if structure_changed:
                 self.stats.structural_fixes += 1
+            polished, recap_restored = _restore_exam_recap_from_source(
+                polished,
+                deduped,
+                chapter_title,
+            )
+            if recap_restored:
+                self.stats.structural_fixes += 1
             issues = _chapter_quality_issues(
                 polished,
                 chapter_title,
@@ -1888,6 +1941,13 @@ class Summarizer:
                     chapter_title,
                 )
                 if structure_changed:
+                    self.stats.structural_fixes += 1
+                polished, recap_restored = _restore_exam_recap_from_source(
+                    polished,
+                    deduped,
+                    chapter_title,
+                )
+                if recap_restored:
                     self.stats.structural_fixes += 1
                 issues = _chapter_quality_issues(
                     polished,
@@ -1948,6 +2008,13 @@ class Summarizer:
                 )
                 if structure_changed:
                     self.stats.structural_fixes += 1
+                polished, recap_restored = _restore_exam_recap_from_source(
+                    polished,
+                    deduped,
+                    chapter_title,
+                )
+                if recap_restored:
+                    self.stats.structural_fixes += 1
 
                 polished, layout_fixes = normalize_novice_layout(polished)
                 if layout_fixes:
@@ -1988,6 +2055,13 @@ class Summarizer:
                         chapter_title,
                     )
                     if structure_changed:
+                        self.stats.structural_fixes += 1
+                    polished, recap_restored = _restore_exam_recap_from_source(
+                        polished,
+                        deduped,
+                        chapter_title,
+                    )
+                    if recap_restored:
                         self.stats.structural_fixes += 1
                     polished, layout_fixes = normalize_novice_layout(polished)
                     if layout_fixes:
