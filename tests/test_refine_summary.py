@@ -7,6 +7,9 @@ from bc_science.summarizer import (
     _extract_exam_recap,
     _extract_summary_chapters,
     _normalize_refined_structure,
+    _preserves_exam_numbers,
+    _preserves_existing_exam_points,
+    _restore_missing_exam_points,
 )
 
 
@@ -236,3 +239,61 @@ Testo.
     assert recap.count("\n2. **Muscolo**:") == 1
     assert "Il trasporto passivo segue il gradiente." in recap
     assert "Il calcio lega la troponina." in recap
+
+def test_restore_missing_exam_points_repairs_semantic_and_numeric_loss():
+    source = """## Pressione arteriosa
+
+### In parole semplici
+La pressione arteriosa viene descritta nelle dispense.
+
+### Da ricordare per l'esame
+- La pressione sistolica riportata è 120 mmHg.
+- La pressione diastolica riportata è 80 mmHg.
+"""
+    candidate = """## Pressione arteriosa
+
+### In parole semplici
+La pressione arteriosa viene descritta nelle dispense.
+
+### Concetti chiave
+- La pressione sistolica è un valore importante.
+
+### Spiegazione ordinata
+Il capitolo distingue pressione sistolica e diastolica.
+
+### Da ricordare per l'esame
+- Ricordare la distinzione tra pressione sistolica e diastolica.
+"""
+
+    assert not _preserves_existing_exam_points(source, candidate)
+    assert not _preserves_exam_numbers(source, candidate)
+
+    repaired, restored = _restore_missing_exam_points(source, candidate)
+
+    assert restored == 2
+    assert "- La pressione sistolica riportata è 120 mmHg." in repaired
+    assert "- La pressione diastolica riportata è 80 mmHg." in repaired
+    assert _preserves_existing_exam_points(source, repaired)
+    assert _preserves_exam_numbers(source, repaired)
+
+
+def test_restore_missing_exam_points_is_idempotent_when_candidate_is_safe():
+    source = """## ATP
+
+### Da ricordare per l'esame
+- Il valore riportato è 30 kJ/mol.
+"""
+    candidate = """## ATP
+
+### In parole semplici
+L'ATP è trattato nelle dispense.
+
+### Da ricordare per l'esame
+- Il valore riportato è 30 kJ/mol.
+"""
+
+    repaired, restored = _restore_missing_exam_points(source, candidate)
+
+    assert restored == 0
+    assert repaired == candidate
+
