@@ -84,7 +84,7 @@ def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
             ocr_dpi=_ocr_dpi(),
             show_progress=False,
         )
-    except Exception:
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
         # Recovery is deliberately best-effort. Native PyMuPDF and legacy OCR remain available.
         return {}
 
