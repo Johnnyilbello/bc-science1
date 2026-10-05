@@ -653,6 +653,7 @@ def _ensure_study(
             improved = (
                 after.weighted_fact_coverage >= before.weighted_fact_coverage
                 and after.missing_numeric_facts <= before.missing_numeric_facts
+                and after.missing_exam_facts <= before.missing_exam_facts
                 and len(after.missing_facts) < len(before.missing_facts)
             )
             if not improved:
@@ -670,7 +671,7 @@ def _ensure_study(
                     f"fatti mancanti {len(after.missing_facts)})."
                 )
 
-            if after.status != "FAIL":
+            if after.status == "PASS" or not after.missing_facts:
                 break
 
         return current, total_restored
