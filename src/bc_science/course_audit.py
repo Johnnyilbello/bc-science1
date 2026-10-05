@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from .clarity import audit_novice_document
@@ -103,6 +104,7 @@ def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+@lru_cache(maxsize=8192)
 def _normalized(text: str) -> str:
     value = _plain(text).casefold()
     value = value.replace("–", "-").replace("—", "-")
@@ -110,14 +112,16 @@ def _normalized(text: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _tokens(text: str) -> set[str]:
-    return {
+@lru_cache(maxsize=8192)
+def _tokens(text: str) -> frozenset[str]:
+    return frozenset({
         token
         for token in re.findall(r"[a-z0-9à-ÿµ°]+", _normalized(text))
         if len(token) >= 3 and token not in _STOPWORDS
-    }
+    })
 
 
+@lru_cache(maxsize=8192)
 def _numbers(text: str) -> tuple[str, ...]:
     values = re.findall(
         r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[a-zA-ZÀ-ÿµ°]+))?",
@@ -233,6 +237,15 @@ def extract_atomic_facts(text: str) -> list[AtomicFact]:
     return facts
 
 
+@lru_cache(maxsize=8192)
+def _grams(value: str) -> frozenset[str]:
+    compact = re.sub(r"\s+", " ", value)
+    return frozenset(
+        compact[index:index + 4]
+        for index in range(max(0, len(compact) - 3))
+    )
+
+
 def _fact_similarity(source: AtomicFact, candidate: AtomicFact) -> float:
     source_norm = _normalized(source.text)
     candidate_norm = _normalized(candidate.text)
@@ -258,12 +271,8 @@ def _fact_similarity(source: AtomicFact, candidate: AtomicFact) -> float:
     token_score = 0.75 * recall + 0.25 * precision
 
     # Character n-gram overlap helps when singular/plural or light rephrasing changes tokens.
-    def grams(value: str) -> set[str]:
-        compact = re.sub(r"\s+", " ", value)
-        return {compact[i:i + 4] for i in range(max(0, len(compact) - 3))}
-
-    left_grams = grams(source_norm)
-    right_grams = grams(candidate_norm)
+    left_grams = _grams(source_norm)
+    right_grams = _grams(candidate_norm)
     gram_score = (
         len(left_grams & right_grams) / len(left_grams)
         if left_grams
