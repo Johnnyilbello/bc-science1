@@ -404,8 +404,8 @@ def _normalize_inline(text: str) -> str:
         raw = match.group(1) or match.group(2) or ""
         return _translate_script(raw, _SUPERSCRIPT_TRANSLATION)
 
-    value = re.sub(r"_\{([0-9+\-=()]+)\}|_([0-9+\-=()]+)", subscript, value)
-    value = re.sub(r"\^\{([0-9+\-=()]+)\}|\^([0-9+\-=()]+)", superscript, value)
+    value = re.sub(r"_\{([0-9+\-=()]+)\}|_([0-9+\-=]+)", subscript, value)
+    value = re.sub(r"\^\{([0-9+\-=()]+)\}|\^([0-9+\-=]+)", superscript, value)
     return value.replace("$", "")
 
 
