@@ -4,8 +4,8 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
-from functools import lru_cache
 from difflib import SequenceMatcher
+from functools import lru_cache
 from pathlib import Path
 
 from .clarity import audit_novice_document
