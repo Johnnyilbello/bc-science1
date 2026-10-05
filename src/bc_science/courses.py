@@ -615,43 +615,66 @@ def _ensure_study(
     progress: Callable[[str], None] | None,
 ) -> tuple[Path | None, str | None, Path | None, int, bool]:
     def repair_audit_gaps(study_text: str) -> tuple[str, int]:
-        before = audit_study_pair(
-            summary_text,
-            study_text,
-            source_documents=len(scan.supported_files),
-            source_coverage_complete=True,
-        )
-        if not before.missing_facts:
-            return study_text, 0
+        current = study_text
+        total_restored = 0
+        max_passes = 3
 
-        repaired, restored = restore_missing_audit_facts(
-            study_text,
-            before.missing_facts,
-        )
-        if not restored:
-            return study_text, 0
-
-        after = audit_study_pair(
-            summary_text,
-            repaired,
-            source_documents=len(scan.supported_files),
-            source_coverage_complete=True,
-        )
-        improved = (
-            after.weighted_fact_coverage >= before.weighted_fact_coverage
-            and after.missing_numeric_facts <= before.missing_numeric_facts
-            and len(after.missing_facts) < len(before.missing_facts)
-        )
-        if not improved:
-            return study_text, 0
-
-        if progress:
-            progress(
-                "Versione studio: audit automatico ha recuperato "
-                f"{restored} fatti sorgente non coperti "
-                f"({before.status} -> {after.status})."
+        for pass_number in range(1, max_passes + 1):
+            before = audit_study_pair(
+                summary_text,
+                current,
+                source_documents=len(scan.supported_files),
+                source_coverage_complete=True,
             )
-        return repaired, restored
+            if before.status != "FAIL" or not before.missing_facts:
+                break
+
+            repaired, restored = restore_missing_audit_facts(
+                current,
+                before.missing_facts,
+            )
+            if not restored:
+                if progress:
+                    progress(
+                        "Versione studio: audit ancora FAIL ma nessun altro fatto "
+                        "recuperabile automaticamente "
+                        f"(copertura {before.weighted_fact_coverage:.1%}, "
+                        f"numerici mancanti {before.missing_numeric_facts}, "
+                        f"fatti mancanti {len(before.missing_facts)})."
+                    )
+                break
+
+            after = audit_study_pair(
+                summary_text,
+                repaired,
+                source_documents=len(scan.supported_files),
+                source_coverage_complete=True,
+            )
+            improved = (
+                after.weighted_fact_coverage >= before.weighted_fact_coverage
+                and after.missing_numeric_facts <= before.missing_numeric_facts
+                and len(after.missing_facts) < len(before.missing_facts)
+            )
+            if not improved:
+                break
+
+            current = repaired
+            total_restored += restored
+            if progress:
+                progress(
+                    "Versione studio: audit automatico passaggio "
+                    f"{pass_number}/{max_passes}, recuperati {restored} fatti "
+                    f"({before.status} -> {after.status}; "
+                    f"copertura {after.weighted_fact_coverage:.1%}; "
+                    f"numerici mancanti {after.missing_numeric_facts}; "
+                    f"fatti mancanti {len(after.missing_facts)})."
+                )
+
+            if after.status != "FAIL":
+                break
+
+        return current, total_restored
+
 
     if _study_is_current(scan, manifest, summary_text):
         study_path = course_study_output_path(scan)
