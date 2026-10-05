@@ -14,6 +14,7 @@ from .course_audit import (
     StudyAuditResult,
     audit_report_is_current,
     audit_study_pair,
+    restore_missing_audit_facts,
     write_audit_reports,
 )
 from .documents import SUPPORTED, file_sha256
@@ -613,9 +614,59 @@ def _ensure_study(
     manifest: dict | None,
     progress: Callable[[str], None] | None,
 ) -> tuple[Path | None, str | None, Path | None, int, bool]:
+    def repair_audit_gaps(study_text: str) -> tuple[str, int]:
+        before = audit_study_pair(
+            summary_text,
+            study_text,
+            source_documents=len(scan.supported_files),
+            source_coverage_complete=True,
+        )
+        if not before.missing_facts:
+            return study_text, 0
+
+        repaired, restored = restore_missing_audit_facts(
+            study_text,
+            before.missing_facts,
+        )
+        if not restored:
+            return study_text, 0
+
+        after = audit_study_pair(
+            summary_text,
+            repaired,
+            source_documents=len(scan.supported_files),
+            source_coverage_complete=True,
+        )
+        improved = (
+            after.weighted_fact_coverage >= before.weighted_fact_coverage
+            and after.missing_numeric_facts <= before.missing_numeric_facts
+            and len(after.missing_facts) < len(before.missing_facts)
+        )
+        if not improved:
+            return study_text, 0
+
+        if progress:
+            progress(
+                "Versione studio: audit automatico ha recuperato "
+                f"{restored} fatti sorgente non coperti "
+                f"({before.status} -> {after.status})."
+            )
+        return repaired, restored
+
     if _study_is_current(scan, manifest, summary_text):
         study_path = course_study_output_path(scan)
         study_text = study_path.read_text(encoding="utf-8")
+        repaired_text, restored = repair_audit_gaps(study_text)
+        if restored:
+            _save_summary(study_path, repaired_text)
+            pdf_path = course_study_pdf_path(scan)
+            pages = export_pdf(
+                repaired_text,
+                pdf_path,
+                f"{scan.name} - Riassunto studio",
+            )
+            return study_path, repaired_text, pdf_path, pages, True
+
         study_info = manifest.get("study") if manifest else {}
         pdf_info = study_info.get("pdf") if isinstance(study_info, dict) else {}
         pages = int(pdf_info.get("pages", 0)) if isinstance(pdf_info, dict) else 0
@@ -640,6 +691,7 @@ def _ensure_study(
     if not study_text.strip():
         raise ValueError(f"La versione studio di {scan.name} risulta vuota.")
 
+    study_text, _restored = repair_audit_gaps(study_text)
     study_path = course_study_output_path(scan)
     _save_summary(study_path, study_text)
     pdf_path = course_study_pdf_path(scan)

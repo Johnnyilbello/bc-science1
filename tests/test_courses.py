@@ -563,7 +563,7 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
 
 
 
-def test_failed_study_audit_marks_course_for_review(tmp_path: Path, monkeypatch):
+def test_failed_study_audit_is_repaired_before_course_is_saved(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     subject = tmp_path / "SCIENZE MOTORIE" / "BIOLOGIA"
     subject.mkdir(parents=True)
@@ -629,7 +629,10 @@ def test_failed_study_audit_marks_course_for_review(tmp_path: Path, monkeypatch)
 
     result = build_course(scan, AppConfig())
     state = course_state(scan)
+    study_text = course_study_output_path(scan).read_text(encoding="utf-8")
 
-    assert result.audit_status == "FAIL"
-    assert state.audit_state == "FAIL"
-    assert state.state == "da rivedere"
+    assert "30 kJ/mol" in study_text
+    assert "### Dettagli recuperati dall'audit" in study_text
+    assert result.audit_status in {"PASS", "WARN"}
+    assert state.audit_state in {"PASS", "WARN"}
+    assert state.state != "da rivedere"

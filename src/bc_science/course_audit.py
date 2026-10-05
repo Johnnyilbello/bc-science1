@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .clarity import audit_novice_document
-from .summarizer import _extract_summary_chapters
+from .summarizer import _extract_summary_chapters, topic_key
 
 _STOPWORDS = {
     "anche", "alla", "alle", "agli", "allo", "attraverso", "come", "con", "dalla",
@@ -490,6 +490,94 @@ def audit_study_pair(
         warnings=tuple(warnings),
         missing_facts=tuple(missing),
     )
+
+
+def restore_missing_audit_facts(
+    study_text: str,
+    missing_facts: tuple[MissingFact, ...] | list[MissingFact],
+) -> tuple[str, int]:
+    """Restore uncovered source facts into their study chapter without model rewriting."""
+    chapters = _extract_summary_chapters(study_text)
+    by_key = {
+        topic_key(chapter_title): (chapter_title, chapter)
+        for chapter_title, chapter in chapters
+    }
+
+    grouped: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+    for item in missing_facts:
+        key = topic_key(item.chapter)
+        target = by_key.get(key)
+        if target is None:
+            continue
+
+        _title, chapter = target
+        normalized = _normalized(item.text)
+        if not normalized or normalized in _normalized(chapter):
+            continue
+        bucket_seen = seen.setdefault(key, set())
+        if normalized in bucket_seen:
+            continue
+        bucket_seen.add(normalized)
+        grouped.setdefault(key, []).append(item.text)
+
+    repaired = study_text
+    restored = 0
+
+    for key, facts in grouped.items():
+        target = by_key.get(key)
+        if target is None:
+            continue
+        _title, original_chapter = target
+        bullets = "\n".join(f"- {fact}" for fact in facts)
+        recovery_heading = "### Dettagli recuperati dall'audit"
+
+        existing_recovery = re.search(
+            r"(?mis)^###\s+Dettagli recuperati dall'audit\s*$\n"
+            r"(?P<body>.*?)(?=^###\s+|\Z)",
+            original_chapter,
+        )
+        if existing_recovery:
+            body = existing_recovery.group("body").rstrip()
+            replacement = (
+                recovery_heading
+                + "\n"
+                + body
+                + ("\n" if body else "")
+                + bullets
+                + "\n"
+            )
+            updated_chapter = (
+                original_chapter[:existing_recovery.start()]
+                + replacement
+                + original_chapter[existing_recovery.end():]
+            )
+        else:
+            exam_heading = re.search(
+                r"(?mi)^###\s+Da ricordare per l['’]esame\s*$",
+                original_chapter,
+            )
+            recovery = recovery_heading + "\n" + bullets + "\n\n"
+            if exam_heading:
+                updated_chapter = (
+                    original_chapter[:exam_heading.start()].rstrip()
+                    + "\n\n"
+                    + recovery
+                    + original_chapter[exam_heading.start():]
+                )
+            else:
+                updated_chapter = (
+                    original_chapter.rstrip()
+                    + "\n\n"
+                    + recovery_heading
+                    + "\n"
+                    + bullets
+                )
+
+        repaired = repaired.replace(original_chapter, updated_chapter, 1)
+        restored += len(facts)
+
+    return repaired, restored
 
 
 def audit_to_dict(result: StudyAuditResult) -> dict:

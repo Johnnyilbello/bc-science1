@@ -4,6 +4,7 @@ from bc_science.course_audit import (
     audit_report_is_current,
     audit_study_pair,
     extract_atomic_facts,
+    restore_missing_audit_facts,
     write_audit_reports,
 )
 
@@ -143,3 +144,75 @@ L'acqua partecipa al processo.
     assert status == result.status
     assert stale is False
     assert stale_status is None
+
+def test_restore_missing_audit_facts_makes_numeric_failure_recoverable():
+    complete = _document(
+        """### Spiegazione ordinata
+La concentrazione riportata è 30 mM.
+La durata riportata è 45 secondi.
+### Da ricordare per l'esame
+- La concentrazione riportata è 30 mM.
+"""
+    )
+    study = _document(
+        """### Concetti chiave
+- Concentrazione — valore trattato nelle dispense.
+### Spiegazione ordinata
+La concentrazione è importante per l'argomento.
+### Da ricordare per l'esame
+- Ricordare il concetto di concentrazione.
+"""
+    )
+
+    before = audit_study_pair(
+        complete,
+        study,
+        source_documents=1,
+        source_coverage_complete=True,
+    )
+    assert before.status == "FAIL"
+    assert before.missing_numeric_facts >= 1
+
+    repaired, restored = restore_missing_audit_facts(
+        study,
+        before.missing_facts,
+    )
+    after = audit_study_pair(
+        complete,
+        repaired,
+        source_documents=1,
+        source_coverage_complete=True,
+    )
+
+    assert restored >= 1
+    assert "### Dettagli recuperati dall'audit" in repaired
+    assert "30 mM" in repaired
+    assert "45 secondi" in repaired
+    assert after.missing_numeric_facts == 0
+    assert after.weighted_fact_coverage >= before.weighted_fact_coverage
+    assert after.status != "FAIL"
+
+
+def test_restore_missing_audit_facts_keeps_exam_recap_last():
+    complete = _document(
+        """### Spiegazione ordinata
+Il valore riportato è 70 bpm.
+### Da ricordare per l'esame
+- Il valore riportato è 70 bpm.
+"""
+    )
+    study = _document(
+        """### Spiegazione ordinata
+Il valore viene discusso.
+### Da ricordare per l'esame
+- Ricordare il valore.
+"""
+    )
+    before = audit_study_pair(complete, study)
+    repaired, restored = restore_missing_audit_facts(study, before.missing_facts)
+
+    assert restored >= 1
+    assert repaired.rfind("### Da ricordare per l'esame") > repaired.rfind(
+        "### Dettagli recuperati dall'audit"
+    )
+
