@@ -31,6 +31,8 @@ _EXCEPTION_HINTS = (
     " eccetto ", " tranne ", " tuttavia ", " invece ", " mentre ", " non ", " ma ",
 )
 
+AUDIT_VERSION = "atomic-fact-v1"
+
 
 @dataclass(frozen=True, slots=True)
 class AtomicFact:
@@ -53,6 +55,7 @@ class MissingFact:
 
 @dataclass(frozen=True, slots=True)
 class StudyAuditResult:
+    audit_version: str
     status: str
     complete_sha256: str
     study_sha256: str
@@ -429,6 +432,7 @@ def audit_study_pair(
         status = "PASS"
 
     return StudyAuditResult(
+        audit_version=AUDIT_VERSION,
         status=status,
         complete_sha256=_sha256(complete_text),
         study_sha256=_sha256(study_text),
@@ -530,7 +534,8 @@ def audit_report_is_current(
         return False, None
 
     current = (
-        payload.get("complete_sha256") == _sha256(complete_text)
+        payload.get("audit_version") == AUDIT_VERSION
+        and payload.get("complete_sha256") == _sha256(complete_text)
         and payload.get("study_sha256") == _sha256(study_text)
     )
     status = payload.get("status")
