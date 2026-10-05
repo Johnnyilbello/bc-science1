@@ -5,6 +5,7 @@ from pathlib import Path
 import pymupdf
 
 from bc_science.finalizer import (
+    _normalize_inline,
     discover_passed_course_studies,
     finalize_course_bundle,
     finalize_file,
@@ -109,6 +110,31 @@ Le informazioni sono organizzate in modo progressivo.
     with pymupdf.open(result.pdf_path) as pdf:
         assert pdf.page_count == result.pdf_pages
         assert pdf.page_count >= 1
+        toc = pdf.get_toc()
+        assert toc
+        assert any(entry[1] == "Materia - Dispensa finale" for entry in toc)
+        assert any(entry[1] == "Capitolo" for entry in toc)
+
+
+
+
+def test_normalize_inline_converts_common_scientific_latex_to_unicode():
+    raw = (
+        r"HbA1 (\alpha_2\beta_2), HbF (\alpha_2\gamma_2), "
+        r"\Delta G < 0, H = U + P \times \Delta V, "
+        r"Fe^{2+}, O_2, 37^\circ C, \mu mol, \frac{1}{2}"
+    )
+
+    normalized = _normalize_inline(raw)
+
+    assert normalized == (
+        "HbA1 (α₂β₂), HbF (α₂γ₂), "
+        "Δ G < 0, H = U + P × Δ V, "
+        "Fe²⁺, O₂, 37° C, μ mol, 1/2"
+    )
+    assert "\\" not in normalized
+    assert "_2" not in normalized
+    assert "^{2+}" not in normalized
 
 
 def test_finalize_markdown_is_idempotent_for_scientific_notes():
