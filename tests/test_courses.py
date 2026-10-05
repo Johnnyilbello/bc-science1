@@ -555,3 +555,76 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
     assert second.state == "riutilizzata"
     assert second.study_generated is False
     assert calls == {"summary": 1, "study": 1, "pdf": 2}
+
+
+
+def test_failed_study_audit_marks_course_for_review(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "BIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "ATP 1.txt").write_text("ATP 30 kJ/mol", encoding="utf-8")
+    scan = scan_course(subject)
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- ATP\n\n---\n\n"
+                "## ATP\n"
+                "### In parole semplici\nL'ATP trasferisce energia.\n"
+                "### Spiegazione ordinata\n"
+                "Il valore di riferimento riportato è 30 kJ/mol.\n"
+                "### Da ricordare per l'esame\n"
+                "- Il valore di riferimento riportato è 30 kJ/mol.\n"
+            )
+
+        def build_study_summary(
+            self,
+            text,
+            title,
+            *,
+            progress=None,
+            checkpoint_path=None,
+        ):
+            return (
+                f"# {title}\n\n"
+                "## Mappa della materia\n- ATP.\n\n"
+                "## Ripasso globale\n1. **ATP**: energia.\n\n"
+                "## Indice degli argomenti\n- ATP\n\n---\n\n"
+                "## ATP\n"
+                "### In parole semplici\nL'ATP trasferisce energia.\n"
+                "### Concetti chiave\n- ATP — trasferisce energia.\n"
+                "### Spiegazione ordinata\nIl valore numerico non è riportato.\n"
+                "### Da ricordare per l'esame\n- Ricordare il ruolo energetico dell'ATP.\n"
+            )
+
+        def close(self):
+            return None
+
+    def fake_pdf(markdown, destination, title):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"%PDF-test")
+        return 2
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+
+    result = build_course(scan, AppConfig())
+    state = course_state(scan)
+
+    assert result.audit_status == "FAIL"
+    assert state.audit_state == "FAIL"
+    assert state.state == "da rivedere"
