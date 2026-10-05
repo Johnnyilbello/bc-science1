@@ -719,9 +719,11 @@ def finalize_course_bundle(
     sections: list[str] = [
         "# SCIENZE MOTORIE eCampus 2026/2027 - Dispensa finale",
         "",
-        "> Dispensa unica generata dalle versioni studio multi-materia con audit PASS. "
-        "Il testo eCampus resta la base di studio; eventuali precisazioni scientifiche "
-        "sono separate e citate.",
+        (
+            "> Dispensa unica generata dalle versioni studio multi-materia con audit PASS. "
+            "Il testo eCampus resta la base di studio; eventuali precisazioni scientifiche "
+            "sono separate e citate."
+        ),
         "",
         "## Materie incluse",
         "",
