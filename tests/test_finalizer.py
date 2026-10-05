@@ -1,8 +1,15 @@
+import hashlib
+import json
 from pathlib import Path
 
 import pymupdf
 
-from bc_science.finalizer import finalize_file, finalize_markdown
+from bc_science.finalizer import (
+    discover_passed_course_studies,
+    finalize_course_bundle,
+    finalize_file,
+    finalize_markdown,
+)
 
 
 def test_finalize_markdown_preserves_source_and_adds_separate_notes():
@@ -259,3 +266,114 @@ Testo tecnico senza introduzione o parole chiave.
 
     assert "comprensibilita per principianti" in message
     assert "bc-science refine" in message
+
+def _write_course_study(
+    courses_dir: Path,
+    subject: str,
+    *,
+    audit_status: str = "PASS",
+) -> Path:
+    subject_dir = courses_dir / subject
+    subject_dir.mkdir(parents=True)
+    study = subject_dir / "riassunto-studio.md"
+    study.write_text(
+        f"""# {subject} - Riassunto studio
+
+## Mappa della materia
+- Capitolo.
+
+## Ripasso globale
+1. **Capitolo**: concetto centrale.
+
+## Indice degli argomenti
+- Capitolo
+
+---
+
+## Capitolo
+
+### In parole semplici
+Questo capitolo presenta il concetto centrale con parole semplici.
+La spiegazione procede gradualmente verso i dettagli.
+
+### Parole chiave
+- **Concetto** — idea principale.
+- **Dettaglio** — informazione di supporto.
+- **Esame** — punto da ricordare.
+
+### Spiegazione ordinata
+Il concetto viene spiegato in modo progressivo.
+Ogni frase aggiunge un dettaglio utile senza cambiare argomento.
+
+### Da ricordare per l'esame
+- Ricordare il concetto centrale.
+""",
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(study.read_bytes()).hexdigest()
+    (subject_dir / "audit.json").write_text(
+        json.dumps(
+            {
+                "status": audit_status,
+                "study_sha256": digest,
+                "source_coverage_complete": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return study
+
+
+def test_finalize_course_bundle_creates_one_output_from_all_pass_subjects(tmp_path: Path):
+    courses_dir = tmp_path / "outputs" / "courses"
+    _write_course_study(courses_dir, "ANATOMIA")
+    _write_course_study(courses_dir, "FISIOLOGIA UMANA E DELLO SPORT")
+    _write_course_study(courses_dir, "FONDAMENTI DI BIOLOGIA E CHIMICA")
+
+    result = finalize_course_bundle(courses_dir, tmp_path / "outputs" / "final")
+    markdown = result.markdown_path.read_text(encoding="utf-8")
+
+    assert "Parte 1 — ANATOMIA" in markdown
+    assert "Parte 2 — FISIOLOGIA UMANA E DELLO SPORT" in markdown
+    assert "Parte 3 — FONDAMENTI DI BIOLOGIA E CHIMICA" in markdown
+    assert result.markdown_path.name == (
+        "SCIENZE-MOTORIE-eCampus-2026-2027-dispensa-finale.md"
+    )
+    assert result.docx_path is not None and result.docx_path.exists()
+    assert result.pdf_path is not None and result.pdf_path.exists()
+    with pymupdf.open(result.pdf_path) as pdf:
+        assert pdf.page_count == result.pdf_pages
+        assert pdf.page_count >= 3
+
+
+def test_discover_course_bundle_rejects_non_pass_subject_instead_of_omitting_it(
+    tmp_path: Path,
+):
+    courses_dir = tmp_path / "outputs" / "courses"
+    _write_course_study(courses_dir, "ANATOMIA")
+    _write_course_study(courses_dir, "FISIOLOGIA", audit_status="WARN")
+
+    try:
+        discover_passed_course_studies(courses_dir)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Una materia WARN non deve essere omessa dal bundle finale.")
+
+    assert "FISIOLOGIA: audit WARN" in message
+
+
+def test_discover_course_bundle_rejects_stale_audit(tmp_path: Path):
+    courses_dir = tmp_path / "outputs" / "courses"
+    study = _write_course_study(courses_dir, "ANATOMIA")
+    study.write_text(study.read_text(encoding="utf-8") + "\nModifica successiva.\n", encoding="utf-8")
+
+    try:
+        discover_passed_course_studies(courses_dir)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Un audit obsoleto non deve essere accettato.")
+
+    assert "audit obsoleto" in message
+
