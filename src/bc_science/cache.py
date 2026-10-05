@@ -98,23 +98,34 @@ class CacheDB:
                 rows,
             )
 
-    def prune_documents(self, allowed_source_paths: set[str]) -> int:
-        """Remove indexed documents and chunks no longer present in a workspace."""
+    def document_sources(self) -> list[str]:
         rows = self.conn.execute("SELECT source_path FROM documents").fetchall()
-        stale = [source for (source,) in rows if source not in allowed_source_paths]
-        if not stale:
+        return [source for (source,) in rows]
+
+    def remove_documents(self, source_paths: list[str]) -> int:
+        unique = list(dict.fromkeys(source_paths))
+        if not unique:
             return 0
 
         with self.conn:
             self.conn.executemany(
                 "DELETE FROM chunks WHERE source_path = ?",
-                [(source,) for source in stale],
+                [(source,) for source in unique],
             )
             self.conn.executemany(
                 "DELETE FROM documents WHERE source_path = ?",
-                [(source,) for source in stale],
+                [(source,) for source in unique],
             )
-        return len(stale)
+        return len(unique)
+
+    def prune_documents(self, allowed_source_paths: set[str]) -> int:
+        """Remove indexed documents and chunks no longer present in a workspace."""
+        stale = [
+            source
+            for source in self.document_sources()
+            if source not in allowed_source_paths
+        ]
+        return self.remove_documents(stale)
 
     def search(self, query_vector: list[float], limit: int = 6) -> list[dict]:
         q = np.asarray(query_vector, dtype=np.float32)
