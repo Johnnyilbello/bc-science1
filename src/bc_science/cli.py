@@ -13,7 +13,7 @@ from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
 from .courses import audit_course, build_course, course_state, scan_courses
 from .documents import iter_source_files
-from .finalizer import finalize_file
+from .finalizer import finalize_course_bundle, finalize_file
 from .hardware import detect_hardware, select_model_plan
 from .indexer import ingest as ingest_source
 from .model_manager import ensure_model_with_progress
@@ -932,7 +932,11 @@ def finalize(
     """Crea la dispensa finale da un riassunto rifinito, senza rileggere i PDF."""
     outputs = app_home() / "outputs"
 
-    if source is None:
+    destination = (output_dir or (outputs / "final")).expanduser().resolve()
+    courses_dir = outputs / "courses"
+    multi_course = source is None and any(courses_dir.glob("*/riassunto-studio.md"))
+
+    if source is None and not multi_course:
         candidates = sorted(
             outputs.glob("*-riassunto-rifinito.md"),
             key=lambda path: path.stat().st_mtime,
@@ -940,16 +944,18 @@ def finalize(
         )
         if not candidates:
             console.print(
-                "[red]Nessun riassunto rifinito trovato.[/] "
-                "Esegui prima 'bc-science refine'."
+                "[red]Nessun output pronto da finalizzare.[/] "
+                "Esegui prima 'bc-science courses build <cartella-radice>' "
+                "oppure 'bc-science refine'."
             )
             raise typer.Exit(1)
         source = candidates[0]
 
-    source = source.expanduser().resolve()
-    destination = (output_dir or (outputs / "final")).expanduser().resolve()
-
-    console.print(f"Finalizzo [cyan]{source.name}[/].")
+    if multi_course:
+        console.print("Finalizzo [cyan]tutte le materie multi-materia con audit PASS[/].")
+    else:
+        source = source.expanduser().resolve()
+        console.print(f"Finalizzo [cyan]{source.name}[/].")
     console.print(
         "[dim]Il testo eCampus resta invariato; eventuali precisazioni scientifiche "
         "vengono aggiunte come note separate e citate.[/]"
@@ -957,12 +963,20 @@ def finalize(
 
     started = time.perf_counter()
     try:
-        result = finalize_file(
-            source,
-            destination,
-            create_docx=docx,
-            create_pdf=pdf,
-        )
+        if multi_course:
+            result = finalize_course_bundle(
+                courses_dir,
+                destination,
+                create_docx=docx,
+                create_pdf=pdf,
+            )
+        else:
+            result = finalize_file(
+                source,
+                destination,
+                create_docx=docx,
+                create_pdf=pdf,
+            )
     except ValueError as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(1) from exc
