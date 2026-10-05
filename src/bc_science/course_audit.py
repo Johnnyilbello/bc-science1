@@ -426,6 +426,10 @@ def audit_study_pair(
     )
 
     warnings: list[str] = []
+    if not source_facts:
+        warnings.append(
+            "Nessun fatto atomico estraibile: il documento non è auditabile in modo affidabile."
+        )
     if not source_coverage_complete:
         warnings.append("La copertura documentale del riassunto completo non è verificata.")
     if weighted_coverage < 0.97:
@@ -446,7 +450,8 @@ def audit_study_pair(
         )
 
     if (
-        not source_coverage_complete
+        not source_facts
+        or not source_coverage_complete
         or weighted_coverage < 0.90
         or missing_numeric > 0
     ):
