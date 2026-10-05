@@ -5,6 +5,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from functools import lru_cache
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from .clarity import audit_novice_document
@@ -503,17 +504,35 @@ def restore_missing_audit_facts(
         for chapter_title, chapter in chapters
     }
 
+    def resolve_target_key(chapter_title: str) -> str | None:
+        source_key = topic_key(chapter_title)
+        if source_key in by_key:
+            return source_key
+
+        source_base = re.sub(r"\s+\d+$", "", source_key).strip()
+        for candidate_key in by_key:
+            candidate_base = re.sub(r"\s+\d+$", "", candidate_key).strip()
+            if source_base and source_base == candidate_base:
+                return candidate_key
+
+        best_key: str | None = None
+        best_score = 0.0
+        for candidate_key in by_key:
+            score = SequenceMatcher(None, source_key, candidate_key).ratio()
+            if score > best_score:
+                best_key = candidate_key
+                best_score = score
+        return best_key if best_score >= 0.72 else None
+
     grouped: dict[str, list[str]] = {}
     seen: dict[str, set[str]] = {}
     for item in missing_facts:
-        key = topic_key(item.chapter)
-        target = by_key.get(key)
-        if target is None:
+        key = resolve_target_key(item.chapter)
+        if key is None:
             continue
 
-        _title, chapter = target
         normalized = _normalized(item.text)
-        if not normalized or normalized in _normalized(chapter):
+        if not normalized:
             continue
         bucket_seen = seen.setdefault(key, set())
         if normalized in bucket_seen:
