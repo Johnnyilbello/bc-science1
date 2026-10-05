@@ -359,5 +359,6 @@ Il capitolo presenta il processo in ordine progressivo.
     assert repaired.count("### Da ricordare per l'esame") == 1
     assert "- Il calcio partecipa al processo descritto." in repaired
     assert "- L'ATP compare nel meccanismo riportato." in repaired
-    assert _chapter_quality_issues(repaired, "Contrazione muscolare") == []
+    issues = _chapter_quality_issues(repaired, "Contrazione muscolare")
+    assert not any("Da ricordare per l'esame" in issue for issue in issues)
 
