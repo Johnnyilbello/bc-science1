@@ -225,8 +225,8 @@ La pressione sistolica riportata è 120 mmHg.
 """
     )
     study = _document(
-        """### In parole semplici
-La pressione sistolica riportata è 120 mmHg.
+        """### La pressione sistolica riportata è 120 mmHg.
+Il capitolo introduce il concetto senza riportare il valore in un fatto atomico.
 ### Da ricordare per l'esame
 - Ricordare la pressione sistolica.
 """
