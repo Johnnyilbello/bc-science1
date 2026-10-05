@@ -1,7 +1,14 @@
 import zipfile
 from pathlib import Path
 
-from bc_science.documents import chunk_text, iter_source_files, normalize_text
+import pymupdf
+
+from bc_science.documents import (
+    chunk_text,
+    extract_document,
+    iter_source_files,
+    normalize_text,
+)
 
 
 def test_normalize_text_collapses_spaces_and_blank_lines():
@@ -14,6 +21,81 @@ def test_chunk_text_splits_long_material():
     chunks = chunk_text(text, chunk_chars=1600, overlap=100)
     assert len(chunks) > 1
     assert all(chunk.strip() for chunk in chunks)
+
+
+def test_pdf_native_fast_path_preserves_pages(tmp_path: Path):
+    pdf = tmp_path / "native.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Prima pagina di fisiologia con testo digitale.")
+    page = doc.new_page()
+    page.insert_text((72, 72), "Seconda pagina sul muscolo scheletrico.")
+    doc.save(pdf)
+    doc.close()
+
+    extracted = extract_document(pdf, ocr=False)
+
+    assert extracted.pages == 2
+    assert extracted.ocr_pages == 0
+    assert "--- Pagina 1 ---" in extracted.text
+    assert "--- Pagina 2 ---" in extracted.text
+    assert "Prima pagina di fisiologia" in extracted.text
+    assert "Seconda pagina sul muscolo" in extracted.text
+
+
+def test_pdf_weak_page_uses_llm_recovery(tmp_path: Path, monkeypatch):
+    pdf = tmp_path / "scan.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    calls = []
+
+    def fake_to_markdown(path, **kwargs):
+        calls.append((path, kwargs))
+        return [
+            {
+                "text": (
+                    "Testo OCR recuperato correttamente dalla pagina scannerizzata. "
+                    "Il contenuto e sufficientemente lungo da superare la soglia "
+                    "e viene quindi preferito al testo nativo vuoto."
+                )
+            }
+        ]
+
+    monkeypatch.setattr("bc_science.documents.pymupdf4llm.to_markdown", fake_to_markdown)
+
+    extracted = extract_document(pdf)
+
+    assert extracted.pages == 1
+    assert extracted.ocr_pages == 1
+    assert "Testo OCR recuperato correttamente" in extracted.text
+    assert calls
+    _, kwargs = calls[0]
+    assert kwargs["pages"] == [0]
+    assert kwargs["page_chunks"] is True
+    assert kwargs["use_ocr"] is True
+
+
+def test_pdf_recovery_failure_does_not_break_ingest(tmp_path: Path, monkeypatch):
+    pdf = tmp_path / "blank.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.save(pdf)
+    doc.close()
+
+    def broken_to_markdown(*args, **kwargs):
+        raise RuntimeError("layout unavailable")
+
+    monkeypatch.setattr("bc_science.documents.pymupdf4llm.to_markdown", broken_to_markdown)
+    monkeypatch.setattr("bc_science.documents._legacy_ocr_page", lambda page: "")
+
+    extracted = extract_document(pdf)
+
+    assert extracted.pages == 1
+    assert extracted.ocr_pages == 0
+    assert extracted.text == ""
 
 
 def test_zip_import_blocks_parent_traversal(tmp_path: Path, monkeypatch):
