@@ -310,7 +310,8 @@ Ogni frase aggiunge un dettaglio utile senza cambiare argomento.
 """,
         encoding="utf-8",
     )
-    digest = hashlib.sha256(study.read_bytes()).hexdigest()
+    normalized_text = study.read_text(encoding="utf-8")
+    digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
     (subject_dir / "audit.json").write_text(
         json.dumps(
             {
@@ -361,6 +362,53 @@ def test_discover_course_bundle_rejects_non_pass_subject_instead_of_omitting_it(
         raise AssertionError("Una materia WARN non deve essere omessa dal bundle finale.")
 
     assert "FISIOLOGIA: audit WARN" in message
+
+
+
+def test_discover_course_bundle_accepts_windows_crlf_with_text_hash(tmp_path: Path):
+    courses_dir = tmp_path / "outputs" / "courses"
+    subject_dir = courses_dir / "ANATOMIA"
+    subject_dir.mkdir(parents=True)
+    study = subject_dir / "riassunto-studio.md"
+
+    logical_text = """# ANATOMIA - Riassunto studio
+
+## Mappa della materia
+- Capitolo.
+
+## Ripasso globale
+1. **Capitolo**: concetto centrale.
+
+## Indice degli argomenti
+- Capitolo
+
+---
+
+## Capitolo
+
+### In parole semplici
+Testo semplice.
+
+### Da ricordare per l'esame
+- Punto chiave.
+"""
+    # Simulate Windows physical CRLF storage while audit hashes normalized text.
+    study.write_bytes(logical_text.replace("\n", "\r\n").encode("utf-8"))
+    normalized_hash = hashlib.sha256(logical_text.encode("utf-8")).hexdigest()
+    (subject_dir / "audit.json").write_text(
+        json.dumps(
+            {
+                "status": "PASS",
+                "study_sha256": normalized_hash,
+                "source_coverage_complete": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    discovered = discover_passed_course_studies(courses_dir)
+
+    assert discovered == [("ANATOMIA", study)]
 
 
 def test_discover_course_bundle_rejects_stale_audit(tmp_path: Path):
