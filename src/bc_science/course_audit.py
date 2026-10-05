@@ -170,9 +170,10 @@ def _section_name(line: str) -> str | None:
 
 
 def _candidate_fact(text: str, section: str, *, is_bullet: bool) -> bool:
-    if len(_tokens(text)) < 3:
+    has_numbers = bool(_numbers(text))
+    if len(_tokens(text)) < 3 and not has_numbers:
         return False
-    if section.casefold() == "in parole semplici" and not _numbers(text):
+    if section.casefold() == "in parole semplici" and not has_numbers:
         return False
     if is_bullet:
         return True
