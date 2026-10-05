@@ -6,7 +6,13 @@ from rich.console import Console
 
 from .cache import CacheDB
 from .config import AppConfig
-from .documents import chunk_text, extract_document, file_sha256, iter_source_files
+from .documents import (
+    chunk_text,
+    extract_document,
+    file_sha256,
+    is_generated_artifact,
+    iter_source_files,
+)
 from .ollama_client import OllamaClient
 
 console = Console()
@@ -30,7 +36,11 @@ def ingest_files(
     prune_missing: bool = False,
 ) -> dict[str, int]:
     client = OllamaClient(config.ollama_url)
-    resolved_files = [path.expanduser().resolve() for path in files]
+    resolved_files = [
+        path.expanduser().resolve()
+        for path in files
+        if not is_generated_artifact(path)
+    ]
     db = CacheDB(db_path)
     indexed = 0
     skipped = 0
@@ -38,8 +48,15 @@ def ingest_files(
     removed = 0
 
     try:
+        generated_sources = [
+            source
+            for source in db.document_sources()
+            if is_generated_artifact(Path(source))
+        ]
+        removed += db.remove_documents(generated_sources)
+
         if prune_missing:
-            removed = db.prune_documents({str(path) for path in resolved_files})
+            removed += db.prune_documents({str(path) for path in resolved_files})
 
         for path in resolved_files:
             digest = file_sha256(path)
