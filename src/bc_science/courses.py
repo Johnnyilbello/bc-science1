@@ -741,6 +741,8 @@ def course_state(scan: CourseScan) -> CourseState:
                 )
                 if audit_current and audit_status:
                     audit_state = audit_status
+                    if audit_status == "FAIL" and state == "pronta":
+                        state = "da rivedere"
                 elif audit_json.exists():
                     audit_state = "obsoleto"
 
