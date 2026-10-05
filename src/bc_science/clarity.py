@@ -127,12 +127,18 @@ def normalize_novice_layout(
     text: str,
     *,
     max_sentences_per_paragraph: int = 5,
+    max_words_per_paragraph: int = 120,
 ) -> tuple[str, int]:
     """Repair layout deterministically using the same boundaries as the clarity gate."""
     normalized, _heading_fixes = normalize_inline_headings(text)
     fixes = 0
     output: list[str] = []
     prose_lines: list[str] = []
+
+    def unit_word_count(unit: str) -> int:
+        return len(
+            re.findall(r"\b[\wÀ-ÿ'+-]+\b", unit, flags=re.UNICODE)
+        )
 
     def flush_prose() -> None:
         nonlocal fixes, prose_lines
@@ -141,20 +147,42 @@ def normalize_novice_layout(
 
         original = "\n".join(prose_lines)
         units = _sentence_units(original)
-        if len(units) <= max_sentences_per_paragraph:
+        total_words = sum(unit_word_count(unit) for unit in units)
+        if (
+            len(units) <= max_sentences_per_paragraph
+            and total_words <= max_words_per_paragraph
+        ):
             output.extend(prose_lines)
             prose_lines = []
             return
 
-        chunks = [
-            "\n".join(units[start:start + max_sentences_per_paragraph])
-            for start in range(0, len(units), max_sentences_per_paragraph)
-        ]
+        chunks: list[list[str]] = []
+        current: list[str] = []
+        current_words = 0
+
+        for unit in units:
+            words = unit_word_count(unit)
+            would_exceed_sentences = len(current) >= max_sentences_per_paragraph
+            would_exceed_words = (
+                bool(current)
+                and current_words + words > max_words_per_paragraph
+            )
+            if would_exceed_sentences or would_exceed_words:
+                chunks.append(current)
+                current = []
+                current_words = 0
+
+            current.append(unit)
+            current_words += words
+
+        if current:
+            chunks.append(current)
+
         for index, chunk in enumerate(chunks):
             if index:
                 output.append("")
-            output.append(chunk)
-        fixes += len(chunks) - 1
+            output.append("\n".join(chunk))
+        fixes += max(0, len(chunks) - 1)
         prose_lines = []
 
     for raw_line in normalized.splitlines():

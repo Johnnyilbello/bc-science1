@@ -270,3 +270,30 @@ Testo applicativo semplice.
     assert audit.metrics.max_paragraph_sentences <= 5
     assert not any("heading Markdown" in issue for issue in audit.issues)
     assert not any("troppe frasi" in issue for issue in audit.issues)
+
+def test_layout_normalizer_splits_dense_five_sentence_paragraph_by_words():
+    sentence = " ".join(["Concetto"] * 31) + "."
+    dense = " ".join([sentence] * 5)
+    text = f"""## Capitolo
+
+### In parole semplici
+Introduzione semplice.
+
+### Spiegazione
+{dense}
+
+### Da ricordare per l'esame
+- Punto importante.
+"""
+
+    before = novice_audit(text)
+    normalized, fixes = normalize_novice_layout(text)
+    after = novice_audit(normalized)
+
+    assert before.metrics.max_paragraph_words == 155
+    assert any("troppo denso" in issue for issue in before.issues)
+    assert fixes >= 1
+    assert normalized.count("Concetto") == 155
+    assert after.metrics.max_paragraph_words <= 120
+    assert not any("troppo denso" in issue for issue in after.issues)
+
