@@ -626,7 +626,7 @@ def _ensure_study(
                 source_documents=len(scan.supported_files),
                 source_coverage_complete=True,
             )
-            if before.status != "FAIL" or not before.missing_facts:
+            if before.status not in {"FAIL", "WARN"} or not before.missing_facts:
                 break
 
             repaired, restored = restore_missing_audit_facts(
@@ -636,8 +636,8 @@ def _ensure_study(
             if not restored:
                 if progress:
                     progress(
-                        "Versione studio: audit ancora FAIL ma nessun altro fatto "
-                        "recuperabile automaticamente "
+                        "Versione studio: audit ancora "
+                        f"{before.status} ma nessun altro fatto recuperabile automaticamente "
                         f"(copertura {before.weighted_fact_coverage:.1%}, "
                         f"numerici mancanti {before.missing_numeric_facts}, "
                         f"fatti mancanti {len(before.missing_facts)})."
@@ -653,6 +653,7 @@ def _ensure_study(
             improved = (
                 after.weighted_fact_coverage >= before.weighted_fact_coverage
                 and after.missing_numeric_facts <= before.missing_numeric_facts
+                and after.missing_exam_facts <= before.missing_exam_facts
                 and len(after.missing_facts) < len(before.missing_facts)
             )
             if not improved:
@@ -670,7 +671,7 @@ def _ensure_study(
                     f"fatti mancanti {len(after.missing_facts)})."
                 )
 
-            if after.status != "FAIL":
+            if after.status == "PASS" or not after.missing_facts:
                 break
 
         return current, total_restored
@@ -844,6 +845,7 @@ def _ensure_course_audit_status(
     study_text: str,
     *,
     source_coverage_complete: bool,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[str, Path]:
     json_path = course_audit_json_path(scan)
     current, status = audit_report_is_current(
@@ -851,7 +853,7 @@ def _ensure_course_audit_status(
         complete_text,
         study_text,
     )
-    if current and status:
+    if current and status == "PASS":
         return status, course_audit_markdown_path(scan)
 
     result = audit_study_pair(
@@ -864,6 +866,9 @@ def _ensure_course_audit_status(
         result,
         course_output_path(scan).parent,
     )
+    if progress and result.status != "PASS":
+        for warning in result.warnings:
+            progress(f"Audit studio: {warning}")
     return result.status, markdown_path
 
 
@@ -1000,6 +1005,7 @@ def build_course(
                     existing_text,
                     study_text,
                     source_coverage_complete=True,
+                    progress=progress,
                 )
             else:
                 audit_status, audit_path = None, None
@@ -1190,6 +1196,7 @@ def build_course(
             summary,
             study_text,
             source_coverage_complete=True,
+            progress=progress,
         )
     else:
         audit_status, audit_path = None, None

@@ -563,6 +563,111 @@ def test_course_build_generates_and_reuses_study_output(tmp_path: Path, monkeypa
 
 
 
+
+def test_warning_study_audit_missing_exam_fact_is_repaired_to_pass(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    subject = tmp_path / "SCIENZE MOTORIE" / "FISIOLOGIA"
+    subject.mkdir(parents=True)
+    (subject / "fisiologia.txt").write_text("dati fisiologici", encoding="utf-8")
+    scan = scan_course(subject)
+
+    facts = [
+        "La temperatura corporea indicata è 37 °C.",
+        "La frequenza cardiaca di riferimento è 60 bpm.",
+        "Il volume corrente indicato è 500 mL.",
+        "La glicemia di riferimento è 90 mg.",
+        "La pressione sistolica indicata è 120 mmHg.",
+        "La durata della fase indicata è 30 secondi.",
+        "La concentrazione indicata è 5 mM.",
+        "La distanza della prova indicata è 100 metri.",
+        "La massa di riferimento indicata è 70 kg.",
+        "La quota di ossigeno indicata è 21 percento.",
+    ]
+    exam_fact = "L'allenamento modifica la risposta fisiologica con adattamenti progressivi."
+
+    def fake_ingest(files, config, *, force=False, db_path=None, prune_missing=False):
+        return {
+            "files_found": len(files),
+            "indexed": len(files),
+            "skipped": 0,
+            "chunks": len(files),
+            "removed": 0,
+        }
+
+    class FakeSummarizer:
+        def __init__(self, config, profile=None, *, db_path=None):
+            return None
+
+        def summarize_course(self, files, title, *, progress=None):
+            detail = "\n".join(facts)
+            return (
+                f"# {title}\n\n"
+                "## Indice degli argomenti\n- Fisiologia\n\n---\n\n"
+                "## Fisiologia\n"
+                "### Spiegazione ordinata\n"
+                f"{detail}\n"
+                "### Da ricordare per l'esame\n"
+                f"- {exam_fact}\n"
+            )
+
+        def build_study_summary(
+            self,
+            text,
+            title,
+            *,
+            progress=None,
+            checkpoint_path=None,
+        ):
+            detail = "\n".join(facts)
+            return (
+                f"# {title}\n\n"
+                "## Mappa della materia\n- Fisiologia.\n\n"
+                "## Ripasso globale\n1. **Fisiologia**: dati principali.\n\n"
+                "## Indice degli argomenti\n- Fisiologia\n\n---\n\n"
+                "## Fisiologia\n"
+                "### Spiegazione ordinata\n"
+                f"{detail}\n"
+                "### Da ricordare per l'esame\n"
+                "- Ripassare i principali valori fisiologici.\n"
+            )
+
+        def close(self):
+            return None
+
+    def fake_pdf(markdown, destination, title):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"%PDF-test")
+        return 2
+
+    monkeypatch.setattr(courses, "ingest_files", fake_ingest)
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+
+    progress_messages: list[str] = []
+    result = build_course(
+        scan,
+        AppConfig(),
+        progress=progress_messages.append,
+    )
+    study_text = course_study_output_path(scan).read_text(encoding="utf-8")
+    audit = courses.audit_course(scan)
+
+    assert exam_fact in study_text
+    assert "### Dettagli recuperati dall'audit" in study_text
+    assert audit.missing_exam_facts == 0
+    assert audit.missing_numeric_facts == 0
+    assert audit.weighted_fact_coverage == 1.0
+    assert any("WARN ->" in message for message in progress_messages)
+    if result.audit_status == "WARN":
+        assert any(
+            message.startswith("Audit studio:")
+            for message in progress_messages
+        )
+
+
 def test_failed_study_audit_is_repaired_before_course_is_saved(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
     subject = tmp_path / "SCIENZE MOTORIE" / "BIOLOGIA"
