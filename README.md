@@ -78,6 +78,34 @@ La normalizzazione dei nomi file usa ora regole conservative basate sul corpus r
 
 Questo evita capitoli duplicati o artificiali nei riassunti unici senza cancellare numeri che fanno parte del contenuto scientifico.
 
+## Audit automatico della versione studio — 0.9.6
+
+Dopo la creazione della versione studio, BC Science misura automaticamente quanto è stata compressa e se i fatti ad alta resa del riassunto completo risultano ancora rappresentati.
+
+Il comando manuale è:
+
+    bc-science courses audit "C:\\Studio\\SCIENZE MOTORIE"
+
+Per usarlo come gate in script o CI:
+
+    bc-science courses audit "C:\\Studio\\SCIENZE MOTORIE" --strict
+
+Per ogni materia vengono calcolati:
+
+- Fact Coverage pesata;
+- fatti numerici e punti d'esame non coperti;
+- compressione rispetto al riassunto completo;
+- ridondanza globale stimata;
+- chiarezza media per un principiante;
+- stato finale `PASS`, `WARN` o `FAIL`.
+
+I report sono salvati in:
+
+    %LOCALAPPDATA%\\BCScience\\outputs\\courses\\<MATERIA>\\audit.md
+    %LOCALAPPDATA%\\BCScience\\outputs\\courses\\<MATERIA>\\audit.json
+
+Un valore numerico presente nel riassunto completo e non ritrovato nella versione studio forza `FAIL`. Il report non modifica le fonti: serve a indicare esattamente quali fatti devono essere controllati o reintegrati. `courses status` mostra anche la colonna `Audit`; se completo o studio cambiano, un vecchio report viene marcato `obsoleto`.
+
 ## Versione studio automatica — 0.9.5
 
 Dopo aver verificato la copertura del riassunto completo, `courses build` crea anche una seconda copia pensata per lo studio rapido:

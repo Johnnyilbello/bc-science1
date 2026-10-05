@@ -10,6 +10,12 @@ from pathlib import Path
 
 from .cache import CacheDB
 from .config import AppConfig, app_home
+from .course_audit import (
+    StudyAuditResult,
+    audit_report_is_current,
+    audit_study_pair,
+    write_audit_reports,
+)
 from .documents import SUPPORTED, file_sha256
 from .finalizer import export_pdf
 from .indexer import ingest_files
@@ -77,6 +83,7 @@ class CourseState:
     coverage_state: str = "manca"
     pdf_state: str = "manca"
     study_state: str = "manca"
+    audit_state: str = "manca"
     existing_summary_path: Path | None = None
 
 
@@ -101,6 +108,8 @@ class CourseBuildResult:
     study_pdf_path: Path | None = None
     study_pdf_pages: int = 0
     study_generated: bool = False
+    audit_status: str | None = None
+    audit_path: Path | None = None
 
 
 def _is_hidden_or_ignored_dir(name: str) -> bool:
@@ -197,6 +206,14 @@ def course_study_output_path(scan: CourseScan) -> Path:
 
 def course_study_pdf_path(scan: CourseScan) -> Path:
     return app_home() / "outputs" / "courses" / scan.name / "riassunto-studio.pdf"
+
+
+def course_audit_markdown_path(scan: CourseScan) -> Path:
+    return app_home() / "outputs" / "courses" / scan.name / "audit.md"
+
+
+def course_audit_json_path(scan: CourseScan) -> Path:
+    return app_home() / "outputs" / "courses" / scan.name / "audit.json"
 
 
 def _legacy_summary_path(scan: CourseScan) -> Path | None:
@@ -655,6 +672,7 @@ def course_state(scan: CourseScan) -> CourseState:
     coverage_state = "manca"
     pdf_state = "manca"
     study_state = "manca"
+    audit_state = "manca"
 
     if not scan.supported_files:
         state = "vuota"
@@ -708,6 +726,26 @@ def course_state(scan: CourseScan) -> CourseState:
             if state == "pronta" and study_state != "aggiornato":
                 state = "modificata"
 
+        study_path = course_study_output_path(scan)
+        audit_json = course_audit_json_path(scan)
+        if study_path.exists():
+            try:
+                study_text = study_path.read_text(encoding="utf-8")
+            except OSError:
+                audit_state = "manca"
+            else:
+                audit_current, audit_status = audit_report_is_current(
+                    audit_json,
+                    summary_text,
+                    study_text,
+                )
+                if audit_current and audit_status:
+                    audit_state = audit_status
+                    if audit_status == "FAIL" and state == "pronta":
+                        state = "da rivedere"
+                elif audit_json.exists():
+                    audit_state = "obsoleto"
+
     return CourseState(
         scan=scan,
         state=state,
@@ -720,8 +758,64 @@ def course_state(scan: CourseScan) -> CourseState:
         coverage_state=coverage_state,
         pdf_state=pdf_state,
         study_state=study_state,
+        audit_state=audit_state,
         existing_summary_path=existing,
     )
+
+
+def _ensure_course_audit_status(
+    scan: CourseScan,
+    complete_text: str,
+    study_text: str,
+    *,
+    source_coverage_complete: bool,
+) -> tuple[str, Path]:
+    json_path = course_audit_json_path(scan)
+    current, status = audit_report_is_current(
+        json_path,
+        complete_text,
+        study_text,
+    )
+    if current and status:
+        return status, course_audit_markdown_path(scan)
+
+    result = audit_study_pair(
+        complete_text,
+        study_text,
+        source_documents=len(scan.supported_files),
+        source_coverage_complete=source_coverage_complete,
+    )
+    markdown_path, _json_path = write_audit_reports(
+        result,
+        course_output_path(scan).parent,
+    )
+    return result.status, markdown_path
+
+
+def audit_course(scan: CourseScan) -> StudyAuditResult:
+    complete_path = course_output_path(scan)
+    study_path = course_study_output_path(scan)
+    if not complete_path.exists():
+        raise ValueError(f"Riassunto completo mancante per {scan.name}.")
+    if not study_path.exists():
+        raise ValueError(f"Versione studio mancante per {scan.name}.")
+
+    complete_text = complete_path.read_text(encoding="utf-8")
+    study_text = study_path.read_text(encoding="utf-8")
+    manifest = _load_manifest(scan)
+    coverage = audit_course_summary(
+        scan,
+        complete_text,
+        manifest=manifest,
+    )
+    result = audit_study_pair(
+        complete_text,
+        study_text,
+        source_documents=len(scan.supported_files),
+        source_coverage_complete=coverage.complete,
+    )
+    write_audit_reports(result, complete_path.parent)
+    return result
 
 
 def _full_rebuild(
@@ -825,6 +919,15 @@ def build_course(
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
             )
+            if study_text is not None:
+                audit_status, audit_path = _ensure_course_audit_status(
+                    scan,
+                    existing_text,
+                    study_text,
+                    source_coverage_complete=True,
+                )
+            else:
+                audit_status, audit_path = None, None
             return CourseBuildResult(
                 scan=scan,
                 state="riutilizzata",
@@ -837,6 +940,8 @@ def build_course(
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
                 study_generated=study_generated,
+                audit_status=audit_status,
+                audit_path=audit_path,
             )
 
     workspace = workspace_path(scan)
@@ -1004,6 +1109,15 @@ def build_course(
         study_pdf_path=study_pdf,
         study_pdf_pages=study_pages,
     )
+    if study_text is not None:
+        audit_status, audit_path = _ensure_course_audit_status(
+            scan,
+            summary,
+            study_text,
+            source_coverage_complete=True,
+        )
+    else:
+        audit_status, audit_path = None, None
 
     return CourseBuildResult(
         scan=scan,
@@ -1025,6 +1139,8 @@ def build_course(
         study_pdf_path=study_pdf,
         study_pdf_pages=study_pages,
         study_generated=study_generated,
+        audit_status=audit_status,
+        audit_path=audit_path,
     )
 
 

@@ -11,7 +11,7 @@ from rich.table import Table
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
-from .courses import build_course, course_state, scan_courses
+from .courses import audit_course, build_course, course_state, scan_courses
 from .documents import iter_source_files
 from .finalizer import finalize_file
 from .hardware import detect_hardware, select_model_plan
@@ -314,11 +314,13 @@ def courses_status(
     table.add_column("Copertura")
     table.add_column("PDF")
     table.add_column("Studio")
+    table.add_column("Audit")
     table.add_column("Output")
 
     state_style = {
         "pronta": "green",
         "modificata": "yellow",
+        "da rivedere": "red",
         "da verificare": "yellow",
         "da creare": "cyan",
         "vuota": "dim",
@@ -339,10 +341,93 @@ def courses_status(
             item.coverage_state,
             item.pdf_state,
             item.study_state,
+            item.audit_state,
             str(item.existing_summary_path) if item.existing_summary_path else "—",
         )
 
     console.print(table)
+
+
+@courses_app.command("audit")
+def courses_audit(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con una sottocartella per materia"),
+    ],
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict/--no-strict",
+            help="Restituisce errore se almeno una materia è FAIL",
+        ),
+    ] = False,
+) -> None:
+    """Misura copertura fatti, compressione, ridondanza e chiarezza della versione studio."""
+    try:
+        scans = scan_courses(root)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    table = Table(title=f"BC Science - Audit studio · {root.expanduser().resolve()}")
+    table.add_column("Materia")
+    table.add_column("Stato")
+    table.add_column("Fatti", justify="right")
+    table.add_column("Fact coverage", justify="right")
+    table.add_column("Compressione", justify="right")
+    table.add_column("Duplicati", justify="right")
+    table.add_column("Chiarezza", justify="right")
+    table.add_column("Warning", justify="right")
+
+    failures = 0
+    missing = 0
+    for scan in scans:
+        try:
+            result = audit_course(scan)
+        except ValueError as exc:
+            missing += 1
+            table.add_row(
+                scan.name,
+                "[dim]N/D[/]",
+                "—",
+                "—",
+                "—",
+                "—",
+                "—",
+                str(exc),
+            )
+            continue
+
+        if result.status == "FAIL":
+            failures += 1
+            status = "[red]FAIL[/]"
+        elif result.status == "WARN":
+            status = "[yellow]WARN[/]"
+        else:
+            status = "[green]PASS[/]"
+
+        table.add_row(
+            scan.name,
+            status,
+            f"{result.covered_facts}/{result.source_facts}",
+            f"{result.weighted_fact_coverage:.1%}",
+            f"{result.compression_percent:.1f}%",
+            f"{result.duplicate_rate:.1%}",
+            f"{result.clarity_score:.0f}/100",
+            str(len(result.warnings)),
+        )
+
+    console.print(table)
+    console.print(
+        "[dim]Report completi: "
+        "%LOCALAPPDATA%\\BCScience\\outputs\\courses\\<MATERIA>\\audit.md "
+        "e audit.json[/]"
+    )
+    if strict and failures:
+        console.print(f"[red]{failures} materie in FAIL.[/]")
+        raise typer.Exit(1)
+    if missing:
+        console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
 
 
 @courses_app.command("build")
@@ -426,6 +511,13 @@ def courses_build(
                     f"[dim]Versione studio già aggiornata: {result.study_pdf_path} "
                     f"({result.study_pdf_pages} pagine)[/]"
                 )
+            if result.audit_status:
+                style = "green" if result.audit_status == "PASS" else (
+                    "yellow" if result.audit_status == "WARN" else "red"
+                )
+                console.print(
+                    f"[{style}]Audit studio: {result.audit_status}[/] · {result.audit_path}"
+                )
         elif result.state == "vuota":
             empty += 1
             console.print("[yellow]Nessun documento supportato: materia saltata.[/]")
@@ -464,6 +556,13 @@ def courses_build(
                 console.print(
                     f"[green]PDF studio:[/] {result.study_pdf_path} "
                     f"({result.study_pdf_pages} pagine)"
+                )
+            if result.audit_status:
+                style = "green" if result.audit_status == "PASS" else (
+                    "yellow" if result.audit_status == "WARN" else "red"
+                )
+                console.print(
+                    f"[{style}]Audit studio: {result.audit_status}[/] · {result.audit_path}"
                 )
 
         if config.scientific_research_enabled and result.output_path is not None:
