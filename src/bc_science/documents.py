@@ -8,11 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf
+import pymupdf4llm
 from docx import Document
 
 from .config import app_home
 
 SUPPORTED = {".pdf", ".txt", ".md", ".docx"}
+PDF_RECOVERY_TEXT_THRESHOLD = 80
+DEFAULT_OCR_DPI = 150
 
 
 @dataclass(slots=True)
@@ -50,34 +53,115 @@ def normalize_text(text: str) -> str:
     return "\n".join(out).strip()
 
 
+def _needs_pdf_recovery(text: str) -> bool:
+    stripped = text.strip()
+    if len(stripped) < PDF_RECOVERY_TEXT_THRESHOLD:
+        return True
+    replacement_chars = stripped.count("\ufffd")
+    return replacement_chars >= 3 and replacement_chars / len(stripped) >= 0.01
+
+
+def _ocr_dpi() -> int:
+    raw = os.getenv("BC_SCIENCE_OCR_DPI", str(DEFAULT_OCR_DPI))
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_OCR_DPI
+    return max(96, min(value, 300))
+
+
+def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
+    if not page_indexes:
+        return {}
+
+    try:
+        chunks = pymupdf4llm.to_markdown(
+            str(path),
+            pages=page_indexes,
+            page_chunks=True,
+            use_ocr=True,
+            ocr_language=os.getenv("BC_SCIENCE_OCR_LANG", "eng"),
+            ocr_dpi=_ocr_dpi(),
+            show_progress=False,
+        )
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError):
+        # Recovery is deliberately best-effort. Native PyMuPDF and legacy OCR remain available.
+        return {}
+
+    if isinstance(chunks, str):
+        if len(page_indexes) == 1 and chunks.strip():
+            return {page_indexes[0]: chunks.strip()}
+        return {}
+
+    recovered: dict[int, str] = {}
+    for page_index, chunk in zip(page_indexes, chunks):
+        if isinstance(chunk, dict):
+            text = str(chunk.get("text", "")).strip()
+        else:
+            text = str(chunk).strip()
+        if text:
+            recovered[page_index] = text
+    return recovered
+
+
+def _legacy_ocr_page(page: pymupdf.Page) -> str:
+    try:
+        textpage = page.get_textpage_ocr(
+            language=os.getenv("BC_SCIENCE_OCR_LANG", "eng"),
+            dpi=_ocr_dpi(),
+        )
+        return page.get_text(
+            "text",
+            textpage=textpage,
+            sort=True,
+        ).strip()
+    except (RuntimeError, OSError):
+        return ""
+
+
 def _extract_pdf(path: Path, ocr: bool = True) -> ExtractedDocument:
-    parts: list[str] = []
-    ocr_pages = 0
     with pymupdf.open(path) as doc:
         page_count = len(doc)
-        for index, page in enumerate(doc):
-            text = page.get_text("text", sort=True).strip()
-            if ocr and len(text) < 80:
-                ocr_text = ""
-                try:
-                    textpage = page.get_textpage_ocr(
-                        language=os.getenv("BC_SCIENCE_OCR_LANG", "eng")
-                    )
-                    ocr_text = page.get_text(
-                        "text",
-                        textpage=textpage,
-                        sort=True,
-                    ).strip()
-                except (RuntimeError, OSError):
-                    ocr_text = ""
+        page_texts = [page.get_text("text", sort=True).strip() for page in doc]
 
-                if len(ocr_text) > len(text):
-                    text = ocr_text
-                    ocr_pages += 1
+    recovered_pages = 0
+    if ocr:
+        weak_pages = [
+            index
+            for index, text in enumerate(page_texts)
+            if _needs_pdf_recovery(text)
+        ]
+        recovered = _recover_pdf_pages(path, weak_pages)
+        improved: set[int] = set()
 
-            if text:
-                parts.append(f"\n--- Pagina {index + 1} ---\n{text}")
-    return ExtractedDocument(path, normalize_text("\n".join(parts)), page_count, ocr_pages)
+        for page_index, candidate in recovered.items():
+            if len(normalize_text(candidate)) > len(normalize_text(page_texts[page_index])):
+                page_texts[page_index] = candidate
+                improved.add(page_index)
+                recovered_pages += 1
+
+        remaining = [index for index in weak_pages if index not in improved]
+        if remaining:
+            with pymupdf.open(path) as doc:
+                for page_index in remaining:
+                    candidate = _legacy_ocr_page(doc[page_index])
+                    if len(normalize_text(candidate)) > len(
+                        normalize_text(page_texts[page_index])
+                    ):
+                        page_texts[page_index] = candidate
+                        recovered_pages += 1
+
+    parts = [
+        f"\n--- Pagina {index + 1} ---\n{text}"
+        for index, text in enumerate(page_texts)
+        if text
+    ]
+    return ExtractedDocument(
+        path,
+        normalize_text("\n".join(parts)),
+        page_count,
+        recovered_pages,
+    )
 
 
 def _extract_docx(path: Path) -> ExtractedDocument:
