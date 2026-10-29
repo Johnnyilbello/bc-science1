@@ -101,15 +101,17 @@ class OllamaClient:
         num_ctx: int,
         num_predict: int,
         keep_alive: str,
+        think: bool = False,
+        temperature: float = 0.1,
     ) -> dict:
         return {
             "model": model,
             "messages": messages,
             "stream": stream,
-            "think": False,
+            "think": think,
             "keep_alive": keep_alive,
             "options": {
-                "temperature": 0.1,
+                "temperature": temperature,
                 "top_p": 0.9,
                 "num_ctx": num_ctx,
                 "num_predict": num_predict,
@@ -124,6 +126,8 @@ class OllamaClient:
         num_ctx: int = 8192,
         num_predict: int = 1800,
         keep_alive: str = "20m",
+        think: bool = False,
+        temperature: float = 0.1,
     ) -> str:
         payload = self._chat_payload(
             model,
@@ -132,6 +136,8 @@ class OllamaClient:
             num_ctx=num_ctx,
             num_predict=num_predict,
             keep_alive=keep_alive,
+            think=think,
+            temperature=temperature,
         )
         try:
             with httpx.Client(timeout=None) as client:
@@ -150,6 +156,8 @@ class OllamaClient:
         num_ctx: int = 8192,
         num_predict: int = 900,
         keep_alive: str = "20m",
+        think: bool = False,
+        temperature: float = 0.1,
     ) -> ChatResult:
         payload = self._chat_payload(
             model,
@@ -158,6 +166,8 @@ class OllamaClient:
             num_ctx=num_ctx,
             num_predict=num_predict,
             keep_alive=keep_alive,
+            think=think,
+            temperature=temperature,
         )
         pieces: list[str] = []
         final: dict = {}
