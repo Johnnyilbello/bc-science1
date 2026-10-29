@@ -64,17 +64,17 @@ nella stessa esecuzione. I capitoli lunghi vengono sempre generati singolarmente
 prova con e senza lotti, controlla i tempi e confronta i capitoli con le
 dispense originali. Per disattivare i lotti e usare solo il percorso singolo:
 
-\`\`\`powershell
+```powershell
 $env:BC_SCIENCE_ESSENTIAL_BATCH = "1"
 & "$repo\.venv\Scripts\python.exe" -m bc_science.ui --folder $materiali
-\`\`\`
+```
 
 Per ripristinare il comportamento automatico, chiudi BC Science e rimuovi
 la variabile dalla stessa sessione PowerShell:
 
-\`\`\`powershell
+```powershell
 Remove-Item Env:\BC_SCIENCE_ESSENTIAL_BATCH -ErrorAction SilentlyContinue
-\`\`\`
+```
 
 La modalità a lotti non assicura un miglioramento costante: il tempo dipende
 dalla lunghezza dei capitoli, dalla riuscita della validazione e dalla GPU.
