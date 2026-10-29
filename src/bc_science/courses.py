@@ -19,8 +19,10 @@ from .course_audit import (
     write_audit_reports,
 )
 from .documents import SUPPORTED, file_sha256
+from .fast_audit import audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .indexer import ingest_files
+from .study_editions import FAST_STUDY_VERSION, make_fast_essential
 from .study_quality import assess_essential
 from .summarizer import (
     PROMPT_VERSION,
@@ -469,7 +471,7 @@ def _study_is_current(
 
     pdf_info = study.get("pdf")
     return (
-        study.get("pipeline") == STUDY_PROMPT_VERSION
+        study.get("pipeline") in {STUDY_PROMPT_VERSION, FAST_STUDY_VERSION}
         and study.get("source_summary_sha256") == _summary_sha256(summary_text)
         and study.get("summary_sha256") == _summary_sha256(study_text)
         and study.get("path") == str(markdown)
@@ -493,6 +495,7 @@ def _write_manifest(
     study_pdf_path: Path | None = None,
     study_pdf_pages: int = 0,
     summary_pipeline: str = PROMPT_VERSION,
+    study_pipeline: str = STUDY_PROMPT_VERSION,
 ) -> None:
     target = _manifest_path(scan)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -523,7 +526,7 @@ def _write_manifest(
         "study": (
             {
                 "path": str(study_path),
-                "pipeline": STUDY_PROMPT_VERSION,
+                "pipeline": study_pipeline,
                 "source_summary_sha256": _summary_sha256(summary_text),
                 "summary_sha256": _summary_sha256(study_text),
                 "pdf": {
@@ -700,6 +703,14 @@ def _ensure_study(
     if _study_is_current(scan, manifest, summary_text):
         study_path = course_study_output_path(scan)
         study_text = study_path.read_text(encoding="utf-8")
+        if manifest and manifest.get("study", {}).get("pipeline") == FAST_STUDY_VERSION:
+            # The fast extractive summary must never be expanded to satisfy
+            # the legacy 97% all-facts gate.
+            info = manifest.get("study", {}).get("pdf") or {}
+            return (
+                study_path, study_text, course_study_pdf_path(scan),
+                int(info.get("pages", 0)), False,
+            )
         repaired_text, restored = repair_audit_gaps(study_text)
         report_essential_quality(repaired_text)
         if restored:
