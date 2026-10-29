@@ -18,7 +18,7 @@ from .ollama_client import OllamaClient
 
 PROMPT_VERSION = "summary-v13-unified"
 REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
-STUDY_PROMPT_VERSION = "study-v2-essential"
+STUDY_PROMPT_VERSION = "study-v3-measured-essential"
 
 
 @dataclass(slots=True)
@@ -1538,7 +1538,15 @@ class Summarizer:
     ) -> str:
         """Compare each original source block with the draft and append supported omissions."""
         additions: list[str] = []
+        seen_chunks: set[str] = set()
+        normalized_draft = re.sub(r"\s+", " ", draft).strip().casefold()
         for index, chunk in enumerate(chunks, 1):
+            # Skip repeated or completely reproduced source blocks without another LLM call.
+            normalized_chunk = re.sub(r"\s+", " ", chunk).strip().casefold()
+            if (not normalized_chunk or normalized_chunk in seen_chunks
+                    or normalized_chunk in normalized_draft):
+                continue
+            seen_chunks.add(normalized_chunk)
             if progress:
                 progress(f"    confronto con la dispensa {index}/{len(chunks)}: {title}")
             covered = draft + "\n\n" + "\n\n".join(additions)
@@ -2219,13 +2227,15 @@ class Summarizer:
                 f"Crea un ripasso essenziale del capitolo {chapter_title} per chi lo ha gia studiato. "
                 "Usa soltanto il capitolo fornito. Mantieni i concetti chiave, le definizioni "
                 "indispensabili, formule e significato dei simboli, distinzioni, sequenze, eccezioni "
-                "e valori importanti. Organizza in modo leggibile e sintetico, senza una lunghezza "
-                "prestabilita. Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
+                "e valori importanti. Per capitoli sopra 250 parole punta a ridurre il testo del "
+                "25-45% rispetto alla versione completa, ma senza eliminare definizioni, formule "
+                "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
+                "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
                 "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
                 "Usa un solo titolo H2 e punti brevi.\n\n"
                 f"CAPITOLO:\n{chapter}"
             )
-            key = _key(STUDY_PROMPT_VERSION, "essential-v3", self.model, chapter_title, chapter)
+            key = _key(STUDY_PROMPT_VERSION, "essential-v4", self.model, chapter_title, chapter)
             candidate = self._cached_chat(key, system, prompt, num_predict=1800)
             candidate = _normalize_chapter_heading(candidate, chapter_title)
             candidate, _ = _restore_missing_exam_points(chapter, candidate)

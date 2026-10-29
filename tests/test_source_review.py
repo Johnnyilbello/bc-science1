@@ -43,3 +43,32 @@ def test_source_review_rejects_unverifiable_quote():
     summarizer._cached_chat = lambda *args, **kwargs: '["Fatto inventato"]'
     with pytest.raises(ValueError, match="citazione non trovata"):
         summarizer._review_source_chunks("Forza", "## Forza", ["F = m × a"], "system")
+
+
+def test_source_review_skips_duplicate_original_blocks():
+    summarizer = object.__new__(Summarizer)
+    summarizer.model = "test"
+    calls = []
+
+    def chat(key, system, prompt, **kwargs):
+        calls.append(prompt)
+        return "[]"
+
+    summarizer._cached_chat = chat
+    source = "La forza netta puo modificare il moto di un corpo."
+    draft = "## Forza\nSpiegazione introduttiva da completare."
+    result = summarizer._review_source_chunks("Forza", draft, [source, source], "system")
+    assert result == draft
+    assert len(calls) == 1
+
+
+def test_source_review_skips_chunk_already_present_verbatim():
+    summarizer = object.__new__(Summarizer)
+    summarizer.model = "test"
+    calls = []
+    summarizer._cached_chat = lambda *args, **kwargs: calls.append(args) or "[]"
+    source = "La forza netta puo modificare il moto di un corpo."
+    draft = "## Forza\n" + source
+    result = summarizer._review_source_chunks("Forza", draft, [source], "system")
+    assert result == draft
+    assert calls == []
