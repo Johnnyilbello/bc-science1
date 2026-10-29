@@ -26,6 +26,7 @@ from .courses import (
 )
 from .indexer import QUERY_INSTRUCTION
 from .ollama_client import OllamaClient
+from .study_editions import FAST_STUDY_VERSION, readable_complete_chapter
 from .summarizer import PROMPT_VERSION, _extract_summary_chapters, _summary_system_prompt
 
 DEFAULT_FOLDER = Path.home() / "Desktop" / "SCIENZE MOTORIE 2026"
@@ -152,6 +153,13 @@ class DesktopAPI:
             _study_is_current(course, manifest, complete_text)
             if mode == "essential" and complete_text else False
         )
+        fast_current = (
+            study_current
+            and (manifest.get("study") or {}).get("pipeline") == FAST_STUDY_VERSION
+        )
+        if fast_current:
+            # The unified fast edition supersedes old per-chapter AI previews.
+            previews = {}
         entries: list[tuple[str, str, str]] = []
         if mode == "essential":
             seen: set[str] = set()
@@ -175,8 +183,14 @@ class DesktopAPI:
                         (title, body, "updated" if title in previews else "pending")
                     )
         else:
-            entries = [(title, body, "updated" if not complete_legacy else "previous")
-                       for title, body in chapters]
+            entries = [
+                (
+                    title,
+                    readable_complete_chapter(title, body),
+                    "updated" if not complete_legacy else "previous",
+                )
+                for title, body in chapters
+            ]
 
         return {
             "ready": True,
@@ -237,14 +251,25 @@ class DesktopAPI:
                 from .courses import (
                     build_course,
                     build_essential_chapter,
-                    build_essential_only,
+                    build_fast_essential_only,
                 )
                 from .model_manager import ensure_model_with_progress
                 config = AppConfig.load()
-                self._line("Preparazione dei modelli locali… Il primo download può richiedere tempo.")
-                _ensure_model(config, profile)
-                client = _require_ollama(config)
-                ensure_model_with_progress(client, config.embedding_model, Console())
+                if mode == "essential":
+                    self._line(
+                        "Essenziale rapido: utilizzo la Completa già verificata. "
+                        "Non avvio Ollama né rileggo i PDF."
+                    )
+                else:
+                    self._line(
+                        "Preparazione dei modelli locali… "
+                        "Il primo download può richiedere tempo."
+                    )
+                    _ensure_model(config, profile)
+                    client = _require_ollama(config)
+                    ensure_model_with_progress(
+                        client, config.embedding_model, Console(),
+                    )
                 self._line(
                     "Operazione: solo Essenziale, dalla Completa esistente."
                     if mode == "essential" else (
@@ -262,7 +287,7 @@ class DesktopAPI:
                     )
                     self._line("Capitolo richiesto completato.")
                 else:
-                    builder = build_essential_only if mode == "essential" else build_course
+                    builder = build_fast_essential_only if mode == "essential" else build_course
                     result = builder(
                         self._course(name), config,
                         profile=profile, progress=self._line,
