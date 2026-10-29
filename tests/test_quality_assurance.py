@@ -6,7 +6,6 @@ from bc_science.quality_signals import assess_chapter, critical_facts
 from bc_science.study_editions import make_fast_essential_chapter
 from bc_science.targeted_review import _validate_proposal, review_chapter
 
-
 SOURCE = (
     "## Stomaco\n\n### Spiegazione\n"
     "Lo stomaco è costituito da diversi strati e permette la digestione. "
