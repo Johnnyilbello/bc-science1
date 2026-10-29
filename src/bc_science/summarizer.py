@@ -12,7 +12,7 @@ from pathlib import Path
 from .cache import CacheDB
 from .clarity import normalize_inline_headings, normalize_novice_layout, novice_audit
 from .config import AppConfig
-from .documents import chunk_text, extract_document
+from .documents import chunk_text, extract_document_cached
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
@@ -1436,7 +1436,7 @@ class Summarizer:
         source_parts: list[str] = []
         raw_texts: list[str] = []
         for path in group.files:
-            extracted = extract_document(path)
+            extracted = extract_document_cached(path, self.db, progress=progress)
             if not extracted.text.strip():
                 raise ValueError(f"Impossibile estrarre testo da {path}. Verifica il file o configura OCR prima di continuare.")
             if extracted.text:
@@ -1866,7 +1866,10 @@ class Summarizer:
                     f"Merge incrementale non sicuro per {chapter_title}: {detail}."
                 )
 
-            source_text = "\n\n".join(extract_document(path).text for path in group.files)
+            source_text = "\n\n".join(
+                extract_document_cached(path, self.db, progress=progress).text
+                for path in group.files
+            )
             source_chunks = chunk_text(source_text, chunk_chars=12000, overlap=350)
             merged = self._review_source_chunks(chapter_title, merged, source_chunks, system, progress)
             records[existing_index] = (chapter_title, merged)
@@ -2311,5 +2314,5 @@ class Summarizer:
         return f"# {title}\n\n> Modalità essenziale: ripasso dopo lo studio della versione completa.\n\n{toc}\n\n---\n\n{body}\n"
 
     def summarize_file(self, path: Path) -> str:
-        extracted = extract_document(path)
+        extracted = extract_document_cached(path, self.db)
         return self.summarize_text(extracted.text, title=path.stem)

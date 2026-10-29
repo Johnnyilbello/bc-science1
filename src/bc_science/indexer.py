@@ -8,7 +8,7 @@ from .cache import CacheDB
 from .config import AppConfig
 from .documents import (
     chunk_text,
-    extract_document,
+    extract_document_cached,
     file_sha256,
     is_generated_artifact,
     iter_source_files,
@@ -66,7 +66,7 @@ def ingest_files(
                 continue
 
             console.print(f"Indicizzo [cyan]{path.name}[/]...")
-            extracted = extract_document(path)
+            extracted = extract_document_cached(path, db, file_hash=digest)
             chunks = chunk_text(
                 extracted.text,
                 chunk_chars=config.chunk_chars,
