@@ -4,7 +4,6 @@ from pathlib import Path
 
 from bc_science import courses
 from bc_science.cache import CacheDB
-from bc_science.study_editions import make_fast_essential
 from bc_science.evidence_engine import (
     OriginalEvidence,
     OriginalEvidenceIndex,
@@ -12,6 +11,7 @@ from bc_science.evidence_engine import (
 )
 from bc_science.fast_audit import audit_fast_essential
 from bc_science.structural_checks import find_structural_issues
+from bc_science.study_editions import make_fast_essential
 from bc_science.targeted_review import _validate_proposal, review_chapter
 
 
