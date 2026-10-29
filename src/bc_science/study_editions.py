@@ -142,7 +142,7 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
     # Also preserve numerical statements from non-exam sections: anatomical
     # measurements and physiological values may be exam-critical even without
     # a dedicated recap heading.
-    for _name, sentences in sections.items():
+    for sentences in sections.values():
         for sentence in sentences:
             if re.search(r"(?<!\w)\d+(?:[.,]\d+)?", sentence):
                 mandatory.append(sentence)
