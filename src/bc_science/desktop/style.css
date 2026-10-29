@@ -3,3 +3,7 @@
 .course-nav h2{color:#a4b6c6}.subject{color:#007b7a}.button.primary{background:#007c7d;border-color:#007c7d}.button,.segments button,.text-button{min-height:44px}.questionbox button{min-width:34px;min-height:34px}.row-action{min-width:72px}
 
 #subject-name{padding:12px;width:100%;border:1px solid var(--line);border-radius:7px;margin:8px 0 12px}.questionbox button{min-width:44px;min-height:44px}@media(max-width:640px){.course-nav{display:block!important;max-height:200px;margin:12px 0;padding-top:12px}.local-status{display:flex!important}.course-nav #courses{display:flex;overflow:auto}.course-nav #courses button{width:auto;min-width:140px}}
+
+/* Show live work above the reader rather than after hundreds of summary lines. */
+#activity{margin:0 0 18px}
+#activity[open] #job-log{margin:12px 0 0}
