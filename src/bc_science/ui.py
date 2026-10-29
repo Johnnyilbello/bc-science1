@@ -226,6 +226,12 @@ class DesktopAPI:
                 "content_review_status", "NON_VALUTATO"
             ),
             "technical_status": audit_detail.get("status", "NON_VALUTATO"),
+            "linguistic_status": audit_detail.get(
+                "linguistic_status", "NON_VALUTATO"
+            ),
+            "chapters_with_language_issues": audit_detail.get(
+                "chapters_with_language_issues", 0
+            ),
             "chapters_needing_review": audit_detail.get(
                 "chapters_needing_review", 0
             ),
