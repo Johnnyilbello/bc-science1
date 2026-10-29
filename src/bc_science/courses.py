@@ -23,7 +23,6 @@ from .fast_audit import FastEssentialAudit, audit_fast_essential, write_fast_aud
 from .finalizer import export_pdf
 from .indexer import ingest_files
 from .study_editions import FAST_STUDY_VERSION, make_fast_essential
-from .targeted_review import review_chapter
 from .study_quality import assess_essential
 from .summarizer import (
     PROMPT_VERSION,
@@ -33,6 +32,7 @@ from .summarizer import (
     group_course_files,
     topic_key,
 )
+from .targeted_review import review_chapter
 
 IGNORED_DIR_NAMES = {
     ".git",
