@@ -15,6 +15,7 @@ from pathlib import Path
 from .course_audit import FAST_ESSENTIAL_AUDIT_VERSION
 from .italian_proofreading import grammar_findings
 from .quality_signals import assess_chapter
+from .structural_checks import find_structural_issues
 from .summarizer import _extract_summary_chapters, _preserves_exam_numbers
 
 
@@ -39,6 +40,7 @@ class FastEssentialAudit:
     chapter_signals: tuple[dict, ...] = ()
     linguistic_status: str = "NON_VALUTATO"
     chapters_with_language_issues: int = 0
+    chapters_with_structural_issues: int = 0
 
 
 def _sha(text: str) -> str:
@@ -70,6 +72,9 @@ def audit_fast_essential(
         info["possible_missing"] = info["possible_missing"][:8]
         language = grammar_findings(simplified, limit=15)
         info["language_findings"] = [finding.to_dict() for finding in language]
+        info["structural_findings"] = [
+            finding.to_dict() for finding in find_structural_issues(simplified)
+        ]
         info["language_review_status"] = (
             "DA_RIVEDERE" if language else "NESSUNA_ANOMALIA_RILEVATA"
         )
@@ -132,6 +137,14 @@ def audit_fast_essential(
             f"{language_chapters} capitoli con potenziali problemi linguistici "
             "o incoerenze di significato. Non considerare la grammatica verificata."
         )
+    structural_chapters = sum(
+        bool(info["structural_findings"]) for info in chapter_signals
+    )
+    if structural_chapters:
+        warnings.append(
+            f"{structural_chapters} capitoli con possibili ripetizioni, "
+            "frammenti o problemi di significato da confrontare sulle dispense."
+        )
     # The old 97% lexical fact metric is NOT an Essenziale pass/fail gate:
     # omitting secondary facts is an intentional requirement.
     status = (
@@ -160,6 +173,7 @@ def audit_fast_essential(
             "DA_RIVEDERE" if language_chapters else "NESSUNA_ANOMALIA_RILEVATA"
         ),
         chapters_with_language_issues=language_chapters,
+        chapters_with_structural_issues=structural_chapters,
     )
 
 
@@ -180,6 +194,8 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         f"**Lingua italiana (euristiche):** {report.linguistic_status}",
         (f"**Capitoli con anomalie linguistiche:** "
          f"{report.chapters_with_language_issues}"),
+        (f"**Capitoli con anomalie strutturali:** "
+         f"{report.chapters_with_structural_issues}"),
         "",
         "Questo esito tecnico non equivale a una validazione scientifica esterna.",
         "",
@@ -196,6 +212,7 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
             if (
                 item["review_priority"] != "nessuna"
                 or item["language_findings"]
+                or item["structural_findings"]
             )
         ],
         "",
@@ -205,6 +222,14 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
             f"{finding['message']}"
             for item in report.chapter_signals
             for finding in item["language_findings"]
+        ],
+        "",
+        "## Ripetizioni, frasi incomplete e contraddizioni sospette",
+        *[
+            f"- **{item['title']}**: «{finding['quote']}» — "
+            f"{finding['reason']}"
+            for item in report.chapter_signals
+            for finding in item["structural_findings"]
         ],
     ]
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")

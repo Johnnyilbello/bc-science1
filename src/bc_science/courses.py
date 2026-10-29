@@ -19,6 +19,7 @@ from .course_audit import (
     write_audit_reports,
 )
 from .documents import SUPPORTED, file_sha256
+from .evidence_engine import OriginalEvidenceIndex
 from .fast_audit import FastEssentialAudit, audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .indexer import ingest_files
@@ -1583,6 +1584,295 @@ def build_fast_essential_only(
     )
 
 
+def inspect_original_evidence(
+    scan: CourseScan,
+    chapter_title: str,
+    *,
+    edition: str = "essential",
+    semantic_query_vector: list[float] | None = None,
+) -> dict:
+    """Read-only, local evidence inspection for one selected study chapter.
+
+    Uses the SHA-validated cache from the *original* course documents,
+    never the derived Complete. No OCR, network or Ollama request.
+    """
+    from .italian_proofreading import grammar_findings
+    from .quality_signals import assess_chapter
+    from .structural_checks import find_structural_issues
+
+    if edition not in {"complete", "essential"}:
+        raise ValueError("Edizione non riconosciuta.")
+    manifest = _load_manifest(scan)
+    complete_path = course_output_path(scan)
+    study_path = course_study_output_path(scan)
+    if not manifest or not complete_path.is_file():
+        raise ValueError("Genera prima la Completa.")
+    if edition == "essential" and not study_path.is_file():
+        raise ValueError("Genera prima la versione Essenziale.")
+    complete = complete_path.read_text(encoding="utf-8")
+    essential = (
+        study_path.read_text(encoding="utf-8")
+        if edition == "essential" else complete
+    )
+    if (
+        not _manifest_baseline_verified(complete, manifest)
+        or not audit_course_summary(
+            scan, complete, manifest=manifest, snapshot=_snapshot(scan),
+        ).complete
+        or (edition == "essential" and not _study_is_current(
+            scan, manifest, complete,
+        ))
+    ):
+        raise ValueError("Le dispense sono cambiate o i riassunti non sono verificabili.")
+
+    sources = dict(_extract_summary_chapters(complete))
+    study = dict(_extract_summary_chapters(essential))
+    if chapter_title not in sources or chapter_title not in study:
+        raise ValueError("Capitolo assente nell'edizione richiesta.")
+
+    original = sources[chapter_title]
+    short = study[chapter_title]
+    signals = assess_chapter(chapter_title, original, short)
+    grammar = list(grammar_findings(short, limit=8))
+    structural = list(find_structural_issues(short, limit=8))
+    questions = [issue.quote for issue in structural[:2]]
+    questions += [issue.quote for issue in grammar[:2]]
+    questions += [fact.quote for fact in signals.possible_missing[:2]]
+    if not questions:
+        questions = [chapter_title]
+
+    # Manifest hashes are re-checked against current bytes by the course
+    # audit above. Never index another subject or stale source file.
+    allowed = {str(path.resolve()) for path in scan.supported_files}
+    file_hashes = {}
+    for entry in manifest.get("files", []):
+        source = str((scan.path / str(entry.get("path", ""))).resolve())
+        digest = entry.get("sha256")
+        if source in allowed and isinstance(digest, str):
+            file_hashes[source] = digest
+
+    found = []
+    seen = set()
+    if file_hashes:
+        with OriginalEvidenceIndex(workspace_db_path(scan), file_hashes) as index:
+            for question in questions[:4]:
+                for evidence in index.search(
+                    question, chapter_title=chapter_title, limit=4,
+                ):
+                    identity = (
+                        evidence.source_path, evidence.page, evidence.block,
+                    )
+                    if identity not in seen:
+                        seen.add(identity)
+                        found.append(evidence)
+                    if len(found) >= 6:
+                        break
+                if len(found) >= 6:
+                    break
+            if semantic_query_vector is not None and len(found) < 4:
+                for evidence in index.search_semantic(
+                    semantic_query_vector, limit=4,
+                ):
+                    identity = (
+                        evidence.source_path, evidence.page, evidence.block,
+                    )
+                    if identity not in seen:
+                        seen.add(identity)
+                        found.append(evidence)
+                    if len(found) >= 6:
+                        break
+
+    return {
+        "title": chapter_title,
+        "edition": edition,
+        "status": (
+            "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE"
+            if found else "NESSUNA_PROVA_ORIGINALE_IN_CACHE"
+        ),
+        "scientifically_verified": False,
+        "findings": [
+            {"category": item.category, "quote": item.quote,
+             "reason": item.reason}
+            for item in structural
+        ] + [
+            {"category": item.category, "quote": item.quote,
+             "reason": item.message}
+            for item in grammar
+        ],
+        "evidence": [item.to_dict() for item in found],
+    }
+
+
+
+def review_complete_chapter(
+    scan: CourseScan,
+    config: AppConfig,
+    chapter_title: str,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> CourseBuildResult:
+    """Review one Complete chapter against original PDFs, not the derived text.
+
+    Preserve the original Complete in a versioned backup; invalidate the
+    dependent Essential until the user regenerates it via the fast path.
+    """
+    from .evidence_engine import OriginalEvidence
+    from .italian_proofreading import grammar_findings
+    from .structural_checks import find_structural_issues
+
+    full_path = course_output_path(scan)
+    manifest = _load_manifest(scan)
+    if manifest is None or not full_path.is_file():
+        raise ValueError("Genera prima la Completa.")
+    complete = full_path.read_text(encoding="utf-8")
+    snapshot = _snapshot(scan)
+    if (
+        not _manifest_baseline_verified(complete, manifest)
+        or not audit_course_summary(
+            scan, complete, manifest=manifest, snapshot=snapshot,
+        ).complete
+    ):
+        raise ValueError("Completa o dispense non aggiornate o non verificabili.")
+    chapters = dict(_extract_summary_chapters(complete))
+    if chapter_title not in chapters:
+        raise ValueError("Capitolo non presente nella Completa.")
+    chapter = chapters[chapter_title]
+    # An explicit user review of the Complete also checks factual
+    # contradictions that pattern-only language checks may have missed.
+    # No background 77-chapter model scan is performed.
+    issues = grammar_findings(chapter)
+    fragments = find_structural_issues(chapter)
+    if progress and not issues and not fragments:
+        progress(
+            "Nessuna anomalia formale rilevata: confronto comunque il "
+            "capitolo scelto con le dispense originali."
+        )
+
+    report = inspect_original_evidence(
+        scan, chapter_title, edition="complete",
+    )
+    hits = [OriginalEvidence(**item) for item in report["evidence"]]
+    if len(hits) < 2:
+        from .indexer import QUERY_INSTRUCTION
+        from .ollama_client import OllamaClient
+
+        try:
+            query = chapter_title + " " + " ".join(
+                item["quote"] for item in report["findings"][:2]
+            )
+            vector = OllamaClient(config.ollama_url).embed(
+                config.embedding_model, [QUERY_INSTRUCTION + query],
+            )[0]
+            report = inspect_original_evidence(
+                scan, chapter_title, edition="complete",
+                semantic_query_vector=vector,
+            )
+            hits = [OriginalEvidence(**item) for item in report["evidence"]]
+        except (OSError, RuntimeError, ValueError, KeyError, IndexError):
+            if progress:
+                progress("Embedding non disponibile; utilizzo le fonti lessicali.")
+    if not hits:
+        if progress:
+            progress("Prove originali assenti. Nessuna modifica alla Completa.")
+        return CourseBuildResult(
+            scan=scan, state="prove originali non disponibili",
+            output_path=full_path, coverage_complete=True, audit_status="WARN",
+        )
+    if progress:
+        progress(
+            f"Completa: recuperati {len(hits)} estratti delle dispense "
+            "originali. Qwen interviene su un solo capitolo."
+        )
+    summarizer = Summarizer(config, profile, db_path=workspace_db_path(scan))
+    try:
+        outcome = review_chapter(
+            chapter_title, chapter, chapter, config,
+            summarizer=summarizer, original_evidence=hits,
+            edition="complete",
+        )
+    finally:
+        summarizer.close()
+    if not outcome.applied:
+        if progress:
+            progress(
+                "Completa invariata: revisione non accettata (" +
+                outcome.reason + ")."
+            )
+        return CourseBuildResult(
+            scan=scan, state="revisione Completa non applicata",
+            output_path=full_path, coverage_complete=True, audit_status="WARN",
+        )
+
+    # Replace only the chosen chapter while preserving the other Complete
+    # chapters and their original metadata and narrative.
+    heading = re.compile(
+        r"(?m)^##\s+" + re.escape(chapter_title) + r"\s*$",
+    )
+    matches = list(heading.finditer(complete))
+    if len(matches) != 1:
+        raise ValueError("Intestazione del capitolo non univoca: nessuna modifica.")
+    start = matches[0].start()
+    next_heading = re.search(r"(?m)^##\s+", complete[matches[0].end():])
+    end = (
+        matches[0].end() + next_heading.start()
+        if next_heading else len(complete)
+    )
+    revised = (
+        complete[:start].rstrip() + "\n\n"
+        + outcome.text.strip() + "\n\n"
+        + complete[end:].lstrip()
+    )
+    if [title for title, _ in _extract_summary_chapters(revised)] != [
+        title for title, _ in _extract_summary_chapters(complete)
+    ]:
+        raise ValueError("La revisione altera la struttura dei capitoli.")
+
+    # Publish the reviewed Complete PDF only after rendering succeeds.
+    full_pdf = course_pdf_path(scan)
+    pending = full_pdf.with_name(full_pdf.stem + ".review-pending.pdf")
+    try:
+        pages = export_pdf(
+            revised, pending, f"{scan.name} - Riassunto completo",
+        )
+        backup_id = _summary_sha256(complete)[:12]
+        archive = workspace_path(scan) / "complete_history"
+        archive.mkdir(parents=True, exist_ok=True)
+        backup_md = archive / f"complete-{backup_id}.md"
+        backup_pdf = archive / f"complete-{backup_id}.pdf"
+        if not backup_md.exists():
+            backup_md.write_text(complete, encoding="utf-8")
+        if full_pdf.is_file() and not backup_pdf.exists():
+            import shutil
+
+            shutil.copyfile(full_pdf, backup_pdf)
+        pending.replace(full_pdf)
+    finally:
+        pending.unlink(missing_ok=True)
+    _save_summary(full_path, revised)
+    # Deliberately drop the *manifest link* to the previously generated
+    # Essential: it derives from the prior Complete and must be regenerated.
+    _write_manifest(
+        scan, snapshot, full_path, revised,
+        _coverage_map_from_manifest(manifest),
+        pdf_path=full_pdf, pdf_pages=pages,
+        summary_pipeline=str(manifest.get("summary_pipeline", PROMPT_VERSION)),
+    )
+    if progress:
+        progress(
+            "Completa rivista con fonti originali; precedente archiviata. "
+            "La vecchia Essenziale non è più aggiornata: rigenerala con "
+            "Genera Essenziale (percorso rapido, nessun OCR)."
+        )
+    return CourseBuildResult(
+        scan=scan, state="capitolo Completa rivisto",
+        output_path=full_path, coverage_complete=True,
+        pdf_path=full_pdf, pdf_pages=pages, pdf_generated=True,
+        study_generated=False, audit_status="WARN",
+    )
+
+
+
 def review_essential_chapter(
     scan: CourseScan,
     config: AppConfig,
@@ -1632,6 +1922,70 @@ def review_essential_chapter(
             coverage_complete=True, study_generated=False,
         )
 
+    evidence_report = inspect_original_evidence(scan, chapter_title)
+    if len(evidence_report["evidence"]) < 2:
+        # Optional hybrid fallback only in the explicit AI review workflow.
+        # One embedding query may recover paraphrased passages missed by BM25.
+        # The normal 77-chapter Essential and source viewer never load Ollama.
+        from .indexer import QUERY_INSTRUCTION
+        from .ollama_client import OllamaClient
+
+        try:
+            question = (
+                chapter_title + " " +
+                " ".join(
+                    item["quote"]
+                    for item in evidence_report["findings"][:2]
+                )
+            )
+            vector = OllamaClient(config.ollama_url).embed(
+                config.embedding_model, [QUERY_INSTRUCTION + question],
+            )[0]
+            evidence_report = inspect_original_evidence(
+                scan, chapter_title, semantic_query_vector=vector,
+            )
+            if progress:
+                progress(
+                    "Ricerca ibrida locale: FTS5/BM25 più embedding "
+                    "originali riutilizzati."
+                )
+        except (OSError, RuntimeError, ValueError, KeyError, IndexError) as exc:
+            if progress:
+                progress(
+                    f"Ricerca semantica non disponibile ({exc}); "
+                    "conservo le prove lessicali già trovate."
+                )
+    from .evidence_engine import OriginalEvidence
+
+    original_passages = [
+        OriginalEvidence(**record)
+        for record in evidence_report["evidence"]
+    ]
+    if not original_passages:
+        if progress:
+            progress(
+                "Nessun passaggio delle dispense originali recuperabile "
+                "dalla cache. Non chiamo Qwen e non modifico il riassunto."
+            )
+        return CourseBuildResult(
+            scan=scan, state="prove originali non disponibili",
+            output_path=complete_path, study_path=study_path,
+            study_pdf_path=course_study_pdf_path(scan),
+            coverage_complete=True, study_generated=False,
+            audit_status="WARN",
+        )
+
+    if progress:
+        progress(
+            f"Grounding locale: {len(original_passages)} passaggi originali "
+            "con pagina o blocco di provenienza; nessun nuovo OCR."
+        )
+        for hit in original_passages[:4]:
+            place = (
+                f"pagina {hit.page}" if hit.page is not None
+                else f"blocco {hit.block}"
+            )
+            progress(f"  Fonte: {Path(hit.source_path).name}, {place}")
     summarizer = Summarizer(
         config, profile, db_path=workspace_db_path(scan),
     )
@@ -1647,6 +2001,7 @@ def review_essential_chapter(
             dict(chapters)[chapter_title],
             config,
             summarizer=summarizer,
+            original_evidence=original_passages,
         )
     finally:
         summarizer.close()
