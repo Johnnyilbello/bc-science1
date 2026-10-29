@@ -7,8 +7,8 @@ from bc_science.italian_proofreading import (
     conservative_italian_fixes,
     grammar_findings,
 )
-from bc_science.targeted_review import _validate_proposal, review_chapter
 from bc_science.study_editions import make_fast_essential_chapter
+from bc_science.targeted_review import _validate_proposal, review_chapter
 
 
 def test_obvious_italian_article_and_infinitive_are_fixed():
@@ -125,8 +125,8 @@ def test_qwen_must_not_invent_anatomical_direction_even_with_source_quote():
             "il cibo dalla faringe allo stomaco."
         ),
         "evidence": [
-            "Esofago — tubo muscolare che trasporta "
-            "il cibo dallo stomaco allo stomaco."
+            ("Esofago — tubo muscolare che trasporta "
+             "il cibo dallo stomaco allo stomaco.")
         ],
     }
     ok, why = _validate_proposal("Esofago", source, source, proposal)
