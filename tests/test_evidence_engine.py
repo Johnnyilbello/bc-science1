@@ -154,8 +154,8 @@ def test_qwen_grounded_rewrite_requires_real_original_page_quote():
             "del corpo e comprende il cranio."
         ),
         "evidence": [
-            "Il scheletro assile costituisce la parte centrale "
-            "del corpo e comprende il cranio."
+            ("Il scheletro assile costituisce la parte centrale "
+             "del corpo e comprende il cranio.")
         ],
         "original_quotes": [
             {"source": doc.source_path, "page": 3, "block": None,
