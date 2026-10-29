@@ -25,9 +25,10 @@ _BOILERPLATE = {
 _WORD = re.compile(r"[a-zà-ÿ0-9]+", re.IGNORECASE)
 
 
-def _clean_line(line: str) -> str:
+def _clean_line(line: str, *, preserve_bold: bool = False) -> str:
     line = re.sub(r"^\s*(?:[-*]|\d+[.)])\s+", "", line.strip())
-    line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
+    if not preserve_bold:
+        line = re.sub(r"\*\*([^*]+)\*\*", r"\1", line)
     line = re.sub(r"[\x60]([^\x60]+)[\x60]", r"\1", line)
     return re.sub(r"\s+", " ", line).strip()
 
@@ -93,7 +94,7 @@ def readable_complete_chapter(title: str, chapter: str) -> str:
         if not stripped or stripped == "---":
             flush()
             continue
-        value = _clean_line(stripped)
+        value = _clean_line(stripped, preserve_bold=True)
         if value:
             buffer.append(value)
     flush()
