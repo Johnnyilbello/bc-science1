@@ -2430,7 +2430,7 @@ class Summarizer:
                 markdown, restored = _restore_missing_exam_points(source, markdown)
                 if not _preserves_exam_numbers(source, markdown):
                     raise ValueError("Valori numerici non verificabili")
-                number_pattern = r"(?<!\\w)\\d+(?:[.,]\\d+)?"
+                number_pattern = r"(?<!\w)\d+(?:[.,]\d+)?"
                 source_numbers = set(re.findall(number_pattern, source))
                 output_numbers = set(re.findall(number_pattern, markdown))
                 if not output_numbers <= source_numbers:
