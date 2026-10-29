@@ -145,3 +145,58 @@ def test_fast_bulk_rejects_source_changes(tmp_path: Path, monkeypatch):
         courses.build_fast_essential_only(
             courses.scan_course(scan.path), AppConfig(),
         )
+
+
+def test_instant_77_chapter_essential_uses_no_ai_and_no_templated_sections():
+    chapters = [
+        f"## Capitolo {i}\n### In parole semplici\n"
+        f"Il capitolo {i} introduce un concetto rilevante di anatomia "
+        "e spiega la sua funzione nell'organismo.\n"
+        "### Spiegazione ordinata\n"
+        "Il concetto può essere collegato alle principali strutture anatomiche. "
+        "Le strutture del corpo partecipano a funzioni diverse.\n"
+        for i in range(1, 78)
+    ]
+    toc = "\n".join(f"- Capitolo {i}" for i in range(1, 78))
+    complete = (
+        "# Anatomia\n\n## Indice degli argomenti\n" + toc
+        + "\n\n---\n\n" + "\n\n---\n\n".join(chapters)
+    )
+    essential, records = make_fast_essential(complete, "Anatomia Essenziale")
+    assert len(records) == 77
+    assert essential.count("\n## Capitolo ") == 77
+    assert "In parole semplici" not in essential
+    assert "Spiegazione ordinata" not in essential
+    assert "### " not in essential
+
+
+def test_complete_new_generation_has_only_index_and_narrative(tmp_path: Path, monkeypatch):
+    from bc_science.summarizer import Summarizer
+
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    path = tmp_path / "Apparato.txt"
+    path.write_text("Fonte dell'apparato.", encoding="utf-8")
+    summarizer = Summarizer(AppConfig(), db_path=tmp_path / "complete.db")
+    calls = []
+
+    def fake_topic(group, *, progress=None):
+        calls.append(group.title)
+        return f"## {group.title}\n\nIl corpo ha una struttura ordinata."
+
+    monkeypatch.setattr(summarizer, "_summarize_topic", fake_topic)
+    monkeypatch.setattr(
+        summarizer, "_cached_chat",
+        lambda *args, **kwargs: pytest.fail("No extra overview model calls"),
+    )
+    try:
+        result = summarizer.summarize_course(
+            [path], "Scienze motorie - Riassunto completo",
+        )
+    finally:
+        summarizer.close()
+    assert len(calls) == 1
+    assert "> Edizione Completa narrativa" in result
+    assert result.count("## Indice degli argomenti") == 1
+    assert "## Come studiare" not in result
+    assert "## Ripasso globale" not in result
+    assert "### In parole semplici" not in result
