@@ -7,6 +7,7 @@ from bc_science.italian_proofreading import (
     conservative_italian_fixes,
     grammar_findings,
 )
+from bc_science.targeted_review import _validate_proposal, review_chapter
 from bc_science.study_editions import make_fast_essential_chapter
 
 
@@ -82,3 +83,52 @@ def test_audit_separates_grammar_from_technical_and_scientific_results():
     assert report.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
     flags = report.chapter_signals[0]["language_findings"]
     assert any(flag["category"] == "meaning" for flag in flags)
+
+
+
+def test_qwen_reviewer_handles_only_grammar_flags_without_mandatory_rewrite():
+    source = (
+        "## Ossatura\n\nIl scheletro assile comprende gli elementi che "
+        "sostengono il tronco e la testa."
+    )
+
+    class FakeModel:
+        model = "qwen3.5:4b"
+        calls = 0
+
+        def _cached_chat(self, *args, **kwargs):
+            self.calls += 1
+            return (
+                '{"rewrite":"## Ossatura\\n\\nLo scheletro assile comprende '
+                'gli elementi che sostengono il tronco e la testa.",'
+                '"evidence":["Il scheletro assile comprende gli elementi '
+                'che sostengono il tronco e la testa."]}'
+            )
+
+    model = FakeModel()
+    result = review_chapter(
+        "Ossatura", source, source, None, summarizer=model,
+    )
+    assert model.calls == 1
+    assert result.applied
+    assert "Lo scheletro" in result.text
+
+
+def test_qwen_must_not_invent_anatomical_direction_even_with_source_quote():
+    source = (
+        "## Esofago\n\nEsofago — tubo muscolare che trasporta "
+        "il cibo dallo stomaco allo stomaco."
+    )
+    proposal = {
+        "rewrite": (
+            "## Esofago\n\nEsofago — tubo muscolare che trasporta "
+            "il cibo dalla faringe allo stomaco."
+        ),
+        "evidence": [
+            "Esofago — tubo muscolare che trasporta "
+            "il cibo dallo stomaco allo stomaco."
+        ],
+    }
+    ok, why = _validate_proposal("Esofago", source, source, proposal)
+    assert not ok
+    assert "dispensa originale" in why
