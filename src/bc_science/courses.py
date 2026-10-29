@@ -1553,9 +1553,17 @@ def build_fast_essential_only(
     )
     if progress:
         progress(
-            f"PDF Essenziale pronto: {pages} pagine. Audit source-only: "
-            f"{audit.status} (non equivale a verifica scientifica esterna)."
+            f"PDF Essenziale pronto: {pages} pagine. "
+            f"Controllo tecnico: {audit.status}; "
+            f"italiano: {audit.linguistic_status}; "
+            f"capitoli da rivedere: {audit.chapters_with_language_issues}. "
+            "Non equivale a verifica grammaticale o scientifica completa."
         )
+        if audit.chapters_with_language_issues:
+            progress(
+                "Apri Qualità del riassunto per visualizzare le frasi "
+                "che richiedono una verifica linguistica o di significato."
+            )
         if audit.status != "PASS":
             for warning in audit.warnings:
                 progress("  Verifica: " + warning)
