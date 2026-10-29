@@ -2301,7 +2301,8 @@ class Summarizer:
             STUDY_PROMPT_VERSION, "essential-validated-v1", self.model,
             chapter_title, chapter,
         )
-        checked = self.db.get_summary(final_key)
+        db = getattr(self, "db", None)
+        checked = db.get_summary(final_key) if db is not None else None
         if checked:
             if progress:
                 progress(f"    Riutilizzo capitolo Essenziale validato: {chapter_title}")
@@ -2337,7 +2338,8 @@ class Summarizer:
                 f"Numeri d'esame ancora non verificabili in {chapter_title}; "
                 "il capitolo non è stato salvato."
             )
-        self.db.set_summary(final_key, candidate)
+        if db is not None:
+            db.set_summary(final_key, candidate)
         return candidate
 
     def build_study_summary(
