@@ -23,6 +23,7 @@ from .fast_audit import FastEssentialAudit, audit_fast_essential, write_fast_aud
 from .finalizer import export_pdf
 from .indexer import ingest_files
 from .study_editions import FAST_STUDY_VERSION, make_fast_essential
+from .targeted_review import review_chapter
 from .study_quality import assess_essential
 from .summarizer import (
     PROMPT_VERSION,
@@ -1571,6 +1572,145 @@ def build_fast_essential_only(
         study_generated=True,
         audit_status=audit.status,
         audit_path=audit_path,
+    )
+
+
+def review_essential_chapter(
+    scan: CourseScan,
+    config: AppConfig,
+    chapter_title: str,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> CourseBuildResult:
+    """Optional, single-chapter Qwen review with source-evidence validation."""
+    complete_path = course_output_path(scan)
+    study_path = course_study_output_path(scan)
+    manifest = _load_manifest(scan)
+    if not manifest or not complete_path.is_file() or not study_path.is_file():
+        raise ValueError("Genera prima Completa ed Essenziale rapido.")
+    complete = complete_path.read_text(encoding="utf-8")
+    study = study_path.read_text(encoding="utf-8")
+    if (
+        not _manifest_baseline_verified(complete, manifest)
+        or not audit_course_summary(
+            scan, complete, manifest=manifest, snapshot=_snapshot(scan),
+        ).complete
+        or not _study_is_current(scan, manifest, complete)
+        or (manifest.get("study") or {}).get("pipeline") != FAST_STUDY_VERSION
+    ):
+        raise ValueError("I riassunti non sono aggiornati o non verificabili.")
+
+    sources = dict(_extract_summary_chapters(complete))
+    chapters = _extract_summary_chapters(study)
+    if chapter_title not in sources or chapter_title not in dict(chapters):
+        raise ValueError("Argomento selezionato non presente in entrambe le edizioni.")
+
+    from .quality_signals import assess_chapter
+
+    signals = assess_chapter(
+        chapter_title, sources[chapter_title], dict(chapters)[chapter_title],
+    )
+    if signals.review_priority == "nessuna":
+        if progress:
+            progress("Nessuna criticita euristica rilevata: modello non avviato.")
+        return CourseBuildResult(
+            scan=scan, state="nessuna revisione necessaria",
+            output_path=complete_path, study_path=study_path,
+            study_pdf_path=course_study_pdf_path(scan),
+            coverage_complete=True, study_generated=False,
+        )
+
+    summarizer = Summarizer(
+        config, profile, db_path=workspace_db_path(scan),
+    )
+    if progress:
+        progress(
+            f"Revisione locale Qwen3.5 4B: solo {chapter_title}. "
+            "Richiedo citazioni letterali dalla Completa."
+        )
+    try:
+        result = review_chapter(
+            chapter_title,
+            sources[chapter_title],
+            dict(chapters)[chapter_title],
+            config,
+            summarizer=summarizer,
+        )
+    finally:
+        summarizer.close()
+    if not result.applied:
+        if progress:
+            progress(
+                f"Revisione non applicata: {result.reason}. "
+                "Conservo il testo originario; verifica umana consigliata."
+            )
+        return CourseBuildResult(
+            scan=scan, state="revisione non applicata",
+            output_path=complete_path, study_path=study_path,
+            study_pdf_path=course_study_pdf_path(scan),
+            coverage_complete=True, study_generated=False,
+            audit_status="WARN",
+        )
+
+    rewritten = [
+        (title, result.text if title == chapter_title else text)
+        for title, text in chapters
+    ]
+    toc = "\n".join(f"- {title}" for title, _ in rewritten)
+    updated = (
+        f"# {scan.name} - Riassunto essenziale\n\n"
+        "## Indice degli argomenti\n" + toc
+        + "\n\n---\n\n" + "\n\n---\n\n".join(
+            text for _title, text in rewritten
+        ) + "\n"
+    )
+    audit = audit_fast_essential(
+        complete, updated, source_documents=len(scan.supported_files),
+        source_coverage_complete=SOURCE_REVIEW_UNVERIFIED not in complete,
+    )
+    if audit.status == "FAIL":
+        if progress:
+            progress("Revisione non applicata: audit tecnico fallito.")
+        return CourseBuildResult(
+            scan=scan, state="revisione non applicata",
+            output_path=complete_path, study_path=study_path,
+            audit_status="FAIL",
+        )
+
+    # Avoid mutating the published file before validating all chapters.
+    _save_summary(study_path, updated)
+    study_pdf = course_study_pdf_path(scan)
+    pages = export_pdf(updated, study_pdf, f"{scan.name} - Riassunto essenziale")
+    complete_pdf = course_pdf_path(scan)
+    pdf_info = manifest.get("pdf") or {}
+    old_pdf_valid = (
+        complete_pdf.is_file()
+        and pdf_info.get("summary_sha256") == _summary_sha256(complete)
+        and pdf_info.get("path") == str(complete_pdf)
+    )
+    _write_manifest(
+        scan, _snapshot(scan), complete_path, complete,
+        _coverage_map_from_manifest(manifest),
+        pdf_path=complete_pdf if old_pdf_valid else None,
+        pdf_pages=int(pdf_info.get("pages", 0)) if old_pdf_valid else 0,
+        study_path=study_path, study_text=updated,
+        study_pdf_path=study_pdf, study_pdf_pages=pages,
+        summary_pipeline=str(manifest.get("summary_pipeline", PROMPT_VERSION)),
+        study_pipeline=FAST_STUDY_VERSION,
+    )
+    audit_path, _ = write_fast_audit(audit, complete_path.parent)
+    if progress:
+        progress(
+            f"Capitolo rivisto: {chapter_title}. Audit tecnico {audit.status}; "
+            "contenuto ancora da verificare umanamente."
+        )
+    return CourseBuildResult(
+        scan=scan, state="revisione assistita applicata",
+        output_path=complete_path, study_path=study_path,
+        study_pdf_path=study_pdf, study_pdf_pages=pages,
+        coverage_complete=True, study_generated=True,
+        audit_status=audit.status, audit_path=audit_path,
     )
 
 
