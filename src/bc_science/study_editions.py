@@ -100,7 +100,9 @@ def readable_complete_chapter(title: str, chapter: str) -> str:
         if value:
             buffer.append(value)
     flush()
-    return f"## {title}\n\n" + "\n\n".join(paragraphs)
+    text = f"## {title}\n\n" + "\n\n".join(paragraphs)
+    text, _fix_count = conservative_italian_fixes(text)
+    return text
 
 
 def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableChapter:
