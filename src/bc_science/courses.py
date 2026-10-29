@@ -1399,6 +1399,153 @@ def build_essential_only(
     )
 
 
+def build_fast_essential_only(
+    scan: CourseScan,
+    config: AppConfig,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> CourseBuildResult:
+    """Produce two readable summary editions without 77 new Ollama calls.
+
+    Complete must already be verified against the unchanged documents. Existing
+    source files and the verified Complete are never rewritten by this path.
+    """
+    del config, profile  # Source-only, deterministic; no Ollama initialization.
+    output = course_output_path(scan)
+    manifest = _load_manifest(scan)
+    if not output.is_file() or manifest is None:
+        raise ValueError("Genera prima una versione Completa verificata.")
+    complete = output.read_text(encoding="utf-8")
+    snapshot = _snapshot(scan)
+    if (
+        not _manifest_baseline_verified(complete, manifest)
+        or not audit_course_summary(
+            scan, complete, manifest=manifest, snapshot=snapshot,
+        ).complete
+    ):
+        raise ValueError(
+            "Completa non verificata o dispense modificate. "
+            "Occorre prima aggiornare la Completa."
+        )
+
+    # Reuse the existing fast summary without touching the PDF or model.
+    study_info = manifest.get("study")
+    if (
+        isinstance(study_info, dict)
+        and study_info.get("pipeline") == FAST_STUDY_VERSION
+        and _study_is_current(scan, manifest, complete)
+    ):
+        if progress:
+            progress("Riassunto Essenziale leggibile gia disponibile: riutilizzo senza generare.")
+        audit_current, audit_status = audit_report_is_current(
+            course_audit_json_path(scan),
+            complete,
+            course_study_output_path(scan).read_text(encoding="utf-8"),
+        )
+        pdf_info = manifest.get("pdf") or {}
+        pdf = course_pdf_path(scan)
+        study_pdf_info = study_info.get("pdf") or {}
+        return CourseBuildResult(
+            scan=scan,
+            state="riutilizzata",
+            output_path=output,
+            coverage_complete=True,
+            pdf_path=pdf if pdf.is_file() else None,
+            pdf_pages=int(pdf_info.get("pages", 0)),
+            study_path=course_study_output_path(scan),
+            study_pdf_path=course_study_pdf_path(scan),
+            study_pdf_pages=int(study_pdf_info.get("pages", 0)),
+            study_generated=False,
+            audit_status=audit_status if audit_current else "WARN",
+            audit_path=course_audit_markdown_path(scan),
+        )
+
+    if progress:
+        progress(
+            "Essenziale rapido: ricavo un riassunto unitario e leggibile "
+            "dalla Completa verificata. Nessuna chiamata Ollama, OCR o embedding."
+        )
+    started = time.perf_counter()
+    essential, chapters = make_fast_essential(
+        complete, title=f"{scan.name} - Riassunto essenziale",
+    )
+    audit = audit_fast_essential(
+        complete,
+        essential,
+        source_documents=len(scan.supported_files),
+        source_coverage_complete=SOURCE_REVIEW_UNVERIFIED not in complete,
+    )
+    if audit.status == "FAIL":
+        raise ValueError(
+            "Riassunto Essenziale non pubblicato: "
+            + "; ".join(audit.warnings)
+        )
+    if progress:
+        progress(
+            f"Riassunto Essenziale: {len(chapters)} capitoli, "
+            f"{audit.study_words}/{audit.complete_words} parole "
+            f"({audit.compression_percent:.1f}% di compressione), "
+            f"in {time.perf_counter() - started:.1f}s."
+        )
+
+    path = course_study_output_path(scan)
+    _save_summary(path, essential)
+    pdf_path = course_study_pdf_path(scan)
+    pages = export_pdf(
+        essential,
+        pdf_path,
+        f"{scan.name} - Riassunto essenziale",
+    )
+    old_pdf_info = manifest.get("pdf") or {}
+    old_pdf_path = course_pdf_path(scan)
+    valid_old_pdf = (
+        old_pdf_path.is_file()
+        and old_pdf_info.get("path") == str(old_pdf_path)
+        and old_pdf_info.get("summary_sha256") == _summary_sha256(complete)
+    )
+    _write_manifest(
+        scan,
+        snapshot,
+        output,
+        complete,
+        _coverage_map_from_manifest(manifest),
+        pdf_path=old_pdf_path if valid_old_pdf else None,
+        pdf_pages=int(old_pdf_info.get("pages", 0)) if valid_old_pdf else 0,
+        study_path=path,
+        study_text=essential,
+        study_pdf_path=pdf_path,
+        study_pdf_pages=pages,
+        summary_pipeline=str(manifest.get("summary_pipeline", PROMPT_VERSION)),
+        study_pipeline=FAST_STUDY_VERSION,
+    )
+    audit_path, _json_path = write_fast_audit(
+        audit, course_output_path(scan).parent,
+    )
+    if progress:
+        progress(
+            f"PDF Essenziale pronto: {pages} pagine. Audit source-only: "
+            f"{audit.status} (non equivale a verifica scientifica esterna)."
+        )
+        if audit.status != "PASS":
+            for warning in audit.warnings:
+                progress("  Verifica: " + warning)
+    return CourseBuildResult(
+        scan=scan,
+        state="essenziale leggibile generata",
+        output_path=output,
+        coverage_complete=True,
+        pdf_path=old_pdf_path if valid_old_pdf else None,
+        pdf_pages=int(old_pdf_info.get("pages", 0)) if valid_old_pdf else 0,
+        study_path=path,
+        study_pdf_path=pdf_path,
+        study_pdf_pages=pages,
+        study_generated=True,
+        audit_status=audit.status,
+        audit_path=audit_path,
+    )
+
+
 def _essential_chapter_preview_path(scan: CourseScan, title: str) -> Path:
     """Private workspace path; never use a user-controlled title as a filename."""
     safe_id = hashlib.sha256(title.encode("utf-8")).hexdigest()[:24]
