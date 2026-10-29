@@ -46,3 +46,36 @@ uno con formule/valori e uno con classificazioni. Per ognuno verificare:
 Registrare tempo e qualità prima di modificare parametri di inferenza.
 **Non aumentare automaticamente `num_ctx` o attivare thinking di default**
 sulla GPU da 8 GB senza confrontare VRAM, velocità e precisione.
+
+
+## Prestazioni della generazione finale (Anatomia: 77 capitoli)
+
+La modalità **Genera Essenziale** assembla l'intera materia. Quando possibile,
+riutilizza i capitoli già validati nel database e nei checkpoint, e pubblica
+previsualizzazioni locali per i capitoli terminati, prima del PDF finale.
+
+Con Qwen3.5 4B il programma può provare lotti di due capitoli *brevi* per
+ridurre il numero di chiamate al modello. Controlla ogni risultato per titolo,
+struttura, corrispondenza lessicale con la fonte e numeri d'esame. Se un lotto
+non supera i controlli, ripiega sul metodo singolo e non riprova altri lotti
+nella stessa esecuzione. I capitoli lunghi vengono sempre generati singolarmente.
+
+**Confronto A/B locale consigliato:** prova la generazione su una materia di
+prova con e senza lotti, controlla i tempi e confronta i capitoli con le
+dispense originali. Per disattivare i lotti e usare solo il percorso singolo:
+
+\`\`\`powershell
+$env:BC_SCIENCE_ESSENTIAL_BATCH = "1"
+& "$repo\.venv\Scripts\python.exe" -m bc_science.ui --folder $materiali
+\`\`\`
+
+Per ripristinare il comportamento automatico, chiudi BC Science e rimuovi
+la variabile dalla stessa sessione PowerShell:
+
+\`\`\`powershell
+Remove-Item Env:\BC_SCIENCE_ESSENTIAL_BATCH -ErrorAction SilentlyContinue
+\`\`\`
+
+La modalità a lotti non assicura un miglioramento costante: il tempo dipende
+dalla lunghezza dei capitoli, dalla riuscita della validazione e dalla GPU.
+Non confondere i test unitari con una misura della qualità scientifica reale.
