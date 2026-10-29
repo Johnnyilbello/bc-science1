@@ -20,6 +20,7 @@ from .course_audit import (
 from .documents import SUPPORTED, file_sha256
 from .finalizer import export_pdf
 from .indexer import ingest_files
+from .study_quality import assess_essential
 from .summarizer import (
     PROMPT_VERSION,
     STUDY_PROMPT_VERSION,
@@ -619,6 +620,18 @@ def _ensure_study(
     manifest: dict | None,
     progress: Callable[[str], None] | None,
 ) -> tuple[Path | None, str | None, Path | None, int, bool]:
+    def report_essential_quality(study_text: str) -> None:
+        if progress is None:
+            return
+        report = assess_essential(summary_text, study_text)
+        progress(
+            f"Essenziale: {report.essential_words}/{report.complete_words} parole, "
+            f"compressione {report.compression_percent:.1f}%, "
+            f"copertura fatti critici stimata {report.critical_recall_percent:.1f}%."
+        )
+        for warning in report.warnings:
+            progress(f"  Da verificare: {warning}")
+
     def repair_audit_gaps(study_text: str) -> tuple[str, int]:
         current = study_text
         total_restored = 0
@@ -636,7 +649,7 @@ def _ensure_study(
 
             repaired, restored = restore_missing_audit_facts(
                 current,
-                [fact for fact in before.missing_facts if fact.category != "fatto"],
+                [fact for fact in before.missing_facts if fact.category in {"numero", "esame"}],
             )
             if not restored:
                 if progress:
@@ -686,6 +699,7 @@ def _ensure_study(
         study_path = course_study_output_path(scan)
         study_text = study_path.read_text(encoding="utf-8")
         repaired_text, restored = repair_audit_gaps(study_text)
+        report_essential_quality(repaired_text)
         if restored:
             _save_summary(study_path, repaired_text)
             pdf_path = course_study_pdf_path(scan)
@@ -721,6 +735,7 @@ def _ensure_study(
         raise ValueError(f"La versione studio di {scan.name} risulta vuota.")
 
     study_text, _restored = repair_audit_gaps(study_text)
+    report_essential_quality(study_text)
     study_path = course_study_output_path(scan)
     _save_summary(study_path, study_text)
     pdf_path = course_study_pdf_path(scan)
