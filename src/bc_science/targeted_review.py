@@ -65,6 +65,8 @@ def _validate_proposal(
     headings = re.findall(r"(?m)^##\s+(.+?)\s*$", text)
     if len(headings) != 1 or headings[0].strip() != title:
         return False, "Titolo o struttura alterati"
+    if text.strip() == previous.strip():
+        return False, "Nessuna correzione necessaria"
     if "### " in text or "In parole semplici" in text:
         return False, "Il riassunto ripete sezioni didattiche"
     if not _preserves_exam_numbers(source, text):
@@ -139,7 +141,11 @@ def review_chapter(
     from .structural_checks import find_structural_issues
 
     structural = find_structural_issues(essential)
-    if signals.review_priority == "nessuna" and not language and not structural:
+    if (
+        edition != "complete"
+        and signals.review_priority == "nessuna"
+        and not language and not structural
+    ):
         return ReviewOutcome(title, False, essential, "Nessuna criticita rilevata")
     key = _key(
         REVIEW_VERSION, summarizer.model, title,
@@ -174,8 +180,11 @@ def review_chapter(
         "correggere concordanze, forme verbali, ortografia, punteggiatura, "
         "periodi spezzati e a includere i concetti cruciali mancanti. "
         "Mantieni uno stile narrativo breve con un solo titolo ## identico. "
-        "Per la Completa conserva tutte le conoscenze necessarie allo studio, "
-        "non trasformarla in una versione Essenziale. "
+        "Per la Completa confronta le affermazioni con gli estratti originali "
+        "per individuare anche contraddizioni scientifiche non evidenti nella "
+        "grammatica. Correggi soltanto quelle sostenute da citazioni originali. "
+        "Conserva tutte le conoscenze necessarie allo studio, senza trasformare "
+        "la Completa in una versione Essenziale. "
         "Fornisci un JSON con rewrite, evidence e original_quotes. "
         "original_quotes e una lista di oggetti con source, page, block, quote. "
         "Ogni quote deve essere copiata letteralmente da FONTI_ORIGINALI e "
