@@ -859,6 +859,9 @@ def course_state(scan: CourseScan) -> CourseState:
     )
 
 
+SOURCE_REVIEW_UNVERIFIED = "Verifica materiale: controllo omissioni automatico incompleto"
+
+
 def _ensure_course_audit_status(
     scan: CourseScan,
     complete_text: str,
@@ -880,7 +883,9 @@ def _ensure_course_audit_status(
         complete_text,
         study_text,
         source_documents=len(scan.supported_files),
-        source_coverage_complete=source_coverage_complete,
+        source_coverage_complete=(
+            source_coverage_complete and SOURCE_REVIEW_UNVERIFIED not in complete_text
+        ),
     )
     markdown_path, _json_path = write_audit_reports(
         result,
@@ -912,7 +917,9 @@ def audit_course(scan: CourseScan) -> StudyAuditResult:
         complete_text,
         study_text,
         source_documents=len(scan.supported_files),
-        source_coverage_complete=coverage.complete,
+        source_coverage_complete=(
+            coverage.complete and SOURCE_REVIEW_UNVERIFIED not in complete_text
+        ),
     )
     write_audit_reports(result, complete_path.parent)
     return result
