@@ -26,6 +26,14 @@ class CacheDB:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS extracted_documents (
+                source_path TEXT PRIMARY KEY,
+                file_hash TEXT NOT NULL,
+                extraction_version TEXT NOT NULL,
+                text TEXT NOT NULL,
+                pages INTEGER NOT NULL DEFAULT 0,
+                ocr_pages INTEGER NOT NULL DEFAULT 0
+            );
             CREATE TABLE IF NOT EXISTS documents (
                 source_path TEXT PRIMARY KEY,
                 file_hash TEXT NOT NULL,
@@ -66,6 +74,30 @@ class CacheDB:
     def delete_summary(self, key: str) -> None:
         with self.conn:
             self.conn.execute("DELETE FROM summary_cache WHERE cache_key = ?", (key,))
+
+    def get_extracted_document(
+        self, source_path: str, file_hash: str, extraction_version: str,
+    ) -> tuple[str, int, int] | None:
+        """Reuse OCR results only when both source bytes and OCR policy match."""
+        row = self.conn.execute(
+            "SELECT text, pages, ocr_pages FROM extracted_documents "
+            "WHERE source_path = ? AND file_hash = ? AND extraction_version = ?",
+            (source_path, file_hash, extraction_version),
+        ).fetchone()
+        return (str(row[0]), int(row[1]), int(row[2])) if row else None
+
+    def set_extracted_document(
+        self, source_path: str, file_hash: str, extraction_version: str,
+        text: str, pages: int, ocr_pages: int,
+    ) -> None:
+        """Persist each completed extraction before any subsequent LLM operation."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO extracted_documents "
+                "(source_path, file_hash, extraction_version, text, pages, ocr_pages) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (source_path, file_hash, extraction_version, text, pages, ocr_pages),
+            )
 
     def document_hash(self, source_path: str) -> str | None:
         row = self.conn.execute(
@@ -118,6 +150,10 @@ class CacheDB:
             )
             self.conn.executemany(
                 "DELETE FROM documents WHERE source_path = ?",
+                [(source,) for source in unique],
+            )
+            self.conn.executemany(
+                "DELETE FROM extracted_documents WHERE source_path = ?",
                 [(source,) for source in unique],
             )
         return len(unique)
