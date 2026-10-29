@@ -67,8 +67,8 @@ def audit_fast_essential(
         )
     )
     warnings = [
-        "Controllo automatico source-only: non certifica la verità scientifica "
-        "delle dispense originali; i contenuti vanno studiati e verificati."
+        ("Controllo automatico source-only: non certifica la verità scientifica "
+         "delle dispense originali; i contenuti vanno studiati e verificati.")
     ]
     hard_failure = (
         not source_coverage_complete
