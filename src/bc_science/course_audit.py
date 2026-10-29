@@ -11,7 +11,7 @@ from pathlib import Path
 from .clarity import audit_novice_document
 from .summarizer import _extract_summary_chapters, topic_key
 
-FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v2-dual-status"
+FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v3-italian-grammar"
 
 _STOPWORDS = {
     "anche", "alla", "alle", "agli", "allo", "attraverso", "come", "con", "dalla",
