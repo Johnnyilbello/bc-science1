@@ -2,7 +2,9 @@
 import json
 from pathlib import Path
 
+from bc_science import courses
 from bc_science.cache import CacheDB
+from bc_science.study_editions import make_fast_essential
 from bc_science.evidence_engine import (
     OriginalEvidence,
     OriginalEvidenceIndex,
@@ -208,3 +210,60 @@ def test_grounded_model_cannot_pass_unverifiable_citations(tmp_path: Path):
     )
     assert not outcome.applied
     assert outcome.text == source
+
+
+
+def test_course_evidence_reads_original_not_complete_and_rejects_edits(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    folder = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
+    folder.mkdir(parents=True)
+    source = folder / "Scheletro.txt"
+    original = "Lo scheletro assile comprende il cranio e la gabbia toracica."
+    source.write_text(original, encoding="utf-8")
+    scan = courses.scan_course(folder)
+    complete = (
+        "# Anatomia\n\n## Indice degli argomenti\n- Scheletro\n\n---\n\n"
+        "## Scheletro\n### In parole semplici\n"
+        "Lo scheletro assile comprende il cranio.\n"
+    )
+    output = courses.course_output_path(scan)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(complete, encoding="utf-8")
+    study, _ = make_fast_essential(complete, "Anatomia essenziale")
+    study_path = courses.course_study_output_path(scan)
+    study_path.write_text(study, encoding="utf-8")
+    study_pdf = courses.course_study_pdf_path(scan)
+    study_pdf.write_bytes(b"%PDF-test")
+
+    courses._write_manifest(
+        scan, courses._snapshot(scan), output, complete,
+        {"Scheletro.txt": "Scheletro"},
+        pdf_path=None, pdf_pages=0,
+        study_path=study_path, study_text=study,
+        study_pdf_path=study_pdf, study_pdf_pages=1,
+        summary_pipeline="summary-older",
+        study_pipeline=courses.FAST_STUDY_VERSION,
+    )
+    db = CacheDB(courses.workspace_db_path(scan))
+    try:
+        db.set_extracted_document(
+            str(source.resolve()), courses.file_sha256(source),
+            "extraction-v1", original, pages=0, ocr_pages=0,
+        )
+    finally:
+        db.close()
+
+    report = courses.inspect_original_evidence(scan, "Scheletro")
+    assert report["status"] == "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE"
+    assert not report["scientifically_verified"]
+    assert any(original in item["excerpt"] for item in report["evidence"])
+    assert any(item["source_path"] == str(source.resolve()) for item in report["evidence"])
+    assert all(item["provenance"] == "cached_page" for item in report["evidence"])
+
+    source.write_text("L'originale universitario è cambiato.", encoding="utf-8")
+    import pytest
+
+    with pytest.raises(ValueError, match="dispense|verificabili"):
+        courses.inspect_original_evidence(courses.scan_course(folder), "Scheletro")
