@@ -5,7 +5,6 @@ of source material or automatic expansion solely to reach a numerical target.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from .course_audit import StudyAuditResult, audit_study_pair, extract_atomic_facts
