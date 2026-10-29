@@ -11,6 +11,7 @@ import pymupdf
 import pymupdf4llm
 from docx import Document
 
+from .cache import CacheDB
 from .config import app_home
 
 SUPPORTED = {".pdf", ".txt", ".md", ".docx"}
@@ -205,6 +206,46 @@ def extract_document(path: Path, *, ocr: bool = True) -> ExtractedDocument:
             normalize_text(path.read_text(encoding="utf-8", errors="replace")),
         )
     raise ValueError(f"Formato non supportato: {path.suffix}")
+
+
+
+# Increase when extraction normalization or OCR recovery semantics change.
+EXTRACTION_CACHE_VERSION = "extraction-v1"
+
+
+def extract_document_cached(
+    path: Path,
+    db: CacheDB,
+    *,
+    file_hash: str | None = None,
+    ocr: bool = True,
+) -> ExtractedDocument:
+    """Cache completed text extraction across indexing and summarization.
+
+    The cache is keyed by original file bytes and OCR settings. It keeps a
+    plain-text copy in the existing local SQLite workspace only; original
+    documents and embedding rows are untouched.
+    """
+    path = path.expanduser().resolve()
+    digest = file_hash if file_hash is not None else file_sha256(path)
+    settings = (
+        f"|ocr={int(ocr)}|dpi={_ocr_dpi()}"
+        f"|lang={os.getenv('BC_SCIENCE_OCR_LANG', 'eng')}"
+        if path.suffix.casefold() == ".pdf" else ""
+    )
+    signature = EXTRACTION_CACHE_VERSION + settings
+    cached = db.get_extracted_document(str(path), digest, signature)
+    if cached is not None:
+        text, pages, ocr_pages = cached
+        return ExtractedDocument(path, text, pages, ocr_pages)
+
+    extracted = extract_document(path, ocr=ocr)
+    if extracted.text.strip():
+        db.set_extracted_document(
+            str(path), digest, signature,
+            extracted.text, extracted.pages, extracted.ocr_pages,
+        )
+    return extracted
 
 
 def _safe_extract_zip(path: Path) -> Path:
