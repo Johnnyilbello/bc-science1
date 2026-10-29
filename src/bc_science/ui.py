@@ -120,8 +120,8 @@ class DesktopAPI:
             # Essential edition has finished, without mislabeling Complete as Essential.
             text = complete_path.read_text(encoding="utf-8")
             chapters = [
-                (title, f"## {title}\n\n> Ripasso non ancora generato. "
-                 "Seleziona Genera questo argomento per prepararlo.")
+                (title, (f"## {title}\n\n> Ripasso non ancora generato. "
+                 "Seleziona Genera questo argomento per prepararlo."))
                 for title, _ in _extract_summary_chapters(text)
             ]
         else:
@@ -182,7 +182,9 @@ class DesktopAPI:
 
                 from .cli import _ensure_model, _require_ollama
                 from .courses import (
-                    build_course, build_essential_chapter, build_essential_only,
+                    build_course,
+                    build_essential_chapter,
+                    build_essential_only,
                 )
                 from .model_manager import ensure_model_with_progress
                 config = AppConfig.load()
