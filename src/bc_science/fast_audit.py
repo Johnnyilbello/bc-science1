@@ -178,8 +178,8 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         f"**Verifica contenutistica:** {report.content_review_status}",
         f"**Capitoli da controllare:** {report.chapters_needing_review}",
         f"**Lingua italiana (euristiche):** {report.linguistic_status}",
-        f"**Capitoli con anomalie linguistiche:** "
-        f"{report.chapters_with_language_issues}",
+        (f"**Capitoli con anomalie linguistiche:** "
+         f"{report.chapters_with_language_issues}"),
         "",
         "Questo esito tecnico non equivale a una validazione scientifica esterna.",
         "",
