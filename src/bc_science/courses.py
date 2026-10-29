@@ -491,13 +491,14 @@ def _write_manifest(
     study_text: str | None = None,
     study_pdf_path: Path | None = None,
     study_pdf_pages: int = 0,
+    summary_pipeline: str = PROMPT_VERSION,
 ) -> None:
     target = _manifest_path(scan)
     target.parent.mkdir(parents=True, exist_ok=True)
     chapter_titles = _chapter_titles(summary_text)
     payload = {
         "schema": 3,
-        "summary_pipeline": PROMPT_VERSION,
+        "summary_pipeline": summary_pipeline,
         "course": scan.name,
         "source": str(scan.path),
         "fingerprint": _fingerprint(snapshot),
@@ -1250,6 +1251,117 @@ def build_course(
         study_pdf_path=study_pdf,
         study_pdf_pages=study_pages,
         study_generated=study_generated,
+        audit_status=audit_status,
+        audit_path=audit_path,
+    )
+
+
+def build_essential_only(
+    scan: CourseScan,
+    config: AppConfig,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> CourseBuildResult:
+    """Generate/reuse only Essential from a source-verified existing Complete.
+
+    No PDF extraction, OCR, document indexing or Complete regeneration is
+    permitted in this path. Even a legacy Complete can be used if its original
+    manifest proves that its content and sources have not changed; its original
+    pipeline version must remain intact in the manifest.
+    """
+    output = course_output_path(scan)
+    manifest = _load_manifest(scan)
+    if not output.is_file() or manifest is None:
+        raise ValueError(
+            "Versione Completa verificata non disponibile. "
+            "Genera prima Completa; il ripasso non puo essere creato dalle sole dispense."
+        )
+
+    summary_text = output.read_text(encoding="utf-8")
+    snapshot = _snapshot(scan)
+    if not _manifest_baseline_verified(summary_text, manifest):
+        raise ValueError(
+            "La versione Completa non ha un manifest attendibile. "
+            "Genera prima Completa per verificare tutte le fonti."
+        )
+    coverage = audit_course_summary(
+        scan, summary_text, manifest=manifest, snapshot=snapshot,
+    )
+    if not coverage.complete:
+        raise ValueError(
+            "La versione Completa non corrisponde alle dispense attuali "
+            "o manca qualche argomento. Genera prima Completa."
+        )
+
+    if progress:
+        progress(
+            f"Modalita Essenziale: utilizzo la Completa verificata "
+            f"({len(scan.supported_files)} documenti); nessun OCR o nuovo embedding."
+        )
+        if manifest.get("summary_pipeline") != PROMPT_VERSION:
+            progress(
+                "La Completa e stata prodotta con una pipeline precedente: "
+                "ne conservo origine e versione, senza dichiararla aggiornata."
+            )
+
+    db_path = workspace_db_path(scan)
+    study_path, study_text, study_pdf, study_pages, generated = _ensure_study(
+        scan,
+        summary_text,
+        config,
+        profile,
+        db_path=db_path,
+        manifest=manifest,
+        progress=progress,
+    )
+    if study_text is None:
+        raise ValueError("Generatore della modalita Essenziale non disponibile.")
+
+    # Preserve the original complete PDF metadata and the honest pipeline
+    # version: regenerating the study does not rebuild or re-verify Complete.
+    pdf_info = manifest.get("pdf")
+    pdf = course_pdf_path(scan)
+    valid_pdf_info = (
+        isinstance(pdf_info, dict)
+        and pdf.is_file()
+        and pdf_info.get("summary_sha256") == _summary_sha256(summary_text)
+        and pdf_info.get("path") == str(pdf)
+    )
+    pages = int(pdf_info.get("pages", 0)) if valid_pdf_info else 0
+    _write_manifest(
+        scan,
+        snapshot,
+        output,
+        summary_text,
+        _coverage_map_from_manifest(manifest),
+        pdf_path=pdf if valid_pdf_info else None,
+        pdf_pages=pages,
+        study_path=study_path,
+        study_text=study_text,
+        study_pdf_path=study_pdf,
+        study_pdf_pages=study_pages,
+        summary_pipeline=str(manifest.get("summary_pipeline", PROMPT_VERSION)),
+    )
+
+    audit_status, audit_path = _ensure_course_audit_status(
+        scan,
+        summary_text,
+        study_text,
+        source_coverage_complete=True,
+        progress=progress,
+    )
+    return CourseBuildResult(
+        scan=scan,
+        state="essenziale aggiornata" if generated else "riutilizzata",
+        output_path=output,
+        coverage_complete=True,
+        pdf_path=pdf if valid_pdf_info else None,
+        pdf_pages=pages,
+        study_path=study_path,
+        study_pdf_path=study_pdf,
+        study_pdf_pages=study_pages,
+        study_generated=generated,
         audit_status=audit_status,
         audit_path=audit_path,
     )

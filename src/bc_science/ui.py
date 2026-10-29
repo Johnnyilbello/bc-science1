@@ -136,8 +136,12 @@ class DesktopAPI:
         models = sorted(client.models()) if online else []
         return {"online": online, "model": config.generation_model, "models": models}
 
-    def start_build(self, name: str, profile: str = "standard"):
+    def start_build(
+        self, name: str, profile: str = "standard", mode: str = "complete",
+    ):
         self._course(name)
+        if mode not in {"complete", "essential"}:
+            raise ValueError("Modalita di generazione non valida.")
         if profile not in {"standard", "quality", "turbo"}:
             raise ValueError("Profilo non valido.")
         if not self._ai_lock.acquire(blocking=False):
@@ -153,15 +157,26 @@ class DesktopAPI:
                 from rich.console import Console
 
                 from .cli import _ensure_model, _require_ollama
-                from .courses import build_course
+                from .courses import build_course, build_essential_only
                 from .model_manager import ensure_model_with_progress
                 config = AppConfig.load()
                 self._line("Preparazione dei modelli locali… Il primo download può richiedere tempo.")
                 _ensure_model(config, profile)
                 client = _require_ollama(config)
                 ensure_model_with_progress(client, config.embedding_model, Console())
-                result = build_course(self._course(name), config, profile=profile, progress=self._line)
-                self._line("Documenti pronti. Audit: " + (result.audit_status or "non disponibile"))
+                self._line(
+                    "Operazione: solo Essenziale, dalla Completa esistente."
+                    if mode == "essential"
+                    else "Operazione: Completa e aggiornamento Essenziale."
+                )
+                builder = build_essential_only if mode == "essential" else build_course
+                result = builder(
+                    self._course(name), config, profile=profile, progress=self._line,
+                )
+                self._line(
+                    "Operazione terminata. Audit: "
+                    + (result.audit_status or "non disponibile")
+                )
                 with self._lock:
                     self._job["done"] = True
             except Exception as exc:  # noqa: BLE001 - UI worker: mostra gli errori senza interrompere l'interfaccia
