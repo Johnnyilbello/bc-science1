@@ -253,6 +253,22 @@ class DesktopAPI:
             ],
         }
 
+    def evidence(self, name: str, chapter_title: str):
+        """Locate original cached PDF/page evidence without Ollama."""
+        from .courses import inspect_original_evidence
+
+        if not chapter_title.strip():
+            raise ValueError("Seleziona un capitolo da verificare.")
+        report = inspect_original_evidence(
+            self._course(name), chapter_title,
+        )
+        count = len(report["evidence"])
+        self._line(
+            f"Grounding locale: {count} prove recuperate dalle dispense "
+            f"originali per {chapter_title}; nessuna chiamata Qwen."
+        )
+        return report
+
     def export(self, name: str, mode: str):
         course = self._course(name)
         if mode == "complete":
