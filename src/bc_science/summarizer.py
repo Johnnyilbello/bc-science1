@@ -2357,6 +2357,8 @@ class Summarizer:
         safeguards. Any parsing, source-mixing or numerical failure causes
         a fallback to the existing individual chapter generator.
         """
+        if getattr(self, "_study_batch_disabled", False):
+            return None
         chapters = [left, right]
         db = getattr(self, "db", None)
         if db is None or any(
@@ -2445,9 +2447,13 @@ class Summarizer:
                         f"    {name}: {restored} punti d'esame recuperati dalla Completa."
                     )
         except (ValueError, TypeError, KeyError) as exc:
+            # A small model that cannot reliably return JSON should not
+            # pay for failed pair attempts across the other 75 chapters.
+            self._study_batch_disabled = True
             if progress:
                 progress(
                     f"    Lotto rapido non verificabile ({exc}); "
+                    "disattivo i lotti per questa esecuzione e passo alla "
                     "generazione singola sicura."
                 )
             return None
@@ -2536,6 +2542,7 @@ class Summarizer:
             )
 
         started = time.perf_counter()
+        self._study_batch_disabled = False
         batch_count = 0
         cache_count = len(records)
         generated_singles = 0
