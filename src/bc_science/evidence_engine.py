@@ -18,8 +18,8 @@ _SKIP = {
     "della", "delle", "degli", "dallo", "dalla", "dello", "nella", "nelle",
     "questo", "questa", "quello", "quella", "sono", "essere", "anche",
     "perché", "come", "quando", "dopo", "prima", "dove", "dentro",
-    "attraverso", "circa", "tutte", "tutti", "loro", "dalla", "allora",
-    "dallo", "all'interno", "materiale", "capitolo", "apparato",
+    "attraverso", "circa", "tutte", "tutti", "loro", "allora",
+    "all'interno", "materiale", "capitolo", "apparato",
 }
 
 
