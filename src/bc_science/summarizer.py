@@ -1536,19 +1536,30 @@ class Summarizer:
         self, title: str, draft: str, chunks: list[str], system: str,
         progress: Callable[[str], None] | None = None,
     ) -> str:
-        """Compare each original source block with the draft and append supported omissions."""
+        """Validate source quotations; retry once, then disclose unverified omissions.
+
+        A small model may paraphrase a requested literal quote, especially with OCR.
+        Such text must never be added as an alleged source quotation, but an invalid
+        review response must not discard the already generated chapter either.
+        """
         additions: list[str] = []
         seen_chunks: set[str] = set()
+        unverified_blocks = 0
         normalized_draft = re.sub(r"\s+", " ", draft).strip().casefold()
+
         for index, chunk in enumerate(chunks, 1):
-            # Skip repeated or completely reproduced source blocks without another LLM call.
             normalized_chunk = re.sub(r"\s+", " ", chunk).strip().casefold()
-            if (not normalized_chunk or normalized_chunk in seen_chunks
-                    or normalized_chunk in normalized_draft):
+            if (
+                not normalized_chunk
+                or normalized_chunk in seen_chunks
+                or normalized_chunk in normalized_draft
+            ):
                 continue
             seen_chunks.add(normalized_chunk)
+
             if progress:
                 progress(f"    confronto con la dispensa {index}/{len(chunks)}: {title}")
+
             covered = draft + "\n\n" + "\n\n".join(additions)
             prompt = (
                 "Confronta FONTE e CAPITOLO. Individua solo fatti sostanziali presenti nella "
@@ -1559,35 +1570,88 @@ class Summarizer:
                 "Se non manca nulla rispondi [].\n\n"
                 f"CAPITOLO:\n{covered}\n\nFONTE:\n{chunk}"
             )
-            key = _key(PROMPT_VERSION, self.model, "source-review", title, covered, chunk)
-            response = self._cached_chat(key, system, prompt, num_predict=1800).strip()
-            response = re.sub(r"^```(?:json)?\s*|\s*```$", "", response, flags=re.IGNORECASE)
-            def discard_invalid_response(cache_key: str = key) -> None:
+            source_normalized = re.sub(r"\s+", " ", chunk).casefold()
+            covered_normalized = re.sub(r"\s+", " ", covered).casefold()
+            valid_quotes: list[str] | None = None
+
+            for attempt in range(2):
+                request = prompt
+                if attempt:
+                    request = (
+                        "ATTENZIONE: la risposta precedente non conteneva citazioni "
+                        "verificabili. Copia ESATTAMENTE dalla FONTE ogni stringa, "
+                        "senza parafrasare o correggere OCR, punteggiatura o simboli. "
+                        "Restituisci soltanto un array JSON di citazioni letterali, "
+                        "oppure [] se non puoi citarle con certezza.\n\n"
+                        + prompt
+                    )
+                cache_key = _key(
+                    PROMPT_VERSION, "source-review-literal-v2", self.model,
+                    title, covered, chunk, str(attempt),
+                )
+                response = self._cached_chat(
+                    cache_key, system, request, num_predict=1800,
+                ).strip()
+                response = re.sub(
+                    r"^" + "\x60" * 3 + r"(?:json)?\s*|\s*" + "\x60" * 3 + r"$",
+                    "", response, flags=re.IGNORECASE,
+                )
+                try:
+                    quotes = json.loads(response)
+                except json.JSONDecodeError:
+                    quotes = None
+
+                if isinstance(quotes, list) and all(
+                    isinstance(quote, str) for quote in quotes
+                ):
+                    normalized = [
+                        re.sub(r"\s+", " ", quote).strip()
+                        for quote in quotes
+                    ]
+                    if all(
+                        quote and quote.casefold() in source_normalized
+                        for quote in normalized
+                    ):
+                        valid_quotes = normalized
+                        break
+
+                # Do not re-serve invalid LLM responses from the local cache.
                 db = getattr(self, "db", None)
                 if db is not None:
                     db.delete_summary(cache_key)
 
-            try:
-                quotes = json.loads(response)
-            except json.JSONDecodeError as exc:
-                discard_invalid_response()
-                raise ValueError(f"Controllo omissioni non interpretabile per {title}: riprovare.") from exc
-            if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
-                discard_invalid_response()
-                raise ValueError(f"Controllo omissioni non valido per {title}: riprovare.")
-            source_normalized = re.sub(r"\s+", " ", chunk).casefold()
-            covered_normalized = re.sub(r"\s+", " ", covered).casefold()
-            for quote in quotes:
-                cleaned = re.sub(r"\s+", " ", quote).strip()
-                if not cleaned or cleaned.casefold() not in source_normalized:
-                    discard_invalid_response()
-                    raise ValueError(f"Controllo omissioni: citazione non trovata nella fonte per {title}.")
-                if cleaned.casefold() not in covered_normalized:
-                    additions.append(cleaned)
+            if valid_quotes is None:
+                unverified_blocks += 1
+                if progress:
+                    progress(
+                        f"    ATTENZIONE {title}: controllo omissioni del blocco "
+                        f"{index} non verificabile; nessuna citazione dubbia aggiunta."
+                    )
+                continue
 
+            for quote in valid_quotes:
+                if quote.casefold() not in covered_normalized:
+                    additions.append(quote)
+
+        result = draft.rstrip()
         if additions:
-            return draft.rstrip() + "\n\n### Dettagli recuperati dalle dispense\n\n" + "\n\n".join(additions)
-        return draft
+            result += (
+                "\n\n### Dettagli recuperati dalle dispense\n\n"
+                + "\n\n".join(additions)
+            )
+
+        if unverified_blocks:
+            stats = getattr(self, "stats", None)
+            if stats is not None:
+                stats.source_warnings += unverified_blocks
+            result += (
+                "\n\n> Verifica materiale: controllo omissioni automatico "
+                f"incompleto per {unverified_blocks} blocchi di questa materia. "
+                "Alcune informazioni potrebbero mancare: confrontare le dispense "
+                "originali. Nessuna citazione non verificabile è stata aggiunta."
+            )
+
+        return result
 
     def summarize_course(
         self,
