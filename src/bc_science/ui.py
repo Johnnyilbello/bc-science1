@@ -15,6 +15,7 @@ from .cache import CacheDB
 from .config import AppConfig
 from .courses import (
     _load_manifest,
+    _study_is_current,
     course_output_path,
     course_pdf_path,
     course_study_output_path,
