@@ -1588,6 +1588,7 @@ def inspect_original_evidence(
     scan: CourseScan,
     chapter_title: str,
     *,
+    edition: str = "essential",
     semantic_query_vector: list[float] | None = None,
 ) -> dict:
     """Read-only, local evidence inspection for one selected study chapter.
@@ -1599,26 +1600,35 @@ def inspect_original_evidence(
     from .quality_signals import assess_chapter
     from .structural_checks import find_structural_issues
 
+    if edition not in {"complete", "essential"}:
+        raise ValueError("Edizione non riconosciuta.")
     manifest = _load_manifest(scan)
     complete_path = course_output_path(scan)
     study_path = course_study_output_path(scan)
-    if not manifest or not complete_path.is_file() or not study_path.is_file():
-        raise ValueError("Genera prima Completa ed Essenziale.")
+    if not manifest or not complete_path.is_file():
+        raise ValueError("Genera prima la Completa.")
+    if edition == "essential" and not study_path.is_file():
+        raise ValueError("Genera prima la versione Essenziale.")
     complete = complete_path.read_text(encoding="utf-8")
-    essential = study_path.read_text(encoding="utf-8")
+    essential = (
+        study_path.read_text(encoding="utf-8")
+        if edition == "essential" else complete
+    )
     if (
         not _manifest_baseline_verified(complete, manifest)
         or not audit_course_summary(
             scan, complete, manifest=manifest, snapshot=_snapshot(scan),
         ).complete
-        or not _study_is_current(scan, manifest, complete)
+        or (edition == "essential" and not _study_is_current(
+            scan, manifest, complete,
+        ))
     ):
         raise ValueError("Le dispense sono cambiate o i riassunti non sono verificabili.")
 
     sources = dict(_extract_summary_chapters(complete))
     study = dict(_extract_summary_chapters(essential))
     if chapter_title not in sources or chapter_title not in study:
-        raise ValueError("Capitolo assente in Completa o Essenziale.")
+        raise ValueError("Capitolo assente nell'edizione richiesta.")
 
     original = sources[chapter_title]
     short = study[chapter_title]
@@ -1674,6 +1684,7 @@ def inspect_original_evidence(
 
     return {
         "title": chapter_title,
+        "edition": edition,
         "status": (
             "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE"
             if found else "NESSUNA_PROVA_ORIGINALE_IN_CACHE"
