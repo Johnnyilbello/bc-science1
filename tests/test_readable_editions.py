@@ -9,7 +9,6 @@ from bc_science.fast_audit import audit_fast_essential
 from bc_science.study_editions import (
     FAST_STUDY_VERSION,
     make_fast_essential,
-    make_fast_essential_chapter,
     readable_complete_chapter,
 )
 
@@ -138,7 +137,7 @@ def test_fast_bulk_uses_no_ollama_preserves_original_and_reuses_pdf(
 
 
 def test_fast_bulk_rejects_source_changes(tmp_path: Path, monkeypatch):
-    scan, _, output = _source_course(tmp_path, monkeypatch)
+    scan, _, _output = _source_course(tmp_path, monkeypatch)
     (scan.path / "stomaco.txt").write_text(
         "Dispensa cambiata", encoding="utf-8",
     )
