@@ -106,3 +106,35 @@ def test_batch_can_be_disabled_without_losing_quality(tmp_path: Path, monkeypatc
         assert "Lo stomaco ha 3 strati muscolari" in result
     finally:
         summarizer.close()
+
+
+def test_batch_foreign_number_is_rejected_and_circuit_breaker_engages(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("BC_SCIENCE_ESSENTIAL_BATCH", "2")
+    summarizer = Summarizer(AppConfig(), db_path=tmp_path / "study.db")
+    calls = {"paired": 0, "single": 0}
+    def chat(key, system, prompt, *, num_predict=None):
+        if "Riassumi DUE capitoli" in prompt:
+            calls["paired"] += 1
+            return json.dumps({
+                "chapters": [
+                    {"title": "Ossa", "markdown": "## Ossa\n- Il corpo ha 99 ossa."},
+                    {"title": "Stomaco", "markdown": "## Stomaco\n- Lo stomaco ha 3 strati muscolari."},
+                ],
+            })
+        calls["single"] += 1
+        if "CAPITOLO:\n## Ossa" in prompt:
+            return "## Ossa\n- Le ossa proteggono gli organi."
+        return "## Stomaco\n- Lo stomaco partecipa alla digestione."
+
+    monkeypatch.setattr(summarizer, "_cached_chat", chat)
+    try:
+        result = summarizer.build_study_summary(_course(), "Ripasso")
+        assert "99 ossa" not in result
+        assert "Lo stomaco ha 3 strati muscolari" in result
+        assert calls == {"paired": 1, "single": 2}
+        assert summarizer._study_batch_disabled
+    finally:
+        summarizer.close()
