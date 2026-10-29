@@ -1738,16 +1738,15 @@ def review_complete_chapter(
     if chapter_title not in chapters:
         raise ValueError("Capitolo non presente nella Completa.")
     chapter = chapters[chapter_title]
-    if not grammar_findings(chapter) and not find_structural_issues(chapter):
-        if progress:
-            progress(
-                "Nessuna anomalia strutturale o linguistica riconosciuta "
-                "nella Completa. Verifica sulle dispense comunque disponibile."
-            )
-        return CourseBuildResult(
-            scan=scan, state="nessuna anomalia automatica rilevata",
-            output_path=full_path, coverage_complete=True,
-            pdf_path=course_pdf_path(scan), audit_status="WARN",
+    # An explicit user review of the Complete also checks factual
+    # contradictions that pattern-only language checks may have missed.
+    # No background 77-chapter model scan is performed.
+    issues = grammar_findings(chapter)
+    fragments = find_structural_issues(chapter)
+    if progress and not issues and not fragments:
+        progress(
+            "Nessuna anomalia formale rilevata: confronto comunque il "
+            "capitolo scelto con le dispense originali."
         )
 
     report = inspect_original_evidence(
