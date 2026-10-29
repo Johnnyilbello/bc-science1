@@ -8,13 +8,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .quality_signals import critical_facts
 from .summarizer import (
     _extract_exam_points,
     _extract_summary_chapters,
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "study-v4-extractive-narrative"
+FAST_STUDY_VERSION = "study-v5-source-priority-narrative"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
@@ -166,6 +167,20 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
         add(sentence)
     for sentence in mandatory:
         add(sentence, force=True)
+
+    # Preserve a diverse sample of indispensable concepts before less salient
+    # prose. Use source sentences verbatim; never generate unsupported claims.
+    category_selected: dict[str, int] = {}
+    for fact in critical_facts(complete_chapter):
+        if fact.category == "number_or_formula":
+            continue  # all numerical evidence already preserved above
+        already_selected = category_selected.get(fact.category, 0)
+        if already_selected >= 3:
+            continue
+        before = len(selected)
+        add(fact.quote)
+        if len(selected) > before:
+            category_selected[fact.category] = already_selected + 1
 
     priority = re.compile(
         r"\b(?:si definisce|è costituit|è formato|comprende|permette|causa|"
