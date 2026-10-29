@@ -37,6 +37,7 @@ class ReviewOutcome:
 def _validate_proposal(
     title: str, source: str, previous: str, proposed: dict,
     *, original_evidence: list[OriginalEvidence] | None = None,
+    edition: str = "essential",
 ) -> tuple[bool, str]:
     """Conservative gates, not semantic proof of correctness."""
     text = proposed.get("rewrite")
@@ -81,8 +82,17 @@ def _validate_proposal(
         for item in original_evidence:
             source_sents.extend(_lines(item.excerpt))
     sentences = _lines(text)
-    if not sentences or len(text.split()) > max(100, int(len(source.split()) * 0.7)):
-        return False, "Risposta vuota o troppo lunga"
+    if not sentences:
+        return False, "Risposta vuota"
+    source_length = len(source.split())
+    output_length = len(text.split())
+    if edition == "complete":
+        if output_length < max(5, int(source_length * 0.7)):
+            return False, "La Completa perde troppo contenuto"
+        if output_length > max(120, int(source_length * 1.3)):
+            return False, "La Completa non è più un riassunto"
+    elif output_length > max(100, int(source_length * 0.7)):
+        return False, "Essenziale troppo lungo"
     if any(
         not any(_overlap(s, evidence) >= 0.55 for evidence in source_sents)
         for s in sentences
@@ -99,6 +109,7 @@ def _validate_proposal(
     if (
         any(issue.category == "meaning" for issue in grammar_before)
         and not any(issue.category == "meaning" for issue in grammar_after)
+        and not original_evidence
     ):
         return False, (
             "Correzione del significato scientifico richiede confronto manuale "
@@ -121,6 +132,7 @@ def review_chapter(
     *,
     summarizer: Summarizer,
     original_evidence: list[OriginalEvidence] | None = None,
+    edition: str = "essential",
 ) -> ReviewOutcome:
     signals = assess_chapter(title, complete_source, essential)
     language = grammar_findings(essential)
@@ -137,6 +149,7 @@ def review_chapter(
             (e.source_path, e.page, e.block, e.excerpt)
             for e in (original_evidence or [])
         ], ensure_ascii=False),
+        edition,
     )
     del config  # Restrict execution to the supplied local Ollama Summarizer.
     requested = [x.quote for x in signals.possible_missing[:5]]
@@ -157,10 +170,12 @@ def review_chapter(
         "Non aggiungere conoscenze esterne, valori inventati o sezioni ripetitive."
     )
     prompt = (
-        "Rendi più chiaro e fedele il SOLO capitolo seguente, limitandoti a "
+        f"Rivedi la versione {edition} del SOLO capitolo seguente, limitandoti a "
         "correggere concordanze, forme verbali, ortografia, punteggiatura, "
         "periodi spezzati e a includere i concetti cruciali mancanti. "
         "Mantieni uno stile narrativo breve con un solo titolo ## identico. "
+        "Per la Completa conserva tutte le conoscenze necessarie allo studio, "
+        "non trasformarla in una versione Essenziale. "
         "Fornisci un JSON con rewrite, evidence e original_quotes. "
         "original_quotes e una lista di oggetti con source, page, block, quote. "
         "Ogni quote deve essere copiata letteralmente da FONTI_ORIGINALI e "
@@ -196,6 +211,7 @@ def review_chapter(
         accepted, reason = _validate_proposal(
             title, complete_source, essential, payload,
             original_evidence=original_evidence,
+            edition=edition,
         )
         if not accepted:
             return ReviewOutcome(title, False, essential, reason)
