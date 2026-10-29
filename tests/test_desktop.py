@@ -32,6 +32,9 @@ def test_real_collection_reader_and_source_boundary(tmp_path: Path, monkeypatch)
     assert result['ready'] and result['legacy']
     assert result['chapters'][0]['title'] == 'Neuroni'
     assert len(result['chapters'][0]['terms']) == 1
+    assert 'structural_findings' in result['chapters'][0]['quality']
+    assert 'language_findings' in result['chapters'][0]['quality']
+    assert result['quality_status'] == 'NON_VERIFICATO_SCIENTIFICAMENTE'
     with pytest.raises(ValueError, match='non trovato'):
         api.open_source('ANATOMIA','../../private.txt')
     with pytest.raises(ValueError):
@@ -53,3 +56,15 @@ def test_activity_panel_precedes_long_summary():
     html = html_path.read_text(encoding="utf-8")
     assert html.index('id="reader-tools"') < html.index('id="activity"')
     assert html.index('id="activity"') < html.index('id="content"')
+
+
+
+def test_both_readers_expose_original_evidence_buttons():
+    web = Path(__file__).resolve().parents[1] / "src" / "bc_science" / "desktop"
+    html = (web / "index.html").read_text(encoding="utf-8")
+    script = (web / "app.js").read_text(encoding="utf-8")
+    assert 'id="review-chapter"' in html
+    assert 'id="ground-chapter"' in html
+    assert "api.evidence(course,title,mode)" in script
+    assert "'review_complete'" in script
+    assert "panel.hidden=!['complete','essential'].includes(mode)" in script
