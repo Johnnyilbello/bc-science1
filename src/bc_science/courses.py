@@ -19,7 +19,7 @@ from .course_audit import (
     write_audit_reports,
 )
 from .documents import SUPPORTED, file_sha256
-from .fast_audit import audit_fast_essential, write_fast_audit
+from .fast_audit import FastEssentialAudit, audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .indexer import ingest_files
 from .study_editions import FAST_STUDY_VERSION, make_fast_essential
@@ -912,6 +912,22 @@ def _ensure_course_audit_status(
     if current and status == "PASS":
         return status, course_audit_markdown_path(scan)
 
+    manifest = _load_manifest(scan) or {}
+    info = manifest.get("study") or {}
+    if info.get("pipeline") == FAST_STUDY_VERSION:
+        result_fast = audit_fast_essential(
+            complete_text, study_text,
+            source_documents=len(scan.supported_files),
+            source_coverage_complete=(
+                source_coverage_complete and SOURCE_REVIEW_UNVERIFIED not in complete_text
+            ),
+        )
+        md, _ = write_fast_audit(result_fast, course_output_path(scan).parent)
+        if progress and result_fast.status != "PASS":
+            for warning in result_fast.warnings:
+                progress("Audit Essenziale: " + warning)
+        return result_fast.status, md
+
     result = audit_study_pair(
         complete_text,
         study_text,
@@ -930,7 +946,7 @@ def _ensure_course_audit_status(
     return result.status, markdown_path
 
 
-def audit_course(scan: CourseScan) -> StudyAuditResult:
+def audit_course(scan: CourseScan) -> StudyAuditResult | FastEssentialAudit:
     complete_path = course_output_path(scan)
     study_path = course_study_output_path(scan)
     if not complete_path.exists():
@@ -946,6 +962,18 @@ def audit_course(scan: CourseScan) -> StudyAuditResult:
         complete_text,
         manifest=manifest,
     )
+    info = (manifest or {}).get("study") or {}
+    if info.get("pipeline") == FAST_STUDY_VERSION:
+        result_fast = audit_fast_essential(
+            complete_text,
+            study_text,
+            source_documents=len(scan.supported_files),
+            source_coverage_complete=(
+                coverage.complete and SOURCE_REVIEW_UNVERIFIED not in complete_text
+            ),
+        )
+        write_fast_audit(result_fast, complete_path.parent)
+        return result_fast
     result = audit_study_pair(
         complete_text,
         study_text,
