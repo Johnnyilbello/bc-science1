@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .course_audit import FAST_ESSENTIAL_AUDIT_VERSION
+from .quality_signals import assess_chapter
 from .summarizer import _extract_summary_chapters, _preserves_exam_numbers
 
 
@@ -32,6 +33,9 @@ class FastEssentialAudit:
     missing_exam_number_chapters: tuple[str, ...]
     overly_long_paragraphs: int
     warnings: tuple[str, ...]
+    content_review_status: str = "NON_VERIFICATO_SCIENTIFICAMENTE"
+    chapters_needing_review: int = 0
+    chapter_signals: tuple[dict, ...] = ()
 
 
 def _sha(text: str) -> str:
@@ -50,9 +54,18 @@ def audit_fast_essential(
     source_titles = [name for name, _ in originals]
     target_titles = [name for name, _ in essential]
     missing_numeric: list[str] = []
+    chapter_signals: list[dict] = []
     for (name, original), (target, simplified) in zip(originals, essential):
-        if name == target and not _preserves_exam_numbers(original, simplified):
+        if name != target:
+            continue
+        if not _preserves_exam_numbers(original, simplified):
             missing_numeric.append(name)
+        report = assess_chapter(name, original, simplified)
+        # Store only short source quotes for actionable manual review;
+        # never misrepresent lexical overlap as semantic entailment.
+        info = report.to_dict()
+        info["possible_missing"] = info["possible_missing"][:8]
+        chapter_signals.append(info)
 
     word = r"\b[\wÀ-ÿ'+-]+\b"
     cw = len(re.findall(word, complete_text))
@@ -94,6 +107,15 @@ def audit_fast_essential(
         warnings.append(
             f"{long_paragraphs} paragrafi troppo lunghi per una lettura agevole."
         )
+    review_needed = sum(
+        info["review_priority"] != "nessuna" for info in chapter_signals
+    )
+    if review_needed:
+        warnings.append(
+            f"{review_needed} capitoli mostrano possibili omissioni o problemi "
+            "di leggibilità: richiedono controllo umano prima di dichiarare "
+            "verificato il contenuto."
+        )
     # The old 97% lexical fact metric is NOT an Essenziale pass/fail gate:
     # omitting secondary facts is an intentional requirement.
     status = (
@@ -115,6 +137,9 @@ def audit_fast_essential(
         missing_exam_number_chapters=tuple(missing_numeric),
         overly_long_paragraphs=long_paragraphs,
         warnings=tuple(warnings),
+        content_review_status="NON_VERIFICATO_SCIENTIFICAMENTE",
+        chapters_needing_review=review_needed,
+        chapter_signals=tuple(chapter_signals),
     )
 
 
@@ -130,11 +155,23 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         f"**Capitoli:** {report.chapters_present}/{report.chapters_total}",
         f"**Compressione:** {report.compression_percent:.1f}%",
         f"**Numeri d'esame assenti:** {len(report.missing_exam_number_chapters)}",
+        f"**Verifica contenutistica:** {report.content_review_status}",
+        f"**Capitoli da controllare:** {report.chapters_needing_review}",
         "",
         "Questo esito tecnico non equivale a una validazione scientifica esterna.",
         "",
         "## Avvertenze",
         *[f"- {warning}" for warning in report.warnings],
+        "",
+        "## Capitoli con possibili problemi",
+        *[
+            f"- **{item['title']}**: priorità {item['review_priority']}; "
+            f"possibili omissioni {len(item['possible_missing'])}; "
+            f"frasi difficili {item['difficult_sentences']}; "
+            f"frasi non ben allineate {item['unsupported_phrases']}"
+            for item in report.chapter_signals
+            if item["review_priority"] != "nessuna"
+        ],
     ]
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return md, js
