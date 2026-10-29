@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -14,9 +15,11 @@ from markdown_it import MarkdownIt
 
 from .cache import CacheDB
 from .config import AppConfig
+from .course_audit import audit_report_is_current
 from .courses import (
     _load_manifest,
     _study_is_current,
+    course_audit_json_path,
     course_output_path,
     course_pdf_path,
     course_study_output_path,
@@ -197,15 +200,42 @@ class DesktopAPI:
                 for title, body in chapters
             ]
 
+        audit_detail = {}
+        if mode == "essential" and complete_text and path.is_file():
+            audit_file = course_audit_json_path(course)
+            current, _status = audit_report_is_current(
+                audit_file, complete_text, path.read_text(encoding="utf-8"),
+            )
+            if current:
+                try:
+                    data = json.loads(audit_file.read_text(encoding="utf-8"))
+                    if "content_review_status" in data:
+                        audit_detail = data
+                except (OSError, ValueError, TypeError):
+                    pass
+        reviews = {
+            x["title"]: x
+            for x in audit_detail.get("chapter_signals", [])
+            if isinstance(x, dict) and isinstance(x.get("title"), str)
+        }
+
         return {
             "ready": True,
             "legacy": complete_legacy,
+            "quality_status": audit_detail.get(
+                "content_review_status", "NON_VALUTATO"
+            ),
+            "technical_status": audit_detail.get("status", "NON_VALUTATO"),
+            "chapters_needing_review": audit_detail.get(
+                "chapters_needing_review", 0
+            ),
             "complete_legacy": complete_legacy,
             "chapters": [
                 {
                     "title": title,
                     "html": render_markdown(body),
                     "edition_status": status,
+                    "quality": reviews.get(title, {}),
                     "terms": list({
                         term.casefold(): term
                         for term in reversed(re.findall(
@@ -255,7 +285,7 @@ class DesktopAPI:
         chapter_title: str = "",
     ):
         self._course(name)
-        if mode not in {"complete", "essential", "chapter"}:
+        if mode not in {"complete", "essential", "chapter", "review"}:
             raise ValueError("Modalita di generazione non valida.")
         if profile not in {"standard", "quality", "turbo"}:
             raise ValueError("Profilo non valido.")
@@ -276,6 +306,7 @@ class DesktopAPI:
                     build_course,
                     build_essential_chapter,
                     build_fast_essential_only,
+                    review_essential_chapter,
                 )
                 from .model_manager import ensure_model_with_progress
                 config = AppConfig.load()
@@ -297,12 +328,26 @@ class DesktopAPI:
                 self._line(
                     "Operazione: solo Essenziale, dalla Completa esistente."
                     if mode == "essential" else (
-                        "Operazione: un solo capitolo Essenziale."
-                        if mode == "chapter"
-                        else "Operazione: Completa e aggiornamento Essenziale."
+                        "Operazione: revisione mirata di fedelta e comprensibilita."
+                        if mode == "review" else (
+                            "Operazione: un solo capitolo Essenziale."
+                            if mode == "chapter"
+                            else "Operazione: Completa e aggiornamento Essenziale."
+                        )
                     )
                 )
-                if mode == "chapter":
+                if mode == "review":
+                    if not chapter_title.strip():
+                        raise ValueError("Seleziona un argomento da controllare.")
+                    result = review_essential_chapter(
+                        self._course(name), config, chapter_title,
+                        profile=profile, progress=self._line,
+                    )
+                    self._line(
+                        f"Revisione terminata: {result.state}. "
+                        "Lo stato scientifico richiede comunque controllo umano."
+                    )
+                elif mode == "chapter":
                     if not chapter_title.strip():
                         raise ValueError("Seleziona un argomento da generare.")
                     build_essential_chapter(
