@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 
 from .config import AppConfig
+from .italian_proofreading import grammar_findings
 from .quality_signals import _lines, _overlap, assess_chapter
 from .summarizer import (
     Summarizer,
@@ -20,7 +21,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-REVIEW_VERSION = "targeted-review-v1"
+REVIEW_VERSION = "targeted-review-v2-italian"
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 
 
@@ -72,6 +73,20 @@ def _validate_proposal(
         return False, "Possibili affermazioni senza supporto"
     before = assess_chapter(title, source, previous)
     after = assess_chapter(title, source, text)
+    grammar_before = grammar_findings(previous)
+    grammar_after = grammar_findings(text)
+    if len(grammar_after) > len(grammar_before):
+        return False, "Sono comparsi nuovi problemi grammaticali o sintattici"
+    # If the source itself contains an implausible anatomical statement, a
+    # model cannot silently 'fix' it based on unsupported world knowledge.
+    if (
+        any(issue.category == "meaning" for issue in grammar_before)
+        and not any(issue.category == "meaning" for issue in grammar_after)
+    ):
+        return False, (
+            "Correzione del significato scientifico richiede confronto manuale "
+            "con la dispensa originale"
+        )
     if (
         after.unsupported_phrases > before.unsupported_phrases
         or after.long_paragraphs > before.long_paragraphs
@@ -90,7 +105,8 @@ def review_chapter(
     summarizer: Summarizer,
 ) -> ReviewOutcome:
     signals = assess_chapter(title, complete_source, essential)
-    if signals.review_priority == "nessuna":
+    language = grammar_findings(essential)
+    if signals.review_priority == "nessuna" and not language:
         return ReviewOutcome(title, False, essential, "Nessuna criticita rilevata")
     key = _key(
         REVIEW_VERSION, summarizer.model, title,
@@ -99,6 +115,7 @@ def review_chapter(
     )
     del config  # Restrict execution to the supplied local Ollama Summarizer.
     requested = [x.quote for x in signals.possible_missing[:5]]
+    language_notes = [x.quote + ": " + x.message for x in language[:6]]
     system = (
         "Sei un revisore di riassunti scientifici. "
         "Le fonti fornite sono l'unico riferimento. "
@@ -106,7 +123,8 @@ def review_chapter(
     )
     prompt = (
         "Rendi più chiaro e fedele il SOLO capitolo seguente, limitandoti a "
-        "correggere frasi confuse e a includere i concetti cruciali mancanti. "
+        "correggere concordanze, forme verbali, ortografia, punteggiatura, "
+        "periodi spezzati e a includere i concetti cruciali mancanti. "
         "Mantieni uno stile narrativo breve con un solo titolo ## identico. "
         "Fornisci JSON con esattamente due chiavi: "
         '{"rewrite":"## TITOLO\\n\\nparagrafi","evidence":["citazione letterale da FONTE"]}. '
@@ -116,6 +134,9 @@ def review_chapter(
         "Non inserire note o tagli di spiegazione senza riferimento. "
         f"Titolo: {title}\n\n"
         f"Possibili lacune (se non sono gia coperte con altre parole):\n{json.dumps(requested, ensure_ascii=False)}\n\n"
+        f"Anomalie linguistiche: {json.dumps(language_notes, ensure_ascii=False)}\n\n"
+        "Non modificare il significato scientifico di una frase sospetta "
+        "se la fonte la riporta cosi: segnala piuttosto la difficolta. "
         f"COMPLETA VERIFICATA:\n{complete_source[:7800]}\n\n"
         f"ESSENZIALE DA MIGLIORARE:\n{essential[:5000]}"
     )
