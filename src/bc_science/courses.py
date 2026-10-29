@@ -1367,6 +1367,106 @@ def build_essential_only(
     )
 
 
+def _essential_chapter_preview_path(scan: CourseScan, title: str) -> Path:
+    """Private workspace path; never use a user-controlled title as a filename."""
+    safe_id = hashlib.sha256(title.encode("utf-8")).hexdigest()[:24]
+    return workspace_path(scan) / "essential_chapters" / f"{safe_id}.json"
+
+
+def read_essential_chapter_previews(
+    scan: CourseScan, complete_text: str,
+) -> dict[str, str]:
+    """Read already validated on-demand chapters for the current Complete text."""
+    base_hash = _summary_sha256(complete_text)
+    previews: dict[str, str] = {}
+    for title, _chapter in _extract_summary_chapters(complete_text):
+        path = _essential_chapter_preview_path(scan, title)
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            continue
+        if (
+            isinstance(data, dict)
+            and data.get("schema") == 1
+            and data.get("source_summary_sha256") == base_hash
+            and data.get("pipeline") == STUDY_PROMPT_VERSION
+            and data.get("title") == title
+            and isinstance(data.get("chapter"), str)
+            and data["chapter"].strip()
+        ):
+            previews[title] = data["chapter"]
+    return previews
+
+
+def build_essential_chapter(
+    scan: CourseScan,
+    config: AppConfig,
+    chapter_title: str,
+    *,
+    profile: str = "standard",
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    """Produce one Essential chapter only; no OCR, indexing or full-77 rebuild."""
+    output = course_output_path(scan)
+    manifest = _load_manifest(scan)
+    if not output.is_file() or manifest is None:
+        raise ValueError("Genera prima la versione Completa verificata.")
+    complete_text = output.read_text(encoding="utf-8")
+    snapshot = _snapshot(scan)
+    if (
+        not _manifest_baseline_verified(complete_text, manifest)
+        or not audit_course_summary(
+            scan, complete_text, manifest=manifest, snapshot=snapshot,
+        ).complete
+    ):
+        raise ValueError(
+            "Completa non verificata o dispense modificate: rigenera prima Completa."
+        )
+    chapters = dict(_extract_summary_chapters(complete_text))
+    if chapter_title not in chapters:
+        raise ValueError("Argomento non presente nella versione Completa verificata.")
+
+    existing = read_essential_chapter_previews(scan, complete_text)
+    if chapter_title in existing:
+        if progress:
+            progress(f"Capitolo Essenziale gia pronto: {chapter_title}")
+        return existing[chapter_title]
+
+    if progress:
+        progress(
+            f"Solo capitolo: {chapter_title} (1 su 1, senza OCR ne indicizzazione)."
+        )
+    summarizer = Summarizer(
+        config, profile, db_path=workspace_db_path(scan),
+    )
+    try:
+        chapter = summarizer.build_study_chapter(
+            chapter_title, chapters[chapter_title], progress=progress,
+        )
+    finally:
+        summarizer.close()
+    if not chapter.strip():
+        raise ValueError("Il capitolo Essenziale generato risulta vuoto.")
+
+    path = _essential_chapter_preview_path(scan, chapter_title)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema": 1,
+        "title": chapter_title,
+        "pipeline": STUDY_PROMPT_VERSION,
+        "source_summary_sha256": _summary_sha256(complete_text),
+        "chapter": chapter,
+    }
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+    if progress:
+        progress(f"Capitolo Essenziale disponibile: {chapter_title}")
+    return chapter
+
+
 def build_courses(
     root: Path,
     config: AppConfig,
