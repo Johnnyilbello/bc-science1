@@ -94,6 +94,11 @@ def test_cached_chunks_are_usable_when_pdf_extraction_is_missing(tmp_path: Path)
         assert hits[0].page is None
         assert hits[0].block == 1
         assert hits[0].provenance == "indexed_chunk"
+        semantic = index.search_semantic([1.0, 0.0, 0.0])
+        assert semantic and semantic[0].source_path == source
+        assert semantic[0].block == 1
+    with OriginalEvidenceIndex(db_path, {source: "stale-hash"}) as index:
+        assert not index.search_semantic([1.0, 0.0, 0.0])
 
 
 def test_detect_repeated_text_and_orphaned_headings_without_rewriting():
