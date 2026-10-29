@@ -16,7 +16,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "study-v6-italian-proofread-narrative"
+FAST_STUDY_VERSION = "study-v7-original-evidence-diagnostics"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
