@@ -1830,8 +1830,6 @@ def review_complete_chapter(
         raise ValueError("La revisione altera la struttura dei capitoli.")
 
     # Publish the reviewed Complete PDF only after rendering succeeds.
-    from .finalizer import export_pdf
-
     full_pdf = course_pdf_path(scan)
     pending = full_pdf.with_name(full_pdf.stem + ".review-pending.pdf")
     try:
