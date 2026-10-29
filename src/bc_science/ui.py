@@ -180,8 +180,10 @@ class DesktopAPI:
                 with self._lock:
                     self._job["done"] = True
             except Exception as exc:  # noqa: BLE001 - UI worker: mostra gli errori senza interrompere l'interfaccia
+                message = str(exc) or "Preparazione del modello non riuscita. Controlla Ollama."
+                self._line(f"ERRORE: {message}")
                 with self._lock:
-                    self._job["error"] = str(exc) or "Preparazione del modello non riuscita. Controlla Ollama."
+                    self._job["error"] = message
             finally:
                 with self._lock:
                     self._job["running"] = False
@@ -193,6 +195,9 @@ class DesktopAPI:
         with self._lock:
             self._job["lines"].append(text)
             self._job["lines"] = self._job["lines"][-100:]
+        # Keep the desktop activity panel and PowerShell in sync.
+        # flush=True is essential when Qwen or OCR is running for several minutes.
+        print(f"[BC Science] {text}", flush=True)
 
     def progress(self):
         with self._lock:
