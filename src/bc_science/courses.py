@@ -20,6 +20,7 @@ from .course_audit import (
 from .documents import SUPPORTED, file_sha256
 from .finalizer import export_pdf
 from .indexer import ingest_files
+from .study_quality import assess_essential
 from .summarizer import (
     PROMPT_VERSION,
     STUDY_PROMPT_VERSION,
@@ -28,7 +29,6 @@ from .summarizer import (
     group_course_files,
     topic_key,
 )
-from .study_quality import assess_essential
 
 IGNORED_DIR_NAMES = {
     ".git",
