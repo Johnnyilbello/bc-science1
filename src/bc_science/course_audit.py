@@ -11,6 +11,8 @@ from pathlib import Path
 from .clarity import audit_novice_document
 from .summarizer import _extract_summary_chapters, topic_key
 
+FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v1"
+
 _STOPWORDS = {
     "anche", "alla", "alle", "agli", "allo", "attraverso", "come", "con", "dalla",
     "dalle", "dagli", "dallo", "della", "delle", "degli", "dello", "dell", "dopo",
@@ -677,7 +679,7 @@ def audit_report_is_current(
         return False, None
 
     current = (
-        payload.get("audit_version") == AUDIT_VERSION
+        payload.get("audit_version") in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
         and payload.get("complete_sha256") == _sha256(complete_text)
         and payload.get("study_sha256") == _sha256(study_text)
     )
