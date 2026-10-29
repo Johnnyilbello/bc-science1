@@ -1619,7 +1619,10 @@ def review_essential_chapter(
     signals = assess_chapter(
         chapter_title, sources[chapter_title], dict(chapters)[chapter_title],
     )
-    if signals.review_priority == "nessuna":
+    from .italian_proofreading import grammar_findings
+
+    language = grammar_findings(dict(chapters)[chapter_title])
+    if signals.review_priority == "nessuna" and not language:
         if progress:
             progress("Nessuna criticita euristica rilevata: modello non avviato.")
         return CourseBuildResult(
