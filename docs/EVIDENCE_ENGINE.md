@@ -30,3 +30,22 @@ Verificare frasi incomplete, ripetizioni e contraddizioni sospette confrontandol
 
 - [SQLite FTS5 e BM25](https://www.sqlite.org/fts5.html) — funzione built-in con ranking lessicale.
 - [Ollama API, structured outputs e keep_alive](https://docs.ollama.com/api) — strumenti locali per una possibile futura interfaccia JSON schema nativa.
+
+
+## Copertura delle due edizioni
+
+**Completa** ed **Essenziale** hanno entrambe: avvisi separati di lingua e
+struttura, pulsante **Verifica sulle dispense**, recupero dell'originale tramite
+FTS5 + eventuali embedding locali, e revisione mirata con Qwen solo su richiesta.
+
+- La Completa si può verificare e rivedere anche prima di creare Essenziale.
+- La revisione della Completa agisce sul **solo capitolo scelto** e conserva una
+  copia versionata della precedente Completa e del relativo PDF.
+- Dopo una modifica alla Completa, l'Essenziale viene marcata come **da
+  aggiornare**: i documenti precedenti restano su disco ma perdono lo stato
+  corrente nel manifest. Usa Genera Essenziale per aggiornarla rapidamente.
+- La revisione della Essenziale non altera la Completa.
+- Le due edizioni restano riassunti narrativi, non vengono sostituite da
+  lezioni lunghe né da un glossario ripetitivo.
+- Nessun PASS tecnico o citazione originale certifica da sé la correttezza
+  scientifica: il testo universitario può contenere errori ed OCR imperfetto.
