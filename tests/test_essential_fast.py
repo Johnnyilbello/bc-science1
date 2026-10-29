@@ -5,7 +5,9 @@ import pytest
 
 from bc_science.config import AppConfig
 from bc_science.summarizer import (
-    Summarizer, _preserves_exam_numbers, _restore_missing_exam_points,
+    Summarizer,
+    _preserves_exam_numbers,
+    _restore_missing_exam_points,
 )
 
 
