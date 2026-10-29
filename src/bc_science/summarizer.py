@@ -1174,9 +1174,25 @@ def _restore_missing_exam_points(existing: str, candidate: str) -> tuple[str, in
         candidate,
     )
     if not exam_heading:
-        return candidate, 0
+        # The Essential prompt intentionally asks for short bullets, not a
+        # mandatory exam heading. Preserve only missing numerical exam points
+        # instead of aborting the entire course or restoring every paragraph.
+        source_numeric = re.compile(
+            r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[A-Za-zÀ-ÿµ°]+))?"
+        )
+        candidate_text = _strip_study_citations(candidate).casefold()
+        missing = [
+            point for point in missing
+            if any(
+                re.sub(r"\s+", " ", number).strip().casefold() not in candidate_text
+                for number in source_numeric.findall(point)
+            )
+        ]
+        if not missing:
+            return candidate, 0
 
-    restored = candidate.rstrip() + "\n" + "\n".join(
+    prefix = "\n\n### Da ricordare per l'esame\n" if not exam_heading else "\n"
+    restored = candidate.rstrip() + prefix + "\n".join(
         f"- {point}" for point in missing
     )
     return restored, len(missing)
@@ -2273,6 +2289,59 @@ class Summarizer:
         return result
 
 
+    def build_study_chapter(
+        self,
+        chapter_title: str,
+        chapter: str,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
+        """Generate a single fact-checked Essential chapter, caching the final text."""
+        final_key = _key(
+            STUDY_PROMPT_VERSION, "essential-validated-v1", self.model,
+            chapter_title, chapter,
+        )
+        db = getattr(self, "db", None)
+        checked = db.get_summary(final_key) if db is not None else None
+        if checked:
+            if progress:
+                progress(f"    Riutilizzo capitolo Essenziale validato: {chapter_title}")
+            return checked
+
+        system = _summary_system_prompt("Scienze Motorie")
+        prompt = (
+            f"Crea un ripasso essenziale del capitolo {chapter_title} per chi lo ha gia studiato. "
+            "Usa soltanto il capitolo fornito. Mantieni i concetti chiave, le definizioni "
+            "indispensabili, formule e significato dei simboli, distinzioni, sequenze, eccezioni "
+            "e valori importanti. Per capitoli sopra 250 parole punta a ridurre il testo del "
+            "25-45% rispetto alla versione completa, ma senza eliminare definizioni, formule "
+            "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
+            "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
+            "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
+            "Usa un solo titolo H2 e punti brevi.\n\n"
+            f"CAPITOLO:\n{chapter}"
+        )
+        key = _key(
+            STUDY_PROMPT_VERSION, "essential-v4", self.model, chapter_title, chapter,
+        )
+        candidate = self._cached_chat(key, system, prompt, num_predict=1800)
+        candidate = _normalize_chapter_heading(candidate, chapter_title)
+        candidate, restored = _restore_missing_exam_points(chapter, candidate)
+        if restored and progress:
+            progress(
+                f"    Recuperati {restored} punti d'esame dalla Completa per {chapter_title}."
+            )
+        if not _preserves_exam_numbers(chapter, candidate):
+            # This should be very rare after the deterministic source-point
+            # recovery. Do not publish an Essential chapter with missing numbers.
+            raise ValueError(
+                f"Numeri d'esame ancora non verificabili in {chapter_title}; "
+                "il capitolo non è stato salvato."
+            )
+        if db is not None:
+            db.set_summary(final_key, candidate)
+        return candidate
+
     def build_study_summary(
         self,
         text: str,
@@ -2281,37 +2350,53 @@ class Summarizer:
         progress: Callable[[str], None] | None = None,
         checkpoint_path: Path | None = None,
     ) -> str:
-        """Create a concise review version, keeping the complete copy available."""
+        """Resume Essential creation by chapter without repeating completed calls."""
         chapters = _extract_summary_chapters(text)
         if not chapters:
             raise ValueError("Nessun capitolo disponibile per la versione essenziale.")
-        system = _summary_system_prompt("Scienze Motorie")
-        records: list[tuple[str, str]] = []
-        for index, (chapter_title, chapter) in enumerate(chapters, 1):
-            if progress:
-                progress(f"[{index}/{len(chapters)}] Ripasso essenziale: {chapter_title}")
-            prompt = (
-                f"Crea un ripasso essenziale del capitolo {chapter_title} per chi lo ha gia studiato. "
-                "Usa soltanto il capitolo fornito. Mantieni i concetti chiave, le definizioni "
-                "indispensabili, formule e significato dei simboli, distinzioni, sequenze, eccezioni "
-                "e valori importanti. Per capitoli sopra 250 parole punta a ridurre il testo del "
-                "25-45% rispetto alla versione completa, ma senza eliminare definizioni, formule "
-                "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
-                "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
-                "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
-                "Usa un solo titolo H2 e punti brevi.\n\n"
-                f"CAPITOLO:\n{chapter}"
+        signature = _key(
+            STUDY_PROMPT_VERSION, "essential-checkpoint-v1", self.model, text,
+        )
+        records = (
+            _load_refine_checkpoint(
+                checkpoint_path, signature=signature,
+                expected_titles=[chapter_title for chapter_title, _ in chapters],
             )
-            key = _key(STUDY_PROMPT_VERSION, "essential-v4", self.model, chapter_title, chapter)
-            candidate = self._cached_chat(key, system, prompt, num_predict=1800)
-            candidate = _normalize_chapter_heading(candidate, chapter_title)
-            candidate, _ = _restore_missing_exam_points(chapter, candidate)
-            if not _preserves_exam_numbers(chapter, candidate):
-                raise ValueError(f"Ripasso essenziale non sicuro: numeri d'esame mancanti in {chapter_title}.")
+            if checkpoint_path is not None else []
+        )
+        if records and progress:
+            progress(
+                f"Ripresa Essenziale: {len(records)}/{len(chapters)} capitoli "
+                "gia completati, senza nuove chiamate Ollama."
+            )
+
+        for index in range(len(records), len(chapters)):
+            chapter_title, chapter = chapters[index]
+            if progress:
+                progress(f"[{index + 1}/{len(chapters)}] Ripasso essenziale: {chapter_title}")
+            candidate = self.build_study_chapter(
+                chapter_title, chapter, progress=progress,
+            )
             records.append((chapter_title, candidate))
-        toc = "## Indice degli argomenti\n" + "\n".join(f"- {name}" for name, _ in records)
-        body = "\n\n---\n\n".join(chapter for _, chapter in records)
-        return f"# {title}\n\n> Modalità essenziale: ripasso dopo lo studio della versione completa.\n\n{toc}\n\n---\n\n{body}\n"
+            if checkpoint_path is not None:
+                _save_refine_checkpoint(
+                    checkpoint_path, signature=signature, completed=records,
+                )
+
+        toc = "## Indice degli argomenti\n" + "\n".join(
+            f"- {name}" for name, _ in records
+        )
+        body = "\n\n---\n\n".join(
+            chapter for _, chapter in records
+        )
+        result = (
+            f"# {title}\n\n"
+            "> Modalità essenziale: ripasso dopo lo studio della versione completa.\n\n"
+            f"{toc}\n\n---\n\n{body}\n"
+        )
+        if checkpoint_path is not None:
+            checkpoint_path.unlink(missing_ok=True)
+        return result
 
     def summarize_file(self, path: Path) -> str:
         extracted = extract_document_cached(path, self.db)

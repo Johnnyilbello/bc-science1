@@ -103,3 +103,74 @@ def test_essential_only_uses_legacy_complete_without_ocr_or_rebuild(
     with pytest.raises(ValueError, match="Genera prima Completa"):
         courses.build_essential_only(courses.scan_course(scan.path), AppConfig())
     assert output.read_text(encoding="utf-8") == complete
+
+
+def test_generate_single_chapter_is_ocr_free_and_immediately_readable(
+    tmp_path, monkeypatch,
+):
+    scan, source, complete, output = _prepared_course(tmp_path, monkeypatch)
+    called = []
+
+    class FakeSummarizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def build_study_chapter(self, title, chapter, *, progress=None):
+            called.append(title)
+            assert title == "Scheletro"
+            assert "Lo scheletro assile" in chapter
+            return "## Scheletro\n- Il cranio appartiene allo scheletro assile."
+
+        def close(self):
+            pass
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Non deve rileggere PDF, fare OCR, embedding o Completa")
+
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "ingest_files", forbidden)
+    monkeypatch.setattr(courses, "_full_rebuild", forbidden)
+    logs = []
+    result = courses.build_essential_chapter(
+        scan, AppConfig(), "Scheletro", progress=logs.append,
+    )
+    assert "Il cranio" in result
+    assert called == ["Scheletro"]
+    assert courses.read_essential_chapter_previews(scan, complete)["Scheletro"] == result
+    assert output.read_text(encoding="utf-8") == complete
+
+    again = courses.build_essential_chapter(scan, AppConfig(), "Scheletro")
+    assert again == result
+    assert called == ["Scheletro"]
+    with pytest.raises(ValueError, match="Argomento non presente"):
+        courses.build_essential_chapter(scan, AppConfig(), "../../NonEsiste")
+
+    source.write_text("Modifica delle dispense", encoding="utf-8")
+    with pytest.raises(ValueError, match="dispense modificate"):
+        courses.build_essential_chapter(
+            courses.scan_course(scan.path), AppConfig(), "Scheletro",
+        )
+
+
+def test_desktop_can_read_generated_chapter_without_complete_essential(
+    tmp_path, monkeypatch,
+):
+    from bc_science.ui import DesktopAPI
+
+    scan, _, complete, _ = _prepared_course(tmp_path, monkeypatch)
+    preview = "## Scheletro\n- Scheletro assile e cranio."
+    path = courses._essential_chapter_preview_path(scan, "Scheletro")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "schema": 1,
+            "title": "Scheletro",
+            "pipeline": courses.STUDY_PROMPT_VERSION,
+            "source_summary_sha256": courses._summary_sha256(complete),
+            "chapter": preview,
+        }), encoding="utf-8",
+    )
+    result = DesktopAPI(scan.path.parent).read("ANATOMIA", "essential")
+    assert result["ready"]
+    assert "Scheletro assile" in result["chapters"][0]["html"]
+    assert "## Scheletro" not in result["chapters"][0]["html"]

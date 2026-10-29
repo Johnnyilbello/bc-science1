@@ -19,6 +19,7 @@ from .courses import (
     course_pdf_path,
     course_study_output_path,
     course_study_pdf_path,
+    read_essential_chapter_previews,
     scan_courses,
     workspace_db_path,
 )
@@ -111,12 +112,34 @@ class DesktopAPI:
     def read(self, name: str, mode: str):
         course = self._course(name)
         path = course_study_output_path(course) if mode == "essential" else course_output_path(course)
+        complete_path = course_output_path(course)
         if not path.is_file():
-            return {"chapters": [], "ready": False}
-        text = path.read_text(encoding="utf-8")
-        chapters = _extract_summary_chapters(text)
-        if not chapters:
-            chapters = [(course.name, text)]
+            if mode != "essential" or not complete_path.is_file():
+                return {"chapters": [], "ready": False}
+            # Make all 77 chapter choices visible even before the full
+            # Essential edition has finished, without mislabeling Complete as Essential.
+            text = complete_path.read_text(encoding="utf-8")
+            chapters = [
+                (title, (f"## {title}\n\n> Ripasso non ancora generato. "
+                 "Seleziona Genera questo argomento per prepararlo."))
+                for title, _ in _extract_summary_chapters(text)
+            ]
+        else:
+            text = path.read_text(encoding="utf-8")
+            chapters = _extract_summary_chapters(text)
+            if not chapters:
+                chapters = [(course.name, text)]
+        if mode == "essential" and complete_path.is_file():
+            complete_text = complete_path.read_text(encoding="utf-8")
+            previews = read_essential_chapter_previews(course, complete_text)
+            if previews:
+                existing_titles = {title for title, _ in chapters}
+                chapters = [
+                    (title, previews.get(title, body)) for title, body in chapters
+                ]
+                for title, _source_chapter in _extract_summary_chapters(complete_text):
+                    if title not in existing_titles and title in previews:
+                        chapters.append((title, previews[title]))
         manifest = _load_manifest(course) or {}
         return {"ready": True, "legacy": manifest.get("summary_pipeline") != PROMPT_VERSION, "chapters": [{"title": title, "html": render_markdown(body),
             "terms": list({term.casefold(): term for term in reversed(re.findall(r"\*\*([^*\n]{2,70})\*\*", body))}.values())[:6]}
@@ -138,9 +161,10 @@ class DesktopAPI:
 
     def start_build(
         self, name: str, profile: str = "standard", mode: str = "complete",
+        chapter_title: str = "",
     ):
         self._course(name)
-        if mode not in {"complete", "essential"}:
+        if mode not in {"complete", "essential", "chapter"}:
             raise ValueError("Modalita di generazione non valida.")
         if profile not in {"standard", "quality", "turbo"}:
             raise ValueError("Profilo non valido.")
@@ -157,7 +181,11 @@ class DesktopAPI:
                 from rich.console import Console
 
                 from .cli import _ensure_model, _require_ollama
-                from .courses import build_course, build_essential_only
+                from .courses import (
+                    build_course,
+                    build_essential_chapter,
+                    build_essential_only,
+                )
                 from .model_manager import ensure_model_with_progress
                 config = AppConfig.load()
                 self._line("Preparazione dei modelli locali… Il primo download può richiedere tempo.")
@@ -166,17 +194,30 @@ class DesktopAPI:
                 ensure_model_with_progress(client, config.embedding_model, Console())
                 self._line(
                     "Operazione: solo Essenziale, dalla Completa esistente."
-                    if mode == "essential"
-                    else "Operazione: Completa e aggiornamento Essenziale."
+                    if mode == "essential" else (
+                        "Operazione: un solo capitolo Essenziale."
+                        if mode == "chapter"
+                        else "Operazione: Completa e aggiornamento Essenziale."
+                    )
                 )
-                builder = build_essential_only if mode == "essential" else build_course
-                result = builder(
-                    self._course(name), config, profile=profile, progress=self._line,
-                )
-                self._line(
-                    "Operazione terminata. Audit: "
-                    + (result.audit_status or "non disponibile")
-                )
+                if mode == "chapter":
+                    if not chapter_title.strip():
+                        raise ValueError("Seleziona un argomento da generare.")
+                    build_essential_chapter(
+                        self._course(name), config, chapter_title,
+                        profile=profile, progress=self._line,
+                    )
+                    self._line("Capitolo richiesto completato.")
+                else:
+                    builder = build_essential_only if mode == "essential" else build_course
+                    result = builder(
+                        self._course(name), config,
+                        profile=profile, progress=self._line,
+                    )
+                    self._line(
+                        "Operazione terminata. Audit: "
+                        + (result.audit_status or "non disponibile")
+                    )
                 with self._lock:
                     self._job["done"] = True
             except Exception as exc:  # noqa: BLE001 - UI worker: mostra gli errori senza interrompere l'interfaccia
