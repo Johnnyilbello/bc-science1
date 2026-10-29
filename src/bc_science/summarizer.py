@@ -1687,35 +1687,17 @@ class Summarizer:
         if not chapter_records:
             return ""
 
-        # The overview receives only the deterministic topic names. Passing large chapter
-        # previews here can consume the context window and truncate the overview itself.
-        topic_list = "\n".join(
-            f"- {index}. {topic_title}"
-            for index, (topic_title, _chapter) in enumerate(chapter_records, start=1)
-        )
-        overview_system = _summary_system_prompt("Scienze Motorie")
-        overview_key = _key(
-            PROMPT_VERSION,
-            self.model,
-            "course-overview",
-            title,
-            topic_list,
-        )
-        overview = self._cached_chat(
-            overview_key,
-            overview_system,
-            _course_overview_prompt(topic_list, title),
-            num_predict=1400,
-        ).strip()
-
+        # A Complete is a summary, not a tutorial with repeated map/recap
+        # sections. Keep only a navigable index and one coherent text per topic.
         toc_lines = ["## Indice degli argomenti"]
-        toc_lines.extend(f"- {topic_title}" for topic_title, _chapter in chapter_records)
-
+        toc_lines.extend(
+            f"- {topic_title}" for topic_title, _chapter in chapter_records
+        )
         chapters = [chapter for _topic_title, chapter in chapter_records]
         separator = "\n\n---\n\n"
         return (
-            overview
-            + "\n\n"
+            f"# {title}\n"
+            "> Edizione Completa narrativa dalle dispense importate.\n\n"
             + "\n".join(toc_lines)
             + separator
             + separator.join(chapters)
@@ -1885,6 +1867,22 @@ class Summarizer:
             updated_chapters += 1
             if progress:
                 progress(f"Capitolo aggiornato: {chapter_title}")
+
+        # New narrative Complete does not have separate how-to, map and
+        # global recap sections; keep that design on incremental updates.
+        if "> Edizione Completa narrativa" in existing_summary:
+            toc = "## Indice degli argomenti\n" + "\n".join(
+                f"- {chapter_title}" for chapter_title, _chapter in records
+            )
+            separator = "\n\n---\n\n"
+            updated = (
+                f"# {title}\n"
+                "> Edizione Completa narrativa dalle dispense importate.\n\n"
+                + toc + separator
+                + separator.join(chapter for _title, chapter in records)
+                + "\n"
+            )
+            return updated, updated_chapters, new_chapters, source_chapters
 
         prefix = _frontmatter_prefix_before_map(existing_summary)
         if not prefix:
