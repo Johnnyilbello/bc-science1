@@ -18,7 +18,7 @@ from .documents import chunk_text, extract_document_cached
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v13-unified"
+PROMPT_VERSION = "summary-v14-readable"
 REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
 STUDY_PROMPT_VERSION = "study-v3-measured-essential"
 
@@ -172,7 +172,7 @@ MODALITA RIASSUNTO SOURCE-ONLY:
 - Non lasciare mai una frase, una lista o una parola incompleta.
 - Una frase deve esprimere preferibilmente una sola idea.
 - Definisci i termini tecnici necessari al primo uso usando solo informazioni presenti nelle fonti.
-- Spezza i contenuti complessi in paragrafi brevi e sottosezioni descrittive.
+- Scrivi un unico riassunto scorrevole per capitolo, con paragrafi brevi. Non usare sezioni ripetitive "In parole semplici", "Spiegazione ordinata", "Parole chiave" o "Da ricordare".
 """
     )
 
@@ -215,30 +215,19 @@ def _normalize_chapter_heading(chapter: str, title: str) -> str:
 
 
 def _chunk_prompt(text: str, domain: str) -> str:
-    return f"""Trasforma il seguente estratto di {domain} in appunti da esame eCampus.
+    return f"""Riassumi questo estratto di {domain} per lo studio universitario.
 
 OBIETTIVO:
-- comprensibile anche a chi parte da zero e non ha mai studiato la materia;
-- prima spiega il significato generale, poi introduci i dettagli;
-- massima comprensibilita;
-- nessuna perdita di concetti potenzialmente valutabili;
-- elimina solo ripetizioni e frasi decorative;
-- conserva definizioni, classificazioni, formule con significato dei simboli, passaggi causali, eccezioni, collegamenti e numeri;
-- adatta la lunghezza alla complessita: non comprimere informazioni distinte;
-- usa esempi concreti solo se supportati dalla fonte;
-- spiega sigle e termini tecnici alla prima occorrenza;
-- usa soltanto cio che e supportato dalla fonte.
-
-FORMATO:
-### In parole semplici
-[spiega che cosa stiamo studiando, a cosa serve e quale idea bisogna capire per prima]
-### Parole chiave
-[3-8 termini realmente presenti nella fonte con definizione semplice supportata dalla fonte]
-### Spiegazione semplice
-### Concetti da ricordare
-### Definizioni e termini
-### Sequenze / meccanismi
-### Attenzione all'esame
+- Scrivi un vero RIASSUNTO, non una lezione né appunti con sezioni ripetitive.
+- Un'unica narrazione scientifica in italiano semplice e naturale, comprensibile
+  senza conoscenze preliminari; definisci i termini tecnici quando necessario.
+- Riduci ripetizioni, passaggi ornamentali e dettagli secondari.
+- Conserva i concetti fondamentali, le definizioni, i processi, le formule,
+  le classificazioni e i valori d'esame presenti nella fonte.
+- Preferisci paragrafi brevi con collegamenti logici tra le idee.
+- Non creare titoli "In parole semplici", "Spiegazione", "Concetti chiave",
+  "Parole chiave" o "Da ricordare per l'esame".
+- Usa soltanto le informazioni esplicitamente presenti nella fonte.
 
 FONTE:
 {text}
@@ -254,7 +243,7 @@ PRIORITA ASSOLUTE:
 1. Deve essere comprensibile a una persona che non ha MAI studiato la materia.
 2. Prima costruisci il quadro mentale di base, poi aggiungi dettagli e terminologia.
 3. Ogni termine tecnico indispensabile va spiegato al primo uso con parole comuni, usando solo la fonte.
-4. Completo rispetto alle dispense: non eliminare fatti diversi solo per accorciare.
+4. Riassumi la fonte in modo sostanziale: conserva i fatti indispensabili alla comprensione e all'esame, non ogni dettaglio secondario.
 5. Rimuovi duplicati tra lezioni 1/2/3/4 e ripetizioni dello stesso concetto.
 6. Mantieni terminologia, numeri, classificazioni, definizioni, eccezioni e sequenze.
 7. Per processi fisiologici usa sequenze numerate causa -> effetto.
@@ -272,7 +261,7 @@ PRIORITA ASSOLUTE:
 
 STRUTTURA:
 ## {title}
-Spiega direttamente l'argomento in un unico percorso progressivo. Usa sottosezioni descrittive quando aiutano e spiega i termini al primo uso. Non creare un riassunto introduttivo, un glossario o una sezione finale che ripete la spiegazione.
+Un unico RIASSUNTO COMPLETO in paragrafi continui, senza sottosezioni ripetitive come "In parole semplici", "Spiegazione ordinata", "Concetti chiave", "Parole chiave" o "Da ricordare". Non costruire una lezione estesa: sintetizza, mantieni chiarezza e contenuti importanti.
 
 DISPENSE DELL'ARGOMENTO:
 {source_text}
@@ -280,14 +269,14 @@ DISPENSE DELL'ARGOMENTO:
 
 
 def _topic_merge_prompt(title: str, notes: str, domain: str) -> str:
-    return f"""Fondi gli appunti parziali seguenti nel capitolo definitivo "{title}" ({domain}).
+    return f"""Riassumi e fondi gli appunti parziali seguenti nel capitolo definitivo "{title}" ({domain}).
 
 REGOLE:
 - scrivi per una persona che parte da zero;
 - presenta una spiegazione unica, progressiva, senza una versione breve introduttiva o glossario duplicato;
 - definisci il lessico tecnico indispensabile usando soltanto gli appunti;
 - usa frasi preferibilmente brevi, una idea per frase e paragrafi brevi;
-- conserva ogni informazione distinta utile all'esame;
+- conserva i concetti, definizioni, processi e valori utili all'esame, non le ripetizioni;
 - elimina solo duplicati;
 - correggi refusi evidenti di forma senza cambiare il significato;
 - usa italiano semplice e terminologia scientifica corretta rispetto alle fonti;
@@ -300,7 +289,7 @@ REGOLE:
 
 FORMATO:
 ## {title}
-[spiegazione unica organizzata in ordine progressivo, con sottosezioni utili e paragrafi brevi; non ripetere gli stessi concetti]
+[riassunto unico, scorrevole e comprensibile, con paragrafi brevi; niente sottosezioni "In parole semplici", "Spiegazione" o "Da ricordare"]
 
 APPUNTI PARZIALI:
 {notes}
