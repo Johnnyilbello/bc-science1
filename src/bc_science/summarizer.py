@@ -1436,7 +1436,7 @@ class Summarizer:
         source_parts: list[str] = []
         raw_texts: list[str] = []
         for path in group.files:
-            extracted = extract_document_cached(path, self.db)
+            extracted = extract_document_cached(path, self.db, progress=progress)
             if not extracted.text.strip():
                 raise ValueError(f"Impossibile estrarre testo da {path}. Verifica il file o configura OCR prima di continuare.")
             if extracted.text:
@@ -1867,7 +1867,8 @@ class Summarizer:
                 )
 
             source_text = "\n\n".join(
-                extract_document_cached(path, self.db).text for path in group.files
+                extract_document_cached(path, self.db, progress=progress).text
+                for path in group.files
             )
             source_chunks = chunk_text(source_text, chunk_chars=12000, overlap=350)
             merged = self._review_source_chunks(chapter_title, merged, source_chunks, system, progress)
