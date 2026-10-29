@@ -1539,10 +1539,10 @@ class Summarizer:
         """Compare each original source block with the draft and append supported omissions."""
         additions: list[str] = []
         seen_chunks: set[str] = set()
-        normalized_draft = re.sub(r"\\s+", " ", draft).strip().casefold()
+        normalized_draft = re.sub(r"\s+", " ", draft).strip().casefold()
         for index, chunk in enumerate(chunks, 1):
             # Skip repeated or completely reproduced source blocks without another LLM call.
-            normalized_chunk = re.sub(r"\\s+", " ", chunk).strip().casefold()
+            normalized_chunk = re.sub(r"\s+", " ", chunk).strip().casefold()
             if (not normalized_chunk or normalized_chunk in seen_chunks
                     or normalized_chunk in normalized_draft):
                 continue
