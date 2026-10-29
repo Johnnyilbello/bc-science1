@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -2342,6 +2344,156 @@ class Summarizer:
             db.set_summary(final_key, candidate)
         return candidate
 
+    def _try_build_study_pair(
+        self,
+        left: tuple[str, str],
+        right: tuple[str, str],
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> list[tuple[str, str]] | None:
+        """One model call for two short chapters; reject ambiguous outputs.
+
+        Batching is a speed optimization, never permission to drop factual
+        safeguards. Any parsing, source-mixing or numerical failure causes
+        a fallback to the existing individual chapter generator.
+        """
+        chapters = [left, right]
+        db = getattr(self, "db", None)
+        if db is None or any(
+            db.get_summary(
+                _key(STUDY_PROMPT_VERSION, "essential-validated-v1",
+                     self.model, name, source)
+            )
+            for name, source in chapters
+        ):
+            return None
+
+        # Limit the context and output on 8GB GPU systems. Large chapters
+        # continue through the trusted single-chapter path.
+        if any(len(source) > 2400 for _name, source in chapters):
+            return None
+        if sum(len(source) for _name, source in chapters) > 4100:
+            return None
+
+        system = _summary_system_prompt("Scienze Motorie")
+        items = [
+            {"title": name, "source": source}
+            for name, source in chapters
+        ]
+        prompt = (
+            "Riassumi DUE capitoli distinti di Scienze Motorie, usando ESCLUSIVAMENTE "
+            "le rispettive fonti. Non mescolare informazioni tra capitoli. "
+            "Per ciascuno usa un solo titolo Markdown H2 identico al titolo dato, "
+            "spiega brevemente i concetti principali, conserva definizioni, "
+            "numeri, valori d'esame, formule e passaggi indispensabili. "
+            "Se puoi, riduci le ripetizioni del 25-45% senza perdere informazioni cruciali. "
+            "Rispondi SOLTANTO con un JSON valido: "
+            "{\"chapters\":[{\"title\":\"titolo esatto\",\"markdown\":\"## titolo\\\\n- ...\"},"
+            "{\"title\":\"titolo esatto\",\"markdown\":\"## titolo\\\\n- ...\"}]}. "
+            "L'array deve contenere ESATTAMENTE i due capitoli nell'ordine dato. "
+            "Niente blocchi Markdown esterni o testo prima/dopo il JSON.\n\n"
+            "FONTI:\n" + json.dumps(items, ensure_ascii=False)
+        )
+        key = _key(
+            STUDY_PROMPT_VERSION, "essential-pair-v1",
+            self.model, left[0], left[1], right[0], right[1],
+        )
+        if progress:
+            progress(f"    Lotto rapido: {left[0]} + {right[0]}")
+        started = time.perf_counter()
+        try:
+            reply = self._cached_chat(
+                key, system, prompt, num_predict=2700,
+            ).strip()
+            reply = re.sub(
+                r"^" + "\x60" * 3 + r"(?:json)?\s*|\s*" + "\x60" * 3 + r"$",
+                "", reply, flags=re.IGNORECASE,
+            )
+            parsed = json.loads(reply)
+            rows = parsed.get("chapters") if isinstance(parsed, dict) else None
+            if not isinstance(rows, list) or len(rows) != 2:
+                raise ValueError("Struttura JSON o numero di capitoli errato")
+
+            validated: list[tuple[str, str]] = []
+            for (name, source), item in zip(chapters, rows, strict=True):
+                if not isinstance(item, dict) or item.get("title") != name:
+                    raise ValueError("Titoli JSON non corrispondenti")
+                markdown = item.get("markdown")
+                if not isinstance(markdown, str) or not markdown.strip():
+                    raise ValueError("Contenuto mancante")
+                heading = re.findall(r"(?m)^##\s+(.+?)\s*$", markdown)
+                if len(heading) != 1 or heading[0].strip() != name:
+                    raise ValueError("Intestazione capitolo alterata o mischiata")
+                markdown = _normalize_chapter_heading(markdown, name)
+                markdown, restored = _restore_missing_exam_points(source, markdown)
+                if not _preserves_exam_numbers(source, markdown):
+                    raise ValueError("Valori numerici non verificabili")
+
+                source_terms = {
+                    word for word in re.findall(r"[A-Za-zÀ-ÿ]{5,}", source.casefold())
+                }
+                output_terms = {
+                    word for word in re.findall(r"[A-Za-zÀ-ÿ]{5,}", markdown.casefold())
+                }
+                if source_terms and (
+                    len(source_terms & output_terms) / len(source_terms) < 0.16
+                ):
+                    raise ValueError("Contenuto non sufficientemente ancorato alla fonte")
+                validated.append((name, markdown))
+                if restored and progress:
+                    progress(
+                        f"    {name}: {restored} punti d'esame recuperati dalla Completa."
+                    )
+        except (ValueError, TypeError, KeyError) as exc:
+            if progress:
+                progress(
+                    f"    Lotto rapido non verificabile ({exc}); "
+                    "generazione singola sicura."
+                )
+            return None
+
+        # Cache only after *both* chapters passed all checks.
+        for (name, source), (_title, markdown) in zip(chapters, validated, strict=True):
+            db.set_summary(
+                _key(
+                    STUDY_PROMPT_VERSION, "essential-validated-v1",
+                    self.model, name, source,
+                ),
+                markdown,
+            )
+        if progress:
+            progress(
+                f"    Lotto validato: 2 capitoli in "
+                f"{time.perf_counter() - started:.1f}s."
+            )
+        return validated
+
+    @staticmethod
+    def _publish_study_preview(
+        checkpoint_path: Path | None,
+        complete_text: str,
+        title: str,
+        chapter: str,
+    ) -> None:
+        """Make finished chapters immediately visible even during full-course work."""
+        if checkpoint_path is None:
+            return
+        dirname = hashlib.sha256(title.encode("utf-8")).hexdigest()[:24]
+        path = checkpoint_path.parent / "essential_chapters" / f"{dirname}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": 1,
+            "title": title,
+            "pipeline": STUDY_PROMPT_VERSION,
+            "source_summary_sha256": hashlib.sha256(
+                complete_text.encode("utf-8")
+            ).hexdigest(),
+            "chapter": chapter,
+        }
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
     def build_study_summary(
         self,
         text: str,
@@ -2350,10 +2502,11 @@ class Summarizer:
         progress: Callable[[str], None] | None = None,
         checkpoint_path: Path | None = None,
     ) -> str:
-        """Resume Essential creation by chapter without repeating completed calls."""
+        """Bulk Essential: validated cache, conservative pairing and checkpoints."""
         chapters = _extract_summary_chapters(text)
         if not chapters:
             raise ValueError("Nessun capitolo disponibile per la versione essenziale.")
+
         signature = _key(
             STUDY_PROMPT_VERSION, "essential-checkpoint-v1", self.model, text,
         )
@@ -2370,18 +2523,82 @@ class Summarizer:
                 "gia completati, senza nuove chiamate Ollama."
             )
 
-        for index in range(len(records), len(chapters)):
-            chapter_title, chapter = chapters[index]
-            if progress:
-                progress(f"[{index + 1}/{len(chapters)}] Ripasso essenziale: {chapter_title}")
-            candidate = self.build_study_chapter(
-                chapter_title, chapter, progress=progress,
+        # Restore visible previews for checkpoint chapters after a restart.
+        for name, chapter in records:
+            self._publish_study_preview(checkpoint_path, text, name, chapter)
+
+        configured = os.environ.get("BC_SCIENCE_ESSENTIAL_BATCH", "2").strip()
+        batch_enabled = configured == "2" and self.model == "qwen3.5:4b"
+        if progress:
+            progress(
+                "Modalita lotti brevi: attiva (max 2 capitoli, fallback sicuro)."
+                if batch_enabled else "Modalita lotti brevi: disattivata."
             )
-            records.append((chapter_title, candidate))
+
+        started = time.perf_counter()
+        batch_count = 0
+        cache_count = len(records)
+        generated_singles = 0
+        index = len(records)
+
+        def commit(name: str, chapter: str) -> None:
+            records.append((name, chapter))
+            self._publish_study_preview(checkpoint_path, text, name, chapter)
             if checkpoint_path is not None:
                 _save_refine_checkpoint(
                     checkpoint_path, signature=signature, completed=records,
                 )
+            if progress:
+                progress(
+                    f"    Capitolo Essenziale disponibile: {name} "
+                    f"({len(records)}/{len(chapters)})."
+                )
+
+        while index < len(chapters):
+            name, source = chapters[index]
+            if progress:
+                progress(f"[{index + 1}/{len(chapters)}] Ripasso essenziale: {name}")
+
+            db = getattr(self, "db", None)
+            final_key = _key(
+                STUDY_PROMPT_VERSION, "essential-validated-v1",
+                self.model, name, source,
+            )
+            if db is not None:
+                already = db.get_summary(final_key)
+                if already:
+                    commit(name, already)
+                    cache_count += 1
+                    index += 1
+                    continue
+
+            if batch_enabled and index + 1 < len(chapters):
+                pair = self._try_build_study_pair(
+                    chapters[index], chapters[index + 1], progress=progress,
+                )
+                if pair is not None:
+                    for title_pair, chapter_pair in pair:
+                        commit(title_pair, chapter_pair)
+                    batch_count += 1
+                    index += 2
+                    continue
+
+            before_calls = self.stats.generated_calls if hasattr(self, "stats") else 0
+            generated = self.build_study_chapter(name, source, progress=progress)
+            commit(name, generated)
+            if hasattr(self, "stats") and self.stats.generated_calls == before_calls:
+                cache_count += 1
+            else:
+                generated_singles += 1
+            index += 1
+
+        if progress:
+            progress(
+                f"Essenziale: {len(records)} capitoli assemblati in "
+                f"{time.perf_counter() - started:.1f}s; "
+                f"{cache_count} riutilizzati, {batch_count} lotti da 2, "
+                f"{generated_singles} generazioni singole."
+            )
 
         toc = "## Indice degli argomenti\n" + "\n".join(
             f"- {name}" for name, _ in records
