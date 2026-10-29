@@ -16,8 +16,8 @@ from .quality_signals import _lines, _overlap, assess_chapter
 from .summarizer import (
     Summarizer,
     _key,
-    _preserves_exam_numbers,
     _normalize_chapter_heading,
+    _preserves_exam_numbers,
 )
 
 REVIEW_VERSION = "targeted-review-v1"
@@ -128,7 +128,7 @@ def review_chapter(
             raise ValueError("Risposta JSON assente")
         payload = json.loads(match.group())
         if not isinstance(payload, dict):
-            raise ValueError("Risposta non valida")
+            raise TypeError("Risposta non valida")
         accepted, reason = _validate_proposal(
             title, complete_source, essential, payload,
         )
