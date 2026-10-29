@@ -172,5 +172,9 @@ def test_desktop_can_read_generated_chapter_without_complete_essential(
     )
     result = DesktopAPI(scan.path.parent).read("ANATOMIA", "essential")
     assert result["ready"]
+    assert result["complete_legacy"] is True
+    assert result["chapters"][0]["edition_status"] == "updated"
+    complete_result = DesktopAPI(scan.path.parent).read("ANATOMIA", "complete")
+    assert complete_result["chapters"][0]["edition_status"] == "previous"
     assert "Scheletro assile" in result["chapters"][0]["html"]
     assert "## Scheletro" not in result["chapters"][0]["html"]

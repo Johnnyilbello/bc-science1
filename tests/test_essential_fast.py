@@ -64,6 +64,8 @@ def test_validated_single_chapter_reuses_cache(tmp_path: Path, monkeypatch):
 
 def test_checkpoint_resumes_after_second_chapter_crashes(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    # Test the checkpoint independently of the optional two-chapter LLM batch.
+    monkeypatch.setenv("BC_SCIENCE_ESSENTIAL_BATCH", "1")
     checkpoint = tmp_path / "study.checkpoint.json"
     source = (
         "# Anatomia\n\n## Indice degli argomenti\n- Ossa\n- Stomaco\n"

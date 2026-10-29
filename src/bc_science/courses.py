@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -723,6 +724,7 @@ def _ensure_study(
             return None, None, None, 0, False
 
         checkpoint = workspace_path(scan) / "study.checkpoint.json"
+        started = time.perf_counter()
         study_text = builder(
             summary_text,
             title=f"{scan.name} - Modalità essenziale",
@@ -735,8 +737,22 @@ def _ensure_study(
     if not study_text.strip():
         raise ValueError(f"La versione studio di {scan.name} risulta vuota.")
 
+    if progress:
+        progress(
+            f"Generazione capitoli completata in "
+            f"{time.perf_counter() - started:.1f}s. "
+            "Avvio controllo di qualita e copertura."
+        )
+    audit_started = time.perf_counter()
     study_text, _restored = repair_audit_gaps(study_text)
     report_essential_quality(study_text)
+    if progress:
+        progress(
+            f"Controllo del testo completato in "
+            f"{time.perf_counter() - audit_started:.1f}s. "
+            "Salvataggio Markdown ed esportazione PDF."
+        )
+    pdf_started = time.perf_counter()
     study_path = course_study_output_path(scan)
     _save_summary(study_path, study_text)
     pdf_path = course_study_pdf_path(scan)
@@ -745,6 +761,11 @@ def _ensure_study(
         pdf_path,
         f"{scan.name} - Riassunto studio",
     )
+    if progress:
+        progress(
+            f"PDF Essenziale completato in "
+            f"{time.perf_counter() - pdf_started:.1f}s ({pages} pagine)."
+        )
     return study_path, study_text, pdf_path, pages, True
 
 
