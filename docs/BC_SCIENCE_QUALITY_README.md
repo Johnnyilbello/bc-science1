@@ -28,3 +28,30 @@ Non dedurre una garanzia di accuratezza da un punteggio automatico né dalla sol
 - QAFactEval (Fabbri et al., NAACL 2022): importanza di answerability e controlli su sorgenti per valutare la consistenza. https://aclanthology.org/2022.naacl-main.187/
 
 BC Science **non implementa integralmente** FACTSCORE né QAFactEval: applica principi di controllo granulari con euristiche locali dichiarate, senza scaricare modelli esterni.
+
+## Italiano e forme verbali — audit v3
+
+Un PASS tecnico non significa che tutte le frasi del PDF siano grammaticalmente corrette.
+Il pannello Qualità distingue lo stato scientifico da quello linguistico.
+
+- NESSUNA_ANOMALIA_RILEVATA: nessun errore individuato dalle regole disponibili. Non è una certificazione.
+- DA_RIVEDERE: l'audit mostra le frasi sospette, indicando possibili refusi, problemi grammaticali, frammenti o incongruenze di significato.
+
+La modalità Essenziale rimane veloce. Dopo la selezione delle nozioni fondamentali,
+le frasi tornano nell'ordine originale della Completa. Solo alcune forme
+grammaticali inequivocabili vengono corrette automaticamente, senza modificare
+numeri o informazioni anatomiche. Le incongruenze scientifiche sono segnalate,
+non riscritte in modo arbitrario: occorre controllare la dispensa originale.
+
+Il pulsante Controlla con Qwen può ora intervenire sul solo capitolo selezionato
+anche per possibili problemi grammaticali, rifiutando riscritture non verificabili.
+
+Per un controllo linguistico più esteso delle forme verbali e concordanze,
+LanguageTool può essere eseguito in locale (Java 17+). Questa versione di
+BC Science non lo installa, non usa l'API pubblica e non invia dispense online.
+L'API pubblica gratuita di LanguageTool vieta l'uso automatico: utilizzare
+un'istanza privata autorizzata per eventuali integrazioni programmatiche.
+
+Riferimenti: https://dev.languagetool.org/java-api ;
+https://dev.languagetool.org/public-http-api.html ;
+https://accademiadellacrusca.it/it/consulenza/problemi-di-accordo/127
