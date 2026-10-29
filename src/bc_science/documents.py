@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -219,6 +220,7 @@ def extract_document_cached(
     *,
     file_hash: str | None = None,
     ocr: bool = True,
+    progress: Callable[[str], None] | None = None,
 ) -> ExtractedDocument:
     """Cache completed text extraction across indexing and summarization.
 
@@ -236,9 +238,13 @@ def extract_document_cached(
     signature = EXTRACTION_CACHE_VERSION + settings
     cached = db.get_extracted_document(str(path), digest, signature)
     if cached is not None:
+        if progress:
+            progress(f"    Testo gia estratto (OCR riutilizzato): {path.name}")
         text, pages, ocr_pages = cached
         return ExtractedDocument(path, text, pages, ocr_pages)
 
+    if progress:
+        progress(f"    Estrazione del testo (OCR se necessario): {path.name}")
     extracted = extract_document(path, ocr=ocr)
     if extracted.text.strip():
         db.set_extracted_document(
