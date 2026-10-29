@@ -1587,6 +1587,8 @@ def build_fast_essential_only(
 def inspect_original_evidence(
     scan: CourseScan,
     chapter_title: str,
+    *,
+    semantic_query_vector: list[float] | None = None,
 ) -> dict:
     """Read-only, local evidence inspection for one selected study chapter.
 
@@ -1657,6 +1659,18 @@ def inspect_original_evidence(
                         break
                 if len(found) >= 6:
                     break
+            if semantic_query_vector is not None and len(found) < 4:
+                for evidence in index.search_semantic(
+                    semantic_query_vector, limit=4,
+                ):
+                    identity = (
+                        evidence.source_path, evidence.page, evidence.block,
+                    )
+                    if identity not in seen:
+                        seen.add(identity)
+                        found.append(evidence)
+                    if len(found) >= 6:
+                        break
 
     return {
         "title": chapter_title,
@@ -1728,6 +1742,38 @@ def review_essential_chapter(
         )
 
     evidence_report = inspect_original_evidence(scan, chapter_title)
+    if len(evidence_report["evidence"]) < 2:
+        # Optional hybrid fallback only in the explicit AI review workflow.
+        # One embedding query may recover paraphrased passages missed by BM25.
+        # The normal 77-chapter Essential and source viewer never load Ollama.
+        from .indexer import QUERY_INSTRUCTION
+        from .ollama_client import OllamaClient
+
+        try:
+            question = (
+                chapter_title + " " +
+                " ".join(
+                    item["quote"]
+                    for item in evidence_report["findings"][:2]
+                )
+            )
+            vector = OllamaClient(config.ollama_url).embed(
+                config.embedding_model, [QUERY_INSTRUCTION + question],
+            )[0]
+            evidence_report = inspect_original_evidence(
+                scan, chapter_title, semantic_query_vector=vector,
+            )
+            if progress:
+                progress(
+                    "Ricerca ibrida locale: FTS5/BM25 più embedding "
+                    "originali riutilizzati."
+                )
+        except (OSError, RuntimeError, ValueError, KeyError, IndexError) as exc:
+            if progress:
+                progress(
+                    f"Ricerca semantica non disponibile ({exc}); "
+                    "conservo le prove lessicali già trovate."
+                )
     from .evidence_engine import OriginalEvidence
 
     original_passages = [
