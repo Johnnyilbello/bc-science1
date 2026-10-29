@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .course_audit import FAST_ESSENTIAL_AUDIT_VERSION
+from .italian_proofreading import grammar_findings
 from .quality_signals import assess_chapter
 from .summarizer import _extract_summary_chapters, _preserves_exam_numbers
 
@@ -36,6 +37,8 @@ class FastEssentialAudit:
     content_review_status: str = "NON_VERIFICATO_SCIENTIFICAMENTE"
     chapters_needing_review: int = 0
     chapter_signals: tuple[dict, ...] = ()
+    linguistic_status: str = "NON_VALUTATO"
+    chapters_with_language_issues: int = 0
 
 
 def _sha(text: str) -> str:
@@ -65,6 +68,11 @@ def audit_fast_essential(
         # never misrepresent lexical overlap as semantic entailment.
         info = report.to_dict()
         info["possible_missing"] = info["possible_missing"][:8]
+        language = grammar_findings(simplified, limit=15)
+        info["language_findings"] = [finding.to_dict() for finding in language]
+        info["language_review_status"] = (
+            "DA_RIVEDERE" if language else "NESSUNA_ANOMALIA_RILEVATA"
+        )
         chapter_signals.append(info)
 
     word = r"\b[\wÀ-ÿ'+-]+\b"
@@ -116,6 +124,14 @@ def audit_fast_essential(
             "di leggibilità: richiedono controllo umano prima di dichiarare "
             "verificato il contenuto."
         )
+    language_chapters = sum(
+        bool(info["language_findings"]) for info in chapter_signals
+    )
+    if language_chapters:
+        warnings.append(
+            f"{language_chapters} capitoli con potenziali problemi linguistici "
+            "o incoerenze di significato. Non considerare la grammatica verificata."
+        )
     # The old 97% lexical fact metric is NOT an Essenziale pass/fail gate:
     # omitting secondary facts is an intentional requirement.
     status = (
@@ -140,6 +156,10 @@ def audit_fast_essential(
         content_review_status="NON_VERIFICATO_SCIENTIFICAMENTE",
         chapters_needing_review=review_needed,
         chapter_signals=tuple(chapter_signals),
+        linguistic_status=(
+            "DA_RIVEDERE" if language_chapters else "NESSUNA_ANOMALIA_RILEVATA"
+        ),
+        chapters_with_language_issues=language_chapters,
     )
 
 
@@ -157,6 +177,9 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         f"**Numeri d'esame assenti:** {len(report.missing_exam_number_chapters)}",
         f"**Verifica contenutistica:** {report.content_review_status}",
         f"**Capitoli da controllare:** {report.chapters_needing_review}",
+        f"**Lingua italiana (euristiche):** {report.linguistic_status}",
+        f"**Capitoli con anomalie linguistiche:** "
+        f"{report.chapters_with_language_issues}",
         "",
         "Questo esito tecnico non equivale a una validazione scientifica esterna.",
         "",
@@ -170,7 +193,18 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
             f"frasi difficili {item['difficult_sentences']}; "
             f"frasi non ben allineate {item['unsupported_phrases']}"
             for item in report.chapter_signals
-            if item["review_priority"] != "nessuna"
+            if (
+                item["review_priority"] != "nessuna"
+                or item["language_findings"]
+            )
+        ],
+        "",
+        "## Forme grammaticali e problemi di significato da verificare",
+        *[
+            f"- **{item['title']}**: «{finding['quote']}» — "
+            f"{finding['message']}"
+            for item in report.chapter_signals
+            for finding in item["language_findings"]
         ],
     ]
     md.write_text("\n".join(lines) + "\n", encoding="utf-8")
