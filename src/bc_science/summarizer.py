@@ -16,9 +16,9 @@ from .documents import chunk_text, extract_document
 from .knowledge import classify_domain, system_prompt
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v8-novice-first"
+PROMPT_VERSION = "summary-v13-unified"
 REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
-STUDY_PROMPT_VERSION = "study-v1-semantic-dedupe"
+STUDY_PROMPT_VERSION = "study-v2-essential"
 
 
 @dataclass(slots=True)
@@ -158,6 +158,8 @@ MODALITA RIASSUNTO SOURCE-ONLY:
 - Il lettore target non ha mai studiato la materia: non dare per scontate conoscenze pregresse.
 - Le dispense fornite sono l'unica fonte ammessa.
 - NON aggiungere conoscenza generale, neppure in sezioni chiamate "Chiarimento".
+- Non trasformare una possibilità in una regola universale: conserva i limiti della fonte.
+- Non dedurre passaggi, cause o esempi non esplicitamente supportati dalla fonte.
 - NON correggere scientificamente le dispense usando conoscenze esterne.
 - Puoi correggere solo refusi ortografici evidenti quando il significato e inequivocabile.
 - Usa "Verifica materiale" SOLO quando titolo e contenuto non corrispondono.
@@ -219,7 +221,9 @@ OBIETTIVO:
 - massima comprensibilita;
 - nessuna perdita di concetti potenzialmente valutabili;
 - elimina solo ripetizioni e frasi decorative;
-- conserva definizioni, classificazioni, passaggi causali, eccezioni e numeri;
+- conserva definizioni, classificazioni, formule con significato dei simboli, passaggi causali, eccezioni, collegamenti e numeri;
+- adatta la lunghezza alla complessita: non comprimere informazioni distinte;
+- usa esempi concreti solo se supportati dalla fonte;
 - spiega sigle e termini tecnici alla prima occorrenza;
 - usa soltanto cio che e supportato dalla fonte.
 
@@ -260,18 +264,13 @@ PRIORITA ASSOLUTE:
 13. Se titolo e contenuto non corrispondono, usa una breve nota "Verifica materiale" e poi
     riassumi il contenuto effettivamente presente: non chiedere conferma all'utente.
 14. Termina sempre il capitolo con una frase completa.
+15. Inizia dal primo contenuto specifico della dispensa, senza introduzione generale. Non aggiungere
+    quantita, definizioni o caratteristiche che non compaiono nelle dispense.
+16. Ogni frase deve essere riconducibile a un passaggio esplicito della dispensa.
 
 STRUTTURA:
 ## {title}
-### In parole semplici
-3-5 frasi che spiegano che cosa e l'argomento, perché conta nel corso e qual e l'idea di base.
-Niente termini tecnici non spiegati.
-### Parole chiave
-3-8 punti nel formato "**Termine** — spiegazione semplice", solo se la definizione e supportata dalle dispense.
-Poi usa sottosezioni descrittive, paragrafi brevi e liste. Introduci i dettagli in ordine progressivo.
-Chiudi con:
-### Da ricordare per l'esame
-con i punti davvero essenziali, senza ripetere tutto il capitolo.
+Spiega direttamente l'argomento in un unico percorso progressivo. Usa sottosezioni descrittive quando aiutano e spiega i termini al primo uso. Non creare un riassunto introduttivo, un glossario o una sezione finale che ripete la spiegazione.
 
 DISPENSE DELL'ARGOMENTO:
 {source_text}
@@ -283,7 +282,7 @@ def _topic_merge_prompt(title: str, notes: str, domain: str) -> str:
 
 REGOLE:
 - scrivi per una persona che parte da zero;
-- apri con "### In parole semplici" e poi "### Parole chiave";
+- presenta una spiegazione unica, progressiva, senza una versione breve introduttiva o glossario duplicato;
 - definisci il lessico tecnico indispensabile usando soltanto gli appunti;
 - usa frasi preferibilmente brevi, una idea per frase e paragrafi brevi;
 - conserva ogni informazione distinta utile all'esame;
@@ -299,13 +298,7 @@ REGOLE:
 
 FORMATO:
 ## {title}
-### In parole semplici
-[quadro mentale di base per chi parte da zero]
-### Parole chiave
-[3-8 termini con definizione semplice supportata dagli appunti]
-[testo organizzato in ordine progressivo, con paragrafi brevi]
-### Da ricordare per l'esame
-[5-12 punti, in base alla quantita di contenuto]
+[spiegazione unica organizzata in ordine progressivo, con sottosezioni utili e paragrafi brevi; non ripetere gli stessi concetti]
 
 APPUNTI PARZIALI:
 {notes}
@@ -1354,7 +1347,12 @@ class Summarizer:
         for attempt, budget in enumerate(budgets):
             # On a retry, regenerate the entire answer with a larger output budget instead
             # of appending a continuation. This avoids semantic loops and duplicated sections.
-            retry_ctx = min(16384, max(self.config.num_ctx, budget + 6000))
+            # Reserve context for the complete input and output. Refuse oversized
+            # requests instead of letting Ollama silently discard source material.
+            input_reserve = (len(system) + len(user)) // 2 + 512
+            retry_ctx = max(self.config.num_ctx, input_reserve + budget)
+            if retry_ctx > 32768:
+                raise ValueError("Testo troppo lungo per un confronto affidabile: suddividere il capitolo o le dispense.")
             result = self.client.chat_stream(
                 self.model,
                 messages,
@@ -1376,6 +1374,8 @@ class Summarizer:
             if attempt < len(budgets) - 1:
                 self.stats.continuation_calls += 1
 
+        if result.done_reason == "length":
+            raise ValueError("La risposta del modello e stata troncata anche dopo i tentativi: ridurre la dimensione dei blocchi o usare un modello con maggiore capacita.")
         merged = _clean_obvious_typos(final_text.strip())
         self.db.set_summary(cache_key, merged)
         return merged
@@ -1437,6 +1437,8 @@ class Summarizer:
         raw_texts: list[str] = []
         for path in group.files:
             extracted = extract_document(path)
+            if not extracted.text.strip():
+                raise ValueError(f"Impossibile estrarre testo da {path}. Verifica il file o configura OCR prima di continuare.")
             if extracted.text:
                 raw_texts.append(extracted.text)
                 source_parts.append(
@@ -1482,12 +1484,13 @@ class Summarizer:
                 domain,
                 chunks[0],
             )
-            return self._cached_chat(
+            draft = self._cached_chat(
                 cache_key,
                 system,
                 _topic_prompt(group.title, chunks[0] + mismatch_note, domain),
                 num_predict=1800,
             )
+            return self._review_source_chunks(group.title, draft, chunks, system, progress)
 
         partials: list[str] = []
         for index, chunk in enumerate(chunks, start=1):
@@ -1521,12 +1524,62 @@ class Summarizer:
             domain,
             notes,
         )
-        return self._cached_chat(
+        draft = self._cached_chat(
             final_key,
             system,
             _topic_merge_prompt(group.title, notes + mismatch_note, domain),
             num_predict=2200,
         )
+        return self._review_source_chunks(group.title, draft, chunks, system, progress)
+
+    def _review_source_chunks(
+        self, title: str, draft: str, chunks: list[str], system: str,
+        progress: Callable[[str], None] | None = None,
+    ) -> str:
+        """Compare each original source block with the draft and append supported omissions."""
+        additions: list[str] = []
+        for index, chunk in enumerate(chunks, 1):
+            if progress:
+                progress(f"    confronto con la dispensa {index}/{len(chunks)}: {title}")
+            covered = draft + "\n\n" + "\n\n".join(additions)
+            prompt = (
+                "Confronta FONTE e CAPITOLO. Individua solo fatti sostanziali presenti nella "
+                "fonte che non sono già espressi nel capitolo, anche con parole diverse. "
+                "Rispondi esclusivamente con un array JSON di stringhe: ogni stringa deve essere "
+                "una citazione letterale continua della FONTE che contiene un fatto mancante. "
+                "Non scrivere commenti, confronti, titoli o correzioni di refusi. "
+                "Se non manca nulla rispondi [].\n\n"
+                f"CAPITOLO:\n{covered}\n\nFONTE:\n{chunk}"
+            )
+            key = _key(PROMPT_VERSION, self.model, "source-review", title, covered, chunk)
+            response = self._cached_chat(key, system, prompt, num_predict=1800).strip()
+            response = re.sub(r"^```(?:json)?\s*|\s*```$", "", response, flags=re.IGNORECASE)
+            def discard_invalid_response(cache_key: str = key) -> None:
+                db = getattr(self, "db", None)
+                if db is not None:
+                    db.delete_summary(cache_key)
+
+            try:
+                quotes = json.loads(response)
+            except json.JSONDecodeError as exc:
+                discard_invalid_response()
+                raise ValueError(f"Controllo omissioni non interpretabile per {title}: riprovare.") from exc
+            if not isinstance(quotes, list) or not all(isinstance(q, str) for q in quotes):
+                discard_invalid_response()
+                raise ValueError(f"Controllo omissioni non valido per {title}: riprovare.")
+            source_normalized = re.sub(r"\s+", " ", chunk).casefold()
+            covered_normalized = re.sub(r"\s+", " ", covered).casefold()
+            for quote in quotes:
+                cleaned = re.sub(r"\s+", " ", quote).strip()
+                if not cleaned or cleaned.casefold() not in source_normalized:
+                    discard_invalid_response()
+                    raise ValueError(f"Controllo omissioni: citazione non trovata nella fonte per {title}.")
+                if cleaned.casefold() not in covered_normalized:
+                    additions.append(cleaned)
+
+        if additions:
+            return draft.rstrip() + "\n\n### Dettagli recuperati dalle dispense\n\n" + "\n\n".join(additions)
+        return draft
 
     def summarize_course(
         self,
@@ -1741,6 +1794,9 @@ class Summarizer:
                     f"Merge incrementale non sicuro per {chapter_title}: {detail}."
                 )
 
+            source_text = "\n\n".join(extract_document(path).text for path in group.files)
+            source_chunks = chunk_text(source_text, chunk_chars=12000, overlap=350)
+            merged = self._review_source_chunks(chapter_title, merged, source_chunks, system, progress)
             records[existing_index] = (chapter_title, merged)
             for source_file in group.files:
                 source_chapters[str(source_file.resolve())] = chapter_title
@@ -2150,85 +2206,35 @@ class Summarizer:
         progress: Callable[[str], None] | None = None,
         checkpoint_path: Path | None = None,
     ) -> str:
-        """Create the compact study copy from the verified complete course summary."""
-        prepared = _prepare_study_source(
-            text,
-            title=f"{title} - sorgente consolidata",
-        )
-        if progress:
-            source_chapters = len(_extract_summary_chapters(text))
-            merged_chapters = len(_extract_summary_chapters(prepared))
-            progress(
-                "Versione studio: semantic merge "
-                f"{source_chapters} -> {merged_chapters} capitoli prima della compressione."
+        """Create a concise review version, keeping the complete copy available."""
+        chapters = _extract_summary_chapters(text)
+        if not chapters:
+            raise ValueError("Nessun capitolo disponibile per la versione essenziale.")
+        system = _summary_system_prompt("Scienze Motorie")
+        records: list[tuple[str, str]] = []
+        for index, (chapter_title, chapter) in enumerate(chapters, 1):
+            if progress:
+                progress(f"[{index}/{len(chapters)}] Ripasso essenziale: {chapter_title}")
+            prompt = (
+                f"Crea un ripasso essenziale del capitolo {chapter_title} per chi lo ha gia studiato. "
+                "Usa soltanto il capitolo fornito. Mantieni i concetti chiave, le definizioni "
+                "indispensabili, formule e significato dei simboli, distinzioni, sequenze, eccezioni "
+                "e valori importanti. Organizza in modo leggibile e sintetico, senza una lunghezza "
+                "prestabilita. Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
+                "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
+                "Usa un solo titolo H2 e punti brevi.\n\n"
+                f"CAPITOLO:\n{chapter}"
             )
-
-        result = self.refine_summary(
-            prepared,
-            title=title,
-            progress=progress,
-            checkpoint_path=checkpoint_path,
-        )
-        prepared_chapters = {
-            topic_key(chapter_title): chapter
-            for chapter_title, chapter in _extract_summary_chapters(prepared)
-        }
-        result_chapters = {
-            topic_key(chapter_title): chapter
-            for chapter_title, chapter in _extract_summary_chapters(result)
-        }
-        for chapter_key, source_chapter in prepared_chapters.items():
-            candidate = result_chapters.get(chapter_key)
-            if candidate is None:
-                raise ValueError(
-                    "Versione studio non sicura: un capitolo consolidato è scomparso."
-                )
-
-            repaired, restored_points = _restore_missing_exam_points(
-                source_chapter,
-                candidate,
-            )
-            if restored_points:
-                result = result.replace(candidate, repaired, 1)
-                candidate = repaired
-                result_chapters[chapter_key] = repaired
-                if progress:
-                    chapter_title = next(
-                        (
-                            title
-                            for title, chapter in _extract_summary_chapters(prepared)
-                            if topic_key(title) == chapter_key
-                        ),
-                        chapter_key,
-                    )
-                    progress(
-                        "Versione studio: recuperati "
-                        f"{restored_points} punti d'esame in {chapter_title}."
-                    )
-
-            source_points = _extract_exam_points(source_chapter)
-            if source_points and not _preserves_existing_exam_points(
-                source_chapter,
-                candidate,
-            ):
-                raise ValueError(
-                    "Versione studio non sicura: perdita di punti d'esame durante "
-                    "la compressione didattica."
-                )
-            if not _preserves_exam_numbers(source_chapter, candidate):
-                raise ValueError(
-                    "Versione studio non sicura: perdita di un valore numerico presente "
-                    "nei punti d'esame."
-                )
-
-        result = _strip_study_citations(result)
-        result = result.replace(
-            "> Versione rifinita dell'ultimo riassunto BC Science; "
-            "non sostituisce la verifica sui PDF originali.",
-            "> Versione studio derivata dal riassunto completo verificato; "
-            "le citazioni di pagina restano disponibili nella versione completa.",
-        )
-        return result
+            key = _key(STUDY_PROMPT_VERSION, "essential-v3", self.model, chapter_title, chapter)
+            candidate = self._cached_chat(key, system, prompt, num_predict=1800)
+            candidate = _normalize_chapter_heading(candidate, chapter_title)
+            candidate, _ = _restore_missing_exam_points(chapter, candidate)
+            if not _preserves_exam_numbers(chapter, candidate):
+                raise ValueError(f"Ripasso essenziale non sicuro: numeri d'esame mancanti in {chapter_title}.")
+            records.append((chapter_title, candidate))
+        toc = "## Indice degli argomenti\n" + "\n".join(f"- {name}" for name, _ in records)
+        body = "\n\n---\n\n".join(chapter for _, chapter in records)
+        return f"# {title}\n\n> Modalità essenziale: ripasso dopo lo studio della versione completa.\n\n{toc}\n\n---\n\n{body}\n"
 
     def summarize_file(self, path: Path) -> str:
         extracted = extract_document(path)

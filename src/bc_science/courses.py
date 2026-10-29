@@ -21,6 +21,8 @@ from .documents import SUPPORTED, file_sha256
 from .finalizer import export_pdf
 from .indexer import ingest_files
 from .summarizer import (
+    PROMPT_VERSION,
+    STUDY_PROMPT_VERSION,
     Summarizer,
     _extract_summary_chapters,
     group_course_files,
@@ -465,7 +467,8 @@ def _study_is_current(
 
     pdf_info = study.get("pdf")
     return (
-        study.get("source_summary_sha256") == _summary_sha256(summary_text)
+        study.get("pipeline") == STUDY_PROMPT_VERSION
+        and study.get("source_summary_sha256") == _summary_sha256(summary_text)
         and study.get("summary_sha256") == _summary_sha256(study_text)
         and study.get("path") == str(markdown)
         and isinstance(pdf_info, dict)
@@ -493,6 +496,7 @@ def _write_manifest(
     chapter_titles = _chapter_titles(summary_text)
     payload = {
         "schema": 3,
+        "summary_pipeline": PROMPT_VERSION,
         "course": scan.name,
         "source": str(scan.path),
         "fingerprint": _fingerprint(snapshot),
@@ -516,6 +520,7 @@ def _write_manifest(
         "study": (
             {
                 "path": str(study_path),
+                "pipeline": STUDY_PROMPT_VERSION,
                 "source_summary_sha256": _summary_sha256(summary_text),
                 "summary_sha256": _summary_sha256(study_text),
                 "pdf": {
@@ -631,7 +636,7 @@ def _ensure_study(
 
             repaired, restored = restore_missing_audit_facts(
                 current,
-                before.missing_facts,
+                [fact for fact in before.missing_facts if fact.category != "fatto"],
             )
             if not restored:
                 if progress:
@@ -705,7 +710,7 @@ def _ensure_study(
         checkpoint = workspace_path(scan) / "study.checkpoint.json"
         study_text = builder(
             summary_text,
-            title=f"{scan.name} - Riassunto studio",
+            title=f"{scan.name} - Modalità essenziale",
             progress=progress,
             checkpoint_path=checkpoint,
         )
@@ -963,6 +968,7 @@ def build_course(
         if (
             manifest is not None
             and manifest.get("fingerprint") == fingerprint
+            and manifest.get("summary_pipeline") == PROMPT_VERSION
             and existing_coverage.complete
         ):
             pdf, pages, pdf_generated = _ensure_pdf(
@@ -1038,6 +1044,7 @@ def build_course(
     incremental_candidate = (
         bool(baseline_text)
         and _manifest_baseline_verified(baseline_text, manifest)
+        and manifest is not None and manifest.get("summary_pipeline") == PROMPT_VERSION
         and bool(added_files)
         and changed_files == 0
         and removed_files == 0

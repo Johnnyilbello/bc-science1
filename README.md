@@ -27,6 +27,15 @@ L'installer:
 
 L'installer può essere rilanciato per aggiornare BC Science: conserva configurazione, indice e cache.
 
+## Due modalità di studio
+
+Il comando `courses build` genera due documenti per ogni materia:
+
+- **Completa** (`riassunto-unico.md` e `.pdf`): spiegazione progressiva a partire dalle dispense, con un confronto automatico dei singoli blocchi originali per recuperare possibili omissioni.
+- **Essenziale** (`riassunto-studio.md` e `.pdf`): ripasso dei concetti principali per chi ha già studiato il documento completo. L'audit segnala eventuali differenze e tenta di recuperare i fatti rilevanti.
+
+Il confronto è effettuato da un modello linguistico locale: può commettere errori o non riconoscere qualche omissione, e non certifica la correttezza scientifica delle fonti. I documenti con testo non estraibile richiedono OCR e verifica del risultato. Argomenti molto estesi possono richiedere la suddivisione della fonte.
+
 ## Multi-materia e workspace — 0.9
 
 BC Science può lavorare direttamente su una cartella radice che contiene una sottocartella per materia, senza creare ZIP separati.

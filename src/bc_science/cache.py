@@ -63,6 +63,10 @@ class CacheDB:
         )
         self.conn.commit()
 
+    def delete_summary(self, key: str) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM summary_cache WHERE cache_key = ?", (key,))
+
     def document_hash(self, source_path: str) -> str | None:
         row = self.conn.execute(
             "SELECT file_hash FROM documents WHERE source_path = ?", (source_path,)

@@ -87,6 +87,8 @@ I termini vengono mantenuti nello stesso contesto del capitolo per evitare dupli
     monkeypatch.setattr(summarizer, "_summarize_topic", fake_topic)
 
     def fake_cached(cache_key, system, user, *, num_predict=None):
+        if "Confronta FONTE e CAPITOLO" in user:
+            return "[]"
         assert "CAPITOLO ESISTENTE" in user
         assert "NUOVO MATERIALE" in user
         return merged
@@ -156,6 +158,8 @@ Le articolazioni collegano segmenti ossei.
     calls = {"route": 0, "map": 0}
 
     def fake_cached(cache_key, system, user, *, num_predict=None):
+        if "Confronta FONTE e CAPITOLO" in user:
+            return "[]"
         if "Decidi dove appartiene il NUOVO materiale" in user:
             calls["route"] += 1
             return "NEW"
@@ -239,6 +243,8 @@ Questa struttura permette di studiare insieme le informazioni precedenti e quell
     calls = {"route": 0, "merge": 0}
 
     def fake_cached(cache_key, system, user, *, num_predict=None):
+        if "Confronta FONTE e CAPITOLO" in user:
+            return "[]"
         if "Decidi dove appartiene il NUOVO materiale" in user:
             calls["route"] += 1
             return "MATCH: Neuroni"

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BC Science</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<svg class="symbols" aria-hidden="true"><defs>
+<symbol id="icon-book" viewBox="0 0 24 24"><path d="M12 5c-3-2-6-2-10-1v15c4-1 7-1 10 1 3-2 6-2 10-1V4c-4-1-7-1-10 1v15"/></symbol>
+<symbol id="icon-home" viewBox="0 0 24 24"><path d="m2 11 10-9 10 9M5 9v12h5v-7h4v7h5V9"/></symbol>
+<symbol id="icon-file" viewBox="0 0 24 24"><path d="M5 2h9l5 5v15H5zM14 2v6h5M8 12h8M8 16h8"/></symbol>
+<symbol id="icon-chat" viewBox="0 0 24 24"><path d="M21 11a9 9 0 0 1-9 9H3l2-5a9 9 0 1 1 16-4Z"/><path d="M8 10h8M8 14h5"/></symbol>
+<symbol id="icon-brain" viewBox="0 0 24 24"><path d="M12 3c-3-3-7 0-6 3-4 0-5 6-2 8-3 4 2 8 5 6 1 2 3 2 3-1V3Zm0 0c3-3 7 0 6 3 4 0 5 6 2 8 3 4-2 8-5 6-1 2-3 2-3-1M6 6l2 3M4 14l4-1m10-7-2 3m4 5-4-1"/></symbol>
+<symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="m15 15 7 7"/></symbol>
+<symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+<symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 2v14m-5-5 5 5 5-5M3 16v6h18v-6"/></symbol>
+<symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7a9 9 0 1 0 1 8M20 2v6h-6"/></symbol>
+<symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="m9 2 6 0 1 4 4 1 2 5-3 3-1 5-5 2-3-3-5-1-2-5 3-3 0-5Z"/></symbol>
+<symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></symbol>
+<symbol id="icon-network" viewBox="0 0 24 24"><circle cx="12" cy="3" r="2"/><circle cx="3" cy="14" r="2"/><circle cx="21" cy="14" r="2"/><circle cx="12" cy="21" r="2"/><path d="m10 4-6 8m10-8 6 8M5 15l5 5m4 0 5-5M5 14h14"/></symbol>
+</defs></svg>
+<aside class="sidebar" aria-label="Navigazione principale">
+<div class="brand"><span class="monogram">B<svg><use href="#icon-network"/></svg></span><div><b>BC SCIENCE</b><small>Scientific Learning System</small></div></div>
+<nav id="nav">
+<button data-view="overview"><svg><use href="#icon-home"/></svg>Panoramica</button>
+<button data-view="subjects" class="active"><svg><use href="#icon-book"/></svg>Le mie materie</button>
+<button data-view="library"><svg><use href="#icon-file"/></svg>Biblioteca</button>
+<button data-view="summaries"><svg><use href="#icon-file"/></svg>Riassunti</button>
+<button data-view="ask"><svg><use href="#icon-chat"/></svg>Chiedi a BC</button>
+<button data-view="review"><svg><use href="#icon-brain"/></svg>Ripasso</button>
+</nav>
+<div class="course-nav"><h2>LE MIE MATERIE</h2><div id="courses"></div><button class="folder-button" id="folder"><svg><use href="#icon-plus"/></svg>Cambia cartella</button><button class="folder-button" id="new-subject"><svg><use href="#icon-plus"/></svg>Nuova materia</button></div>
+<button class="local-status" id="settings"><span class="dot"></span><span id="model-label">AI locale · verifica…</span><svg><use href="#icon-settings"/></svg></button>
+</aside>
+<div class="app"><header class="topbar"><div class="crumb">Materie <span>/</span> <strong id="crumb-course">Le tue dispense</strong></div><div class="searchbox"><svg><use href="#icon-search"/></svg><input id="search" aria-label="Cerca documenti per nome" placeholder="Cerca nei tuoi materiali…"><kbd>Ctrl K</kbd></div><button id="import" class="button compact"><svg><use href="#icon-plus"/></svg>Importa documenti</button><span class="avatar" aria-label="BC Science">BC</span></header>
+<div id="notice" role="alert" hidden></div>
+<div class="workspace"><main id="main" tabindex="-1"><div class="page-head"><p class="subject" id="subject">LE TUE MATERIE</p><h1 id="title">Il tuo spazio di studio</h1><p class="subtitle" id="subtitle">Scegli una materia per ritrovare le tue dispense e studiare con BC.</p></div>
+<div class="toolbar" id="reader-tools"><div class="segments" role="group" aria-label="Modalità di studio"><button data-mode="essential">Essenziale</button><button data-mode="complete" class="selected" aria-pressed="true">Completa</button></div><div class="tools"><button class="button" id="sources"><svg><use href="#icon-file"/></svg>Fonti</button><button class="button" id="generate"><svg><use href="#icon-refresh"/></svg><span>Genera</span></button><button class="button" id="export"><svg><use href="#icon-download"/></svg>Apri PDF</button></div></div>
+<div id="chapter-row" hidden><label for="chapter">Argomento</label><select id="chapter"></select></div>
+<section id="content" aria-live="polite"><div class="empty"><svg><use href="#icon-book"/></svg><h2>Preparazione dei materiali</h2><p>Sto aprendo la tua raccolta locale.</p></div></section>
+<details id="activity" hidden><summary><span class="spinner"></span><span id="job-title">Elaborazione in corso</span></summary><pre id="job-log"></pre></details>
+</main>
+<aside class="inspector" aria-label="Strumenti di studio"><div class="companion"><svg><use href="#icon-network"/></svg><div><b>COMPRENDI MEGLIO</b><span>Il tuo compagno di studio locale</span></div></div>
+<section class="panel"><h2><svg><use href="#icon-book"/></svg>Nel tuo materiale</h2><div id="concepts"><p class="hint">I termini e gli argomenti appariranno quando apri un riassunto.</p></div></section>
+<section class="panel"><h2><svg><use href="#icon-brain"/></svg>Studia con un percorso chiaro</h2><p class="hint">Leggi la versione Completa per comprendere. Passa a Essenziale per richiamare ciò che hai studiato.</p><button id="review" class="violet">Apri il ripasso <svg><use href="#icon-arrow"/></svg></button></section>
+<section class="panel"><h2><svg><use href="#icon-chat"/></svg>Chiedi a BC</h2><p class="hint">Fai una domanda: BC cercherà una risposta nelle fonti della materia.</p><form id="question-form"><label class="sr-only" for="question">La tua domanda</label><div class="questionbox"><input id="question" placeholder="Cosa vorresti capire meglio?" maxlength="4000" required><button aria-label="Invia domanda"><svg><use href="#icon-arrow"/></svg></button></div></form><div id="answer" aria-live="polite"></div></section>
+<section class="panel sources-panel"><h2><svg><use href="#icon-file"/></svg>La tua raccolta</h2><p id="collection" class="hint">Scegli una materia.</p><button class="text-button" id="library">Esplora le fonti <svg><use href="#icon-arrow"/></svg></button></section>
+</aside></div></div>
+<dialog id="settings-dialog"><button class="close button" id="close-settings" aria-label="Chiudi impostazioni">Chiudi</button><h2>AI sul tuo computer</h2><p id="model-info">Controllo Ollama…</p><label for="profile">Profilo di generazione</label><select id="profile"><option value="standard">Standard</option><option value="quality">Qualità</option><option value="turbo">Veloce</option></select><p class="hint">I documenti restano sul computer. I modelli mancanti vengono scaricati al primo avvio della generazione.</p><p class="hint" id="folder-info"></p></dialog>
+<dialog id="subject-dialog"><form id="subject-form"><h2>Una nuova materia</h2><label for="subject-name">Nome della materia</label><input id="subject-name" maxlength="80" required autocomplete="off"><p class="hint">Verrà creata una sottocartella nella tua raccolta.</p><button type="button" class="button" id="cancel-subject">Annulla</button> <button class="button primary">Crea materia</button></form></dialog>
+<script src="app.js"></script></body></html>
