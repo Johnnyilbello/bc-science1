@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .italian_proofreading import conservative_italian_fixes
 from .quality_signals import critical_facts
 from .summarizer import (
     _extract_exam_points,
@@ -15,7 +16,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "study-v5-source-priority-narrative"
+FAST_STUDY_VERSION = "study-v6-italian-proofread-narrative"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
@@ -199,6 +200,24 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
 
     if not selected:
         raise ValueError(f"Nessun testo utilizzabile per {title}")
+
+    # The ranking decides WHICH statements to keep, never their final order.
+    # Returning them to the order found in the verified Complete prevents
+    # scrambled cause/effect, definitions detached from their subject, and
+    # the uncontrolled jumps seen in the 80-page Anatomia PDF.
+    source_order = [
+        sentence
+        for sentences in sections.values()
+        for sentence in sentences
+    ]
+    order: dict[str, int] = {}
+    for position, sentence in enumerate(source_order):
+        order.setdefault(sentence.strip().casefold(), position)
+    selected.sort(
+        key=lambda sentence: order.get(
+            sentence.strip().casefold(), len(source_order),
+        )
+    )
     paragraphs: list[str] = []
     group: list[str] = []
     words = 0
@@ -213,6 +232,7 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
         paragraphs.append(" ".join(group))
 
     text = f"## {title}\n\n" + "\n\n".join(paragraphs)
+    text, _fix_count = conservative_italian_fixes(text)
     if not _preserves_exam_numbers(complete_chapter, text):
         raise ValueError(f"Numeri d'esame mancanti in {title}")
     return ReadableChapter(
