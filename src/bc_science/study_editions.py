@@ -45,6 +45,9 @@ def _keywords(text: str) -> set[str]:
 
 
 def _similar(a: str, b: str) -> bool:
+    nums = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
+    if set(nums.findall(a)) != set(nums.findall(b)):
+        return False
     la, lb = _keywords(a), _keywords(b)
     if not la or not lb:
         return a.casefold() == b.casefold()
@@ -71,7 +74,9 @@ def readable_complete_chapter(title: str, chapter: str) -> str:
     def flush() -> None:
         if buffer:
             paragraph = " ".join(buffer)
-            if not any(_similar(paragraph, other) for other in paragraphs):
+            if paragraph.casefold() not in {
+                other.casefold() for other in paragraphs
+            }:
                 paragraphs.append(paragraph)
             buffer.clear()
 
@@ -134,6 +139,13 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
         _clean_line(point) for point in _extract_exam_points(complete_chapter)
         if re.search(r"\d", point)
     ]
+    # Also preserve numerical statements from non-exam sections: anatomical
+    # measurements and physiological values may be exam-critical even without
+    # a dedicated recap heading.
+    for _name, sentences in sections.items():
+        for sentence in sentences:
+            if re.search(r"(?<!\w)\d+(?:[.,]\d+)?", sentence):
+                mandatory.append(sentence)
     selected: list[str] = []
     max_words = min(550, max(95, int(source_words * 0.43)))
     current_words = 0
@@ -209,3 +221,18 @@ def make_fast_essential(complete: str, title: str) -> tuple[str, list[ReadableCh
         f"# {title}\n\n## Indice degli argomenti\n{toc}\n\n---\n\n{body}\n",
         records,
     )
+
+
+def readable_complete_document(complete: str, title: str) -> str:
+    """Reflow the archived Complete as one continuous summary per topic.
+
+    Does not mutate the source Complete, so provenance stays honest.
+    """
+    chapters = _extract_summary_chapters(complete)
+    if not chapters:
+        raise ValueError("Versione Completa senza capitoli leggibili.")
+    toc = "\n".join(f"- {name}" for name, _ in chapters)
+    body = "\n\n---\n\n".join(
+        readable_complete_chapter(name, chapter) for name, chapter in chapters
+    )
+    return f"# {title}\n\n## Indice degli argomenti\n{toc}\n\n---\n\n{body}\n"
