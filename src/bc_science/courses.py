@@ -19,6 +19,7 @@ from .course_audit import (
     write_audit_reports,
 )
 from .documents import SUPPORTED, file_sha256
+from .evidence_engine import OriginalEvidenceIndex
 from .fast_audit import FastEssentialAudit, audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .indexer import ingest_files
@@ -1583,6 +1584,100 @@ def build_fast_essential_only(
     )
 
 
+def inspect_original_evidence(
+    scan: CourseScan,
+    chapter_title: str,
+) -> dict:
+    """Read-only, local evidence inspection for one selected study chapter.
+
+    Uses the SHA-validated cache from the *original* course documents,
+    never the derived Complete. No OCR, network or Ollama request.
+    """
+    from .italian_proofreading import grammar_findings
+    from .quality_signals import assess_chapter
+    from .structural_checks import find_structural_issues
+
+    manifest = _load_manifest(scan)
+    complete_path = course_output_path(scan)
+    study_path = course_study_output_path(scan)
+    if not manifest or not complete_path.is_file() or not study_path.is_file():
+        raise ValueError("Genera prima Completa ed Essenziale.")
+    complete = complete_path.read_text(encoding="utf-8")
+    essential = study_path.read_text(encoding="utf-8")
+    if (
+        not _manifest_baseline_verified(complete, manifest)
+        or not audit_course_summary(
+            scan, complete, manifest=manifest, snapshot=_snapshot(scan),
+        ).complete
+        or not _study_is_current(scan, manifest, complete)
+    ):
+        raise ValueError("Le dispense sono cambiate o i riassunti non sono verificabili.")
+
+    sources = dict(_extract_summary_chapters(complete))
+    study = dict(_extract_summary_chapters(essential))
+    if chapter_title not in sources or chapter_title not in study:
+        raise ValueError("Capitolo assente in Completa o Essenziale.")
+
+    original = sources[chapter_title]
+    short = study[chapter_title]
+    signals = assess_chapter(chapter_title, original, short)
+    grammar = list(grammar_findings(short, limit=8))
+    structural = list(find_structural_issues(short, limit=8))
+    questions = [issue.quote for issue in structural[:2]]
+    questions += [issue.quote for issue in grammar[:2]]
+    questions += [fact.quote for fact in signals.possible_missing[:2]]
+    if not questions:
+        questions = [chapter_title]
+
+    # Manifest hashes are re-checked against current bytes by the course
+    # audit above. Never index another subject or stale source file.
+    allowed = {str(path.resolve()) for path in scan.supported_files}
+    file_hashes = {}
+    for entry in manifest.get("files", []):
+        source = str((scan.path / str(entry.get("path", ""))).resolve())
+        digest = entry.get("sha256")
+        if source in allowed and isinstance(digest, str):
+            file_hashes[source] = digest
+
+    found = []
+    seen = set()
+    if file_hashes:
+        with OriginalEvidenceIndex(workspace_db_path(scan), file_hashes) as index:
+            for question in questions[:4]:
+                for evidence in index.search(
+                    question, chapter_title=chapter_title, limit=4,
+                ):
+                    identity = (
+                        evidence.source_path, evidence.page, evidence.block,
+                    )
+                    if identity not in seen:
+                        seen.add(identity)
+                        found.append(evidence)
+                    if len(found) >= 6:
+                        break
+                if len(found) >= 6:
+                    break
+
+    return {
+        "title": chapter_title,
+        "status": (
+            "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE"
+            if found else "NESSUNA_PROVA_ORIGINALE_IN_CACHE"
+        ),
+        "scientifically_verified": False,
+        "findings": [
+            {"category": item.category, "quote": item.quote,
+             "reason": item.reason}
+            for item in structural
+        ] + [
+            {"category": item.category, "quote": item.quote,
+             "reason": item.message}
+            for item in grammar
+        ],
+        "evidence": [item.to_dict() for item in found],
+    }
+
+
 def review_essential_chapter(
     scan: CourseScan,
     config: AppConfig,
@@ -1632,6 +1727,38 @@ def review_essential_chapter(
             coverage_complete=True, study_generated=False,
         )
 
+    evidence_report = inspect_original_evidence(scan, chapter_title)
+    from .evidence_engine import OriginalEvidence
+
+    original_passages = [
+        OriginalEvidence(**record)
+        for record in evidence_report["evidence"]
+    ]
+    if not original_passages:
+        if progress:
+            progress(
+                "Nessun passaggio delle dispense originali recuperabile "
+                "dalla cache. Non chiamo Qwen e non modifico il riassunto."
+            )
+        return CourseBuildResult(
+            scan=scan, state="prove originali non disponibili",
+            output_path=complete_path, study_path=study_path,
+            study_pdf_path=course_study_pdf_path(scan),
+            coverage_complete=True, study_generated=False,
+            audit_status="WARN",
+        )
+
+    if progress:
+        progress(
+            f"Grounding locale: {len(original_passages)} passaggi originali "
+            "con pagina o blocco di provenienza; nessun nuovo OCR."
+        )
+        for hit in original_passages[:4]:
+            place = (
+                f"pagina {hit.page}" if hit.page is not None
+                else f"blocco {hit.block}"
+            )
+            progress(f"  Fonte: {Path(hit.source_path).name}, {place}")
     summarizer = Summarizer(
         config, profile, db_path=workspace_db_path(scan),
     )
@@ -1647,6 +1774,7 @@ def review_essential_chapter(
             dict(chapters)[chapter_title],
             config,
             summarizer=summarizer,
+            original_evidence=original_passages,
         )
     finally:
         summarizer.close()
