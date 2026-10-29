@@ -138,8 +138,8 @@ class DesktopAPI:
             chapters = [
                 (
                     title,
-                    f"## {title}\n\n> Ripasso non ancora generato. "
-                    "Seleziona Genera questo argomento per prepararlo.",
+                    (f"## {title}\n\n> Ripasso non ancora generato. "
+                     "Seleziona Genera questo argomento per prepararlo."),
                 )
                 for title, _ in _extract_summary_chapters(complete_text)
             ]
