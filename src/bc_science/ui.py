@@ -111,39 +111,91 @@ class DesktopAPI:
 
     def read(self, name: str, mode: str):
         course = self._course(name)
-        path = course_study_output_path(course) if mode == "essential" else course_output_path(course)
+        path = (
+            course_study_output_path(course)
+            if mode == "essential" else course_output_path(course)
+        )
         complete_path = course_output_path(course)
-        if not path.is_file():
-            if mode != "essential" or not complete_path.is_file():
-                return {"chapters": [], "ready": False}
-            # Make all 77 chapter choices visible even before the full
-            # Essential edition has finished, without mislabeling Complete as Essential.
-            text = complete_path.read_text(encoding="utf-8")
-            chapters = [
-                (title, (f"## {title}\n\n> Ripasso non ancora generato. "
-                 "Seleziona Genera questo argomento per prepararlo."))
-                for title, _ in _extract_summary_chapters(text)
-            ]
-        else:
+        if not path.is_file() and (mode != "essential" or not complete_path.is_file()):
+            return {"chapters": [], "ready": False}
+
+        manifest = _load_manifest(course) or {}
+        complete_legacy = manifest.get("summary_pipeline") != PROMPT_VERSION
+        complete_text = (
+            complete_path.read_text(encoding="utf-8")
+            if complete_path.is_file() else ""
+        )
+
+        if path.is_file():
             text = path.read_text(encoding="utf-8")
             chapters = _extract_summary_chapters(text)
             if not chapters:
                 chapters = [(course.name, text)]
-        if mode == "essential" and complete_path.is_file():
-            complete_text = complete_path.read_text(encoding="utf-8")
-            previews = read_essential_chapter_previews(course, complete_text)
-            if previews:
-                existing_titles = {title for title, _ in chapters}
-                chapters = [
-                    (title, previews.get(title, body)) for title, body in chapters
-                ]
-                for title, _source_chapter in _extract_summary_chapters(complete_text):
-                    if title not in existing_titles and title in previews:
-                        chapters.append((title, previews[title]))
-        manifest = _load_manifest(course) or {}
-        return {"ready": True, "legacy": manifest.get("summary_pipeline") != PROMPT_VERSION, "chapters": [{"title": title, "html": render_markdown(body),
-            "terms": list({term.casefold(): term for term in reversed(re.findall(r"\*\*([^*\n]{2,70})\*\*", body))}.values())[:6]}
-            for title, body in chapters]}
+        else:
+            # Do not display the Complete as an Essential: show a clearly
+            # marked placeholder until the requested chapter is generated.
+            chapters = [
+                (
+                    title,
+                    f"## {title}\n\n> Ripasso non ancora generato. "
+                    "Seleziona Genera questo argomento per prepararlo.",
+                )
+                for title, _ in _extract_summary_chapters(complete_text)
+            ]
+
+        previews = (
+            read_essential_chapter_previews(course, complete_text)
+            if mode == "essential" and complete_text else {}
+        )
+        study_current = (
+            _study_is_current(course, manifest, complete_text)
+            if mode == "essential" and complete_text else False
+        )
+        entries: list[tuple[str, str, str]] = []
+        if mode == "essential":
+            seen: set[str] = set()
+            for title, body in chapters:
+                seen.add(title)
+                status = (
+                    "updated" if title in previews or study_current
+                    else ("previous" if path.is_file() else "pending")
+                )
+                entries.append((title, previews.get(title, body), status))
+            # A partial Essential may omit topics: keep missing topics visible
+            # with honest placeholders so single-chapter generation works.
+            for title, _source_body in _extract_summary_chapters(complete_text):
+                if title not in seen:
+                    body = previews.get(
+                        title,
+                        f"## {title}\n\n> Ripasso non ancora generato. "
+                        "Seleziona Genera questo argomento per prepararlo.",
+                    )
+                    entries.append(
+                        (title, body, "updated" if title in previews else "pending")
+                    )
+        else:
+            entries = [(title, body, "updated" if not complete_legacy else "previous")
+                       for title, body in chapters]
+
+        return {
+            "ready": True,
+            "legacy": complete_legacy,
+            "complete_legacy": complete_legacy,
+            "chapters": [
+                {
+                    "title": title,
+                    "html": render_markdown(body),
+                    "edition_status": status,
+                    "terms": list({
+                        term.casefold(): term
+                        for term in reversed(re.findall(
+                            r"\*\*([^*\n]{2,70})\*\*", body,
+                        ))
+                    }.values())[:6],
+                }
+                for title, body, status in entries
+            ],
+        }
 
     def export(self, name: str, mode: str):
         course = self._course(name)
