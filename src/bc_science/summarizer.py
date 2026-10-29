@@ -2287,7 +2287,7 @@ class Summarizer:
     ) -> str:
         """Generate a single fact-checked Essential chapter, caching the final text."""
         final_key = _key(
-            STUDY_PROMPT_VERSION, "essential-validated-v1", self.model,
+            STUDY_PROMPT_VERSION, "essential-validated-narrative-v2", self.model,
             chapter_title, chapter,
         )
         db = getattr(self, "db", None)
@@ -2307,15 +2307,21 @@ class Summarizer:
             "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
             "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
             "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
-            "Usa un solo titolo H2 e punti brevi.\n\n"
+            "Scrivi un unico riassunto scorrevole in paragrafi brevi, non una lista " 
+            "di punti. Inserisci soltanto il titolo H2 del capitolo, senza sezioni " 
+            "\"In parole semplici\", \"Spiegazione ordinata\" o \"Da ricordare\".\n\n"
             f"CAPITOLO:\n{chapter}"
         )
         key = _key(
-            STUDY_PROMPT_VERSION, "essential-v4", self.model, chapter_title, chapter,
+            STUDY_PROMPT_VERSION, "essential-v5-narrative", self.model, chapter_title, chapter,
         )
         candidate = self._cached_chat(key, system, prompt, num_predict=1800)
         candidate = _normalize_chapter_heading(candidate, chapter_title)
         candidate, restored = _restore_missing_exam_points(chapter, candidate)
+        # Both study editions must read as coherent summaries, not worksheets.
+        from .study_editions import readable_complete_chapter
+
+        candidate = readable_complete_chapter(chapter_title, candidate)
         if restored and progress:
             progress(
                 f"    Recuperati {restored} punti d'esame dalla Completa per {chapter_title}."
@@ -2350,7 +2356,7 @@ class Summarizer:
         db = getattr(self, "db", None)
         if db is None or any(
             db.get_summary(
-                _key(STUDY_PROMPT_VERSION, "essential-validated-v1",
+                _key(STUDY_PROMPT_VERSION, "essential-validated-narrative-v2",
                      self.model, name, source)
             )
             for name, source in chapters
@@ -2384,7 +2390,7 @@ class Summarizer:
             "FONTI:\n" + json.dumps(items, ensure_ascii=False)
         )
         key = _key(
-            STUDY_PROMPT_VERSION, "essential-pair-v1",
+            STUDY_PROMPT_VERSION, "essential-pair-v2-narrative",
             self.model, left[0], left[1], right[0], right[1],
         )
         if progress:
@@ -2415,6 +2421,9 @@ class Summarizer:
                     raise ValueError("Intestazione capitolo alterata o mischiata")
                 markdown = _normalize_chapter_heading(markdown, name)
                 markdown, restored = _restore_missing_exam_points(source, markdown)
+                from .study_editions import readable_complete_chapter
+
+                markdown = readable_complete_chapter(name, markdown)
                 if not _preserves_exam_numbers(source, markdown):
                     raise ValueError("Valori numerici non verificabili")
                 number_pattern = r"(?<!\w)\d+(?:[.,]\d+)?"
@@ -2454,7 +2463,7 @@ class Summarizer:
         for (name, source), (_title, markdown) in zip(chapters, validated, strict=True):
             db.set_summary(
                 _key(
-                    STUDY_PROMPT_VERSION, "essential-validated-v1",
+                    STUDY_PROMPT_VERSION, "essential-validated-narrative-v2",
                     self.model, name, source,
                 ),
                 markdown,
@@ -2560,7 +2569,7 @@ class Summarizer:
 
             db = getattr(self, "db", None)
             final_key = _key(
-                STUDY_PROMPT_VERSION, "essential-validated-v1",
+                STUDY_PROMPT_VERSION, "essential-validated-narrative-v2",
                 self.model, name, source,
             )
             if db is not None:
