@@ -197,12 +197,49 @@ class OriginalEvidenceIndex:
                         "VALUES (?,?)", (source, expected),
                     )
 
+    def search_semantic(
+        self, query_vector: list[float], *, limit: int = 4,
+    ) -> list[OriginalEvidence]:
+        """Optional semantic fallback from existing original-file embeddings.
+
+        The caller supplies a locally produced vector; this method never
+        invokes Ollama. Validates original file hashes before accepting hits.
+        """
+        from .cache import CacheDB
+
+        if not self.file_hashes:
+            return []
+        db = CacheDB(self.path)
+        try:
+            hits = db.search(query_vector, limit=max(16, limit * 5))
+            output: list[OriginalEvidence] = []
+            for hit in hits:
+                source = str(hit["source"])
+                if source not in self.file_hashes:
+                    continue
+                file_hash = db.document_hash(source)
+                if file_hash != self.file_hashes[source]:
+                    continue
+                output.append(OriginalEvidence(
+                    source_path=source,
+                    page=None,
+                    block=int(hit["chunk_index"]) + 1,
+                    excerpt=str(hit["text"])[:1800],
+                    rank=len(output) + 1,
+                    provenance="indexed_chunk",
+                ))
+                if len(output) >= limit:
+                    break
+            return output
+        finally:
+            db.close()
+
     def search(
         self, query: str, *, chapter_title: str = "",
         limit: int = 4,
     ) -> list[OriginalEvidence]:
         assert self.conn is not None
-        terms = _terms(f"{chapter_title} {query}")
+        terms = _terms(f"{query} {chapter_title}")
         if not terms:
             return []
         sources = tuple(self.file_hashes)
