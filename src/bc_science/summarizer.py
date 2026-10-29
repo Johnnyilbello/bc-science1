@@ -1178,13 +1178,13 @@ def _restore_missing_exam_points(existing: str, candidate: str) -> tuple[str, in
         # mandatory exam heading. Preserve only missing numerical exam points
         # instead of aborting the entire course or restoring every paragraph.
         source_numeric = re.compile(
-            r"(?<!\\w)\\d+(?:[.,]\\d+)?(?:\\s*(?:%|[A-Za-zÀ-ÿµ°]+))?"
+            r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|[A-Za-zÀ-ÿµ°]+))?"
         )
         candidate_text = _strip_study_citations(candidate).casefold()
         missing = [
             point for point in missing
             if any(
-                re.sub(r"\\s+", " ", number).strip().casefold() not in candidate_text
+                re.sub(r"\s+", " ", number).strip().casefold() not in candidate_text
                 for number in source_numeric.findall(point)
             )
         ]
@@ -2317,8 +2317,8 @@ class Summarizer:
             "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
             "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
             "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
-            "Usa un solo titolo H2 e punti brevi.\\n\\n"
-            f"CAPITOLO:\\n{chapter}"
+            "Usa un solo titolo H2 e punti brevi.\n\n"
+            f"CAPITOLO:\n{chapter}"
         )
         key = _key(
             STUDY_PROMPT_VERSION, "essential-v4", self.model, chapter_title, chapter,
@@ -2381,16 +2381,16 @@ class Summarizer:
                     checkpoint_path, signature=signature, completed=records,
                 )
 
-        toc = "## Indice degli argomenti\\n" + "\\n".join(
+        toc = "## Indice degli argomenti\n" + "\n".join(
             f"- {name}" for name, _ in records
         )
-        body = "\\n\\n---\\n\\n".join(
+        body = "\n\n---\n\n".join(
             chapter for _, chapter in records
         )
         result = (
-            f"# {title}\\n\\n"
-            "> Modalità essenziale: ripasso dopo lo studio della versione completa.\\n\\n"
-            f"{toc}\\n\\n---\\n\\n{body}\\n"
+            f"# {title}\n\n"
+            "> Modalità essenziale: ripasso dopo lo studio della versione completa.\n\n"
+            f"{toc}\n\n---\n\n{body}\n"
         )
         if checkpoint_path is not None:
             checkpoint_path.unlink(missing_ok=True)
