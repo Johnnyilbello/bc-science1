@@ -74,10 +74,10 @@ def conservative_italian_fixes(text: str) -> tuple[str, int]:
     fixed = text
     changes = 0
     for regex, replacement, _description in _SAFE_FIXES:
-        def replace(match: re.Match[str]) -> str:
+        def replace(match: re.Match[str], *, value: str = replacement) -> str:
             nonlocal changes
             changes += 1
-            new = replacement
+            new = value
             if match.group(0)[:1].isupper():
                 new = new[:1].upper() + new[1:]
             return new
