@@ -36,3 +36,20 @@ def test_real_collection_reader_and_source_boundary(tmp_path: Path, monkeypatch)
         api.open_source('ANATOMIA','../../private.txt')
     with pytest.raises(ValueError):
         api.documents('../ANATOMIA')
+
+
+def test_desktop_progress_is_visible_in_terminal_and_job(capsys, tmp_path: Path):
+    api = DesktopAPI(tmp_path)
+    api._line("Capitolo 2/10: Scheletro")
+    assert "[BC Science] Capitolo 2/10: Scheletro" in capsys.readouterr().out
+    assert api.progress()["lines"] == ["Capitolo 2/10: Scheletro"]
+
+
+def test_activity_panel_precedes_long_summary():
+    html_path = (
+        Path(__file__).resolve().parents[1]
+        / "src" / "bc_science" / "desktop" / "index.html"
+    )
+    html = html_path.read_text(encoding="utf-8")
+    assert html.index('id="reader-tools"') < html.index('id="activity"')
+    assert html.index('id="activity"') < html.index('id="content"')
