@@ -1678,10 +1678,18 @@ def review_essential_chapter(
             audit_status="FAIL",
         )
 
-    # Avoid mutating the published file before validating all chapters.
-    _save_summary(study_path, updated)
+    # Produce the candidate PDF first. If rendering fails the original
+    # Markdown and published PDF remain untouched.
     study_pdf = course_study_pdf_path(scan)
-    pages = export_pdf(updated, study_pdf, f"{scan.name} - Riassunto essenziale")
+    pending_pdf = study_pdf.with_name(study_pdf.stem + ".review-pending.pdf")
+    try:
+        pages = export_pdf(
+            updated, pending_pdf, f"{scan.name} - Riassunto essenziale",
+        )
+        pending_pdf.replace(study_pdf)
+    finally:
+        pending_pdf.unlink(missing_ok=True)
+    _save_summary(study_path, updated)
     complete_pdf = course_pdf_path(scan)
     pdf_info = manifest.get("pdf") or {}
     old_pdf_valid = (
