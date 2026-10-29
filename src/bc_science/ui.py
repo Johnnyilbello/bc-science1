@@ -218,6 +218,32 @@ class DesktopAPI:
             for x in audit_detail.get("chapter_signals", [])
             if isinstance(x, dict) and isinstance(x.get("title"), str)
         }
+        if mode == "complete":
+            from .italian_proofreading import grammar_findings
+            from .quality_signals import assess_chapter
+            from .structural_checks import find_structural_issues
+
+            source_chapters = dict(_extract_summary_chapters(complete_text))
+            for title, body in source_chapters.items():
+                quality = assess_chapter(title, body, body).to_dict()
+                grammar = list(grammar_findings(body, limit=12))
+                structure = list(find_structural_issues(body, limit=12))
+                quality["language_findings"] = [
+                    item.to_dict() for item in grammar
+                ]
+                quality["structural_findings"] = [
+                    item.to_dict() for item in structure
+                ]
+                reviews[title] = quality
+            audit_detail = {
+                "status": "PROVENIENZA_DA_VERIFICARE",
+                "linguistic_status": (
+                    "DA_RIVEDERE"
+                    if any(item["language_findings"] for item in reviews.values())
+                    else "NESSUNA_ANOMALIA_RILEVATA"
+                ),
+                "content_review_status": "NON_VERIFICATO_SCIENTIFICAMENTE",
+            }
 
         return {
             "ready": True,
@@ -253,14 +279,16 @@ class DesktopAPI:
             ],
         }
 
-    def evidence(self, name: str, chapter_title: str):
+    def evidence(
+        self, name: str, chapter_title: str, edition: str = "essential",
+    ):
         """Locate original cached PDF/page evidence without Ollama."""
         from .courses import inspect_original_evidence
 
         if not chapter_title.strip():
             raise ValueError("Seleziona un capitolo da verificare.")
         report = inspect_original_evidence(
-            self._course(name), chapter_title,
+            self._course(name), chapter_title, edition=edition,
         )
         count = len(report["evidence"])
         self._line(
@@ -307,7 +335,7 @@ class DesktopAPI:
         chapter_title: str = "",
     ):
         self._course(name)
-        if mode not in {"complete", "essential", "chapter", "review"}:
+        if mode not in {"complete", "essential", "chapter", "review", "review_complete"}:
             raise ValueError("Modalita di generazione non valida.")
         if profile not in {"standard", "quality", "turbo"}:
             raise ValueError("Profilo non valido.")
@@ -328,6 +356,7 @@ class DesktopAPI:
                     build_course,
                     build_essential_chapter,
                     build_fast_essential_only,
+                    review_complete_chapter,
                     review_essential_chapter,
                 )
                 from .model_manager import ensure_model_with_progress
@@ -351,14 +380,26 @@ class DesktopAPI:
                     "Operazione: solo Essenziale, dalla Completa esistente."
                     if mode == "essential" else (
                         "Operazione: revisione mirata di fedelta e comprensibilita."
-                        if mode == "review" else (
+                        if mode in {"review", "review_complete"} else (
                             "Operazione: un solo capitolo Essenziale."
                             if mode == "chapter"
                             else "Operazione: Completa e aggiornamento Essenziale."
                         )
                     )
                 )
-                if mode == "review":
+                if mode == "review_complete":
+                    if not chapter_title.strip():
+                        raise ValueError("Seleziona un argomento della Completa.")
+                    result = review_complete_chapter(
+                        self._course(name), config, chapter_title,
+                        profile=profile, progress=self._line,
+                    )
+                    self._line(
+                        f"Revisione Completa: {result.state}. "
+                        "Se modificata, rigenera Essenziale per aggiornare "
+                        "la versione derivata."
+                    )
+                elif mode == "review":
                     if not chapter_title.strip():
                         raise ValueError("Seleziona un argomento da controllare.")
                     result = review_essential_chapter(
