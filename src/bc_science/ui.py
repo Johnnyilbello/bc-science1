@@ -262,6 +262,9 @@ class DesktopAPI:
                 "chapters_needing_review", 0
             ),
             "complete_legacy": complete_legacy,
+            "study_stale": (
+                mode == "essential" and path.is_file() and not study_current
+            ),
             "chapters": [
                 {
                     "title": title,
