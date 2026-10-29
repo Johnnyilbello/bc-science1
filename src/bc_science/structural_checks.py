@@ -13,7 +13,7 @@ from .italian_proofreading import grammar_findings
 _HEAD_FRAGMENT = re.compile(
     r"(?:\b(?:Riepilogo|Classificazione|Organizzazione|Trasporto|"
     r"Distribuzione|Struttura|Introduzione)\s+(?:delle?|dei|alla?|e)\s+"
-    r"[\wÀ-ÿ]+(?:\s+[\wÀ-ÿ]+){0,3})\s*$",
+    r"[\wÀ-ÿ-]+(?:\s+[\wÀ-ÿ-]+){0,3})\s*$",
     re.IGNORECASE,
 )
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
