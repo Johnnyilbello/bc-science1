@@ -267,3 +267,139 @@ def test_course_evidence_reads_original_not_complete_and_rejects_edits(
 
     with pytest.raises(ValueError, match="dispense|verificabili"):
         courses.inspect_original_evidence(courses.scan_course(folder), "Scheletro")
+
+
+
+def test_complete_grounding_and_review_invalidates_dependent_essential(
+    tmp_path: Path, monkeypatch,
+):
+    """A grounded Complete edit keeps backups and marks Essential outdated."""
+    from bc_science.config import AppConfig
+    from bc_science.targeted_review import ReviewOutcome
+
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    folder = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
+    folder.mkdir(parents=True)
+    source = folder / "Scheletro.txt"
+    source.write_text(
+        "Lo scheletro assile contiene cranio e torace.", encoding="utf-8",
+    )
+    scan = courses.scan_course(folder)
+    complete = (
+        "# Anatomia\n\n## Indice degli argomenti\n- Scheletro\n\n---\n\n"
+        "## Scheletro\n\nIl scheletro assile contiene cranio e torace.\n"
+    )
+    full = courses.course_output_path(scan)
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(complete, encoding="utf-8")
+    study, _ = make_fast_essential(complete, "Anatomia Essenziale")
+    study_path = courses.course_study_output_path(scan)
+    study_path.write_text(study, encoding="utf-8")
+    study_pdf = courses.course_study_pdf_path(scan)
+    study_pdf.write_bytes(b"%PDF-old-study")
+    full_pdf = courses.course_pdf_path(scan)
+    full_pdf.write_bytes(b"%PDF-old-complete")
+    courses._write_manifest(
+        scan, courses._snapshot(scan), full, complete,
+        {"Scheletro.txt": "Scheletro"},
+        pdf_path=full_pdf, pdf_pages=1,
+        study_path=study_path, study_text=study,
+        study_pdf_path=study_pdf, study_pdf_pages=1,
+        summary_pipeline="summary-old",
+        study_pipeline=courses.FAST_STUDY_VERSION,
+    )
+    db = CacheDB(courses.workspace_db_path(scan))
+    try:
+        db.set_extracted_document(
+            str(source.resolve()), courses.file_sha256(source),
+            "extraction-v1",
+            "Lo scheletro assile contiene cranio e torace.",
+            pages=0, ocr_pages=0,
+        )
+    finally:
+        db.close()
+
+    report = courses.inspect_original_evidence(
+        scan, "Scheletro", edition="complete",
+    )
+    assert report["edition"] == "complete"
+    assert report["evidence"]
+
+    class FakeSummarizer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    def fake_review(title, source_text, short, config, **kwargs):
+        assert kwargs["edition"] == "complete"
+        assert kwargs["original_evidence"]
+        return ReviewOutcome(
+            title, True,
+            "## Scheletro\n\nLo scheletro assile contiene cranio e torace.",
+            "Revisione con prove originali",
+        )
+
+    def fake_pdf(text, path, title):
+        path.write_bytes(b"%PDF-new")
+        return 2
+
+    monkeypatch.setattr(courses, "Summarizer", FakeSummarizer)
+    monkeypatch.setattr(courses, "review_chapter", fake_review)
+    monkeypatch.setattr(courses, "export_pdf", fake_pdf)
+    out = courses.review_complete_chapter(
+        scan, AppConfig(), "Scheletro",
+    )
+    assert out.state == "capitolo Completa rivisto"
+    assert "Lo scheletro" in full.read_text(encoding="utf-8")
+    assert study_path.read_text(encoding="utf-8") == study
+    manifest = courses._load_manifest(scan)
+    assert manifest["study"] is None
+    assert not courses._study_is_current(
+        scan, manifest, full.read_text(encoding="utf-8"),
+    )
+    backups = list((courses.workspace_path(scan) / "complete_history").glob("*.md"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == complete
+    assert full_pdf.read_bytes() == b"%PDF-new"
+
+
+def test_original_grounding_allows_complete_without_existing_essential(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    folder = tmp_path / "SCIENZE MOTORIE" / "ANATOMIA"
+    folder.mkdir(parents=True)
+    source = folder / "Esofago.txt"
+    source.write_text(
+        "L'esofago collega la faringe allo stomaco.", encoding="utf-8",
+    )
+    scan = courses.scan_course(folder)
+    complete = (
+        "# Anatomia\n\n## Indice degli argomenti\n- Esofago\n\n---\n\n"
+        "## Esofago\n\nL'esofago collega la faringe allo stomaco."
+    )
+    output = courses.course_output_path(scan)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(complete, encoding="utf-8")
+    courses._write_manifest(
+        scan, courses._snapshot(scan), output, complete,
+        {"Esofago.txt": "Esofago"}, pdf_path=None, pdf_pages=0,
+        summary_pipeline="summary-old",
+    )
+    db = CacheDB(courses.workspace_db_path(scan))
+    try:
+        db.set_extracted_document(
+            str(source.resolve()), courses.file_sha256(source),
+            "extraction-v1",
+            "L'esofago collega la faringe allo stomaco.",
+            pages=0, ocr_pages=0,
+        )
+    finally:
+        db.close()
+    result = courses.inspect_original_evidence(
+        scan, "Esofago", edition="complete",
+    )
+    assert result["edition"] == "complete"
+    assert result["evidence"]
