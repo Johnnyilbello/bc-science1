@@ -496,3 +496,46 @@ def test_fast_essential_preserves_named_mechanism_and_negative_condition():
     assert "chinasi" in text
     assert "fosforila la miosina" in text
     assert "senza che si verifichi un cambiamento elettrico" in text
+
+
+def test_indexed_chunk_with_explicit_markers_exposes_real_page(tmp_path: Path):
+    source = str(tmp_path / "La concentrazione di calcio.pdf")
+    db_path = tmp_path / "workspace.db"
+    db = CacheDB(db_path)
+    try:
+        db.replace_document(
+            source, "hash-v2", "Calcio",
+            [
+                "--- Pagina 1 ---\nI muscoli lisci utilizzano segnali "
+                "cellulari diversi dai muscoli striati.\n"
+                "--- Pagina 2 ---\nLa calmodulina attiva una chinasi "
+                "specifica che fosforila la miosina."
+            ],
+            [[1.0, 0.0, 0.0]],
+        )
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source: "hash-v2"}) as index:
+        results = index.search("calmodulina chinasi", limit=5)
+        assert results
+        assert results[0].page == 2
+        assert "calmodulina attiva" in results[0].excerpt.casefold()
+        assert results[0].provenance == "indexed_chunk"
+
+
+def test_fallback_chunk_without_page_marker_never_invents_page(tmp_path: Path):
+    source = str(tmp_path / "Documento.pdf")
+    db_path = tmp_path / "workspace.db"
+    db = CacheDB(db_path)
+    try:
+        db.replace_document(
+            source, "hash-v1", "Ossa",
+            ["Le ossa pneumatiche contengono cellette aeree interne."],
+            [[1.0, 0.0, 0.0]],
+        )
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source: "hash-v1"}) as index:
+        results = index.search("ossa pneumatiche", limit=5)
+        assert results and results[0].page is None
+        assert results[0].block == 1
