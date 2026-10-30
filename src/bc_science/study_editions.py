@@ -16,7 +16,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "fast-essential-v3-topics-and-qualifiers"
+FAST_STUDY_VERSION = "fast-essential-v4-glossary-and-mechanisms"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
@@ -172,6 +172,44 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
             if (category in {"definizione", "classificazione", "qualificatore", "eccezione", "sequenza"}
                 or re.search(r"\b[A-Z]{2,}\d", sentence)):
                 mandatory.append(sentence)
+    # A glossary term by itself is not enough to learn the concept:
+    # preserve the source-backed definition *and* its causal relationship.
+    # E.g. "Calmodulina — ...", "La calmodulina attiva una chinasi".
+    label_definition = re.compile(
+        r"^(?P<label>[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:\\s+[A-Za-zÀ-ÿ0-9]+){0,3})"
+        r"\\s*(?:[—–]|:)\\s+(?P<description>.{16,})$"
+    )
+    named_terms: set[str] = set()
+    for sentences in sections.values():
+        for sentence in sentences:
+            match = label_definition.match(sentence)
+            if match:
+                named_terms.add(match.group("label").casefold())
+                mandatory.append(sentence)
+
+    key_relation = re.compile(
+        r"\\b(?:attiv\\w*|inib\\w*|leg\\w*|fosforil\\w*|"
+        r"defosforil\\w*|regol\\w*|produc\\w*|trasform\\w*|"
+        r"trasport\\w*|secern\\w*)\\b",
+        re.IGNORECASE,
+    )
+    essential_condition = re.compile(
+        r"\\b(?:senza\\s+che|in\\s+assenza\\s+di|"
+        r"non\\s+(?:si\\s+verifica|richiede|può|avviene))\\b",
+        re.IGNORECASE,
+    )
+    for sentences in sections.values():
+        for sentence in sentences:
+            if essential_condition.search(sentence):
+                mandatory.append(sentence)
+                continue
+            if key_relation.search(sentence) and any(
+                re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)",
+                          sentence, re.IGNORECASE)
+                for term in named_terms
+            ):
+                mandatory.append(sentence)
+
     selected: list[str] = []
     max_words = min(550, max(95, int(source_words * 0.43)))
     current_words = 0
