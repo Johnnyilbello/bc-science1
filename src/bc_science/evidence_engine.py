@@ -12,7 +12,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-ENGINE_VERSION = "evidence-original-fts-v1"
+ENGINE_VERSION = "evidence-original-fts-v2-marked-chunks"
 _PAGE = re.compile(r"(?m)^--- Pagina (\d+) ---\s*$")
 _WORD = re.compile(r"[a-zà-ÿ0-9]{4,}", re.IGNORECASE)
 _SKIP = {
@@ -61,8 +61,9 @@ def _excerpt(body: str, terms: list[str], width: int = 1500) -> str:
     if len(body) <= width:
         return body.strip()
     low = body.casefold()
-    positions = [low.find(word) for word in terms if word in low]
-    anchor = min(positions) if positions else 0
+    # Query terms are ordered by relevance: anchor at the first available
+    # concept, not at the earliest generic word in a long cached page.
+    anchor = next((low.find(word) for word in terms if word in low), 0)
     start = max(0, anchor - 250)
     end = min(len(body), start + width)
     return body[start:end].strip()
@@ -160,7 +161,7 @@ class OriginalEvidenceIndex:
                 # The same PDF can yield better text after OCR/vision updates.
                 # Provenance still uses the original file hash; only this derived
                 # evidence-cache fingerprint includes the extracted contents.
-                fingerprint = expected + ":" + hashlib.sha256(
+                fingerprint = expected + ":" + ENGINE_VERSION + ":" + hashlib.sha256(
                     str(extracted[0]).encode("utf-8") if extracted else b"indexed-fallback"
                 ).hexdigest()
                 current = db.execute(
@@ -180,10 +181,21 @@ class OriginalEvidenceIndex:
                             "ORDER BY chunk_index",
                             (source,),
                         ).fetchall()
-                        parts = [
-                            (None, int(row[0]) + 1, str(row[1]), "indexed_chunk")
-                            for row in chunks if str(row[1]).strip()
-                        ]
+                        parts = []
+                        for row in chunks:
+                            chunk = str(row[1])
+                            if not chunk.strip():
+                                continue
+                            block = int(row[0]) + 1
+                            if _PAGE.search(chunk):
+                                # A page is cited ONLY if the indexed source
+                                # itself contains a page marker.
+                                parts.extend(
+                                    (page, block, body, "indexed_chunk")
+                                    for page, _unused, body, _origin in _parts(chunk)
+                                )
+                            else:
+                                parts.append((None, block, chunk, "indexed_chunk"))
                 db.execute(
                     "DELETE FROM evidence_pages WHERE source_path=?", (source,),
                 )
@@ -281,7 +293,7 @@ class OriginalEvidenceIndex:
             file_hit = sum(term in filename for term in title_terms)
             if present == 0 and file_hit == 0:
                 continue
-            score = present + 2 * file_hit
+            score = present + 2 * file_hit + 4 * (terms[0] in body.casefold())
             ranked.append((score, item))
         ranked.sort(key=lambda item: item[0], reverse=True)
         output = []
