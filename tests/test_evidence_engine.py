@@ -458,3 +458,41 @@ def test_fast_audit_warns_when_most_chapters_need_factual_review():
     assert result.missing_exam_number_chapters == ()
     assert result.status == "WARN"
     assert result.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
+
+
+def test_fast_essential_keeps_glossary_definitions_not_just_labels():
+    from bc_science.study_editions import make_fast_essential_chapter
+
+    chapter = (
+        "## Anatomia dei segmenti scheletrici\n\n"
+        "### Classificazione\n"
+        "- **Ossa pneumatiche**: Ossa con numerose cellette aeree interne.\n"
+        "- **Ossa suturali**: Piccole ossa irregolari lungo le suture del cranio.\n"
+        "- **Ossa sesamoidi**: Piccole ossa che si sviluppano nei tendini.\n"
+    )
+    result = make_fast_essential_chapter("Anatomia dei segmenti scheletrici", chapter)
+    for essential_detail in (
+        "cellette aeree interne", "suture del cranio", "sviluppano nei tendini",
+    ):
+        assert essential_detail in result.markdown
+
+
+def test_fast_essential_preserves_named_mechanism_and_negative_condition():
+    from bc_science.study_editions import make_fast_essential_chapter
+
+    chapter = (
+        "## La concentrazione di calcio\n\n"
+        "### Definizioni\n"
+        "Calmodulina — Proteina che lega il calcio per attivare altre proteine cellulari.\n"
+        "Chinasi — Enzima che aggiunge gruppi fosforici a proteine come la miosina.\n\n"
+        "### Meccanismo\n"
+        "La calmodulina attiva una chinasi specifica che fosforila la miosina.\n"
+        "Questo processo avviene senza che si verifichi un cambiamento elettrico "
+        "sulla superficie della cellula.\n"
+    )
+    result = make_fast_essential_chapter("La concentrazione di calcio", chapter)
+    text = result.markdown.casefold()
+    assert "calmodulina" in text
+    assert "chinasi" in text
+    assert "fosforila la miosina" in text
+    assert "senza che si verifichi un cambiamento elettrico" in text
