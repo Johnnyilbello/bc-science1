@@ -52,7 +52,7 @@ def _similar(a: str, b: str) -> bool:
     # certain claim, or a negative statement equivalent to a positive one.
     distinctions = (r"\b(?:potenzial\w*|potreb\w*|possibil\w*|ipotet\w*|può|possono|possa)\b",
                     r"\bnon\b", r"\b(?:solo|soltanto|eccetto|tranne)\b")
-    if any(bool(re.search(pattern, a, re.I)) != bool(re.search(pattern, b, re.I))
+    if any(bool(re.search(pattern, a, re.IGNORECASE)) != bool(re.search(pattern, b, re.IGNORECASE))
            for pattern in distinctions):
         return False
     nums = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
