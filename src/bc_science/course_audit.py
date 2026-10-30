@@ -449,6 +449,12 @@ def audit_study_pair(
         warnings.append(f"{missing_exam} punti d'esame non risultano coperti con sufficiente confidenza.")
     if missing_numeric:
         warnings.append(f"{missing_numeric} fatti numerici non risultano coperti.")
+    insufficient_compression = complete_words >= 250 and compression < 0.20
+    if insufficient_compression:
+        warnings.append(
+            f"Compressione {compression:.1%}: la versione studio è troppo simile "
+            "alla Completa e non costituisce un riassunto abbastanza breve."
+        )
     if duplicate_rate > 0.08:
         warnings.append(
             f"Ridondanza globale stimata {duplicate_rate:.1%}: sopra il target dell'8%."
@@ -469,6 +475,7 @@ def audit_study_pair(
         weighted_coverage < 0.97
         or missing_exam > 0
         or duplicate_rate > 0.08
+        or insufficient_compression
         or clarity_score < 80
         or not clarity_passed
     ):
