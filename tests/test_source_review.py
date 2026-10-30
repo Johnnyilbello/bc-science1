@@ -122,7 +122,7 @@ def test_source_lists_are_restored_even_when_model_reports_no_omissions():
 
 
 def test_recovered_facts_belong_with_related_explanation_without_course_headers():
-    from bc_science.summarizer import _source_review_units, _integrate_source_additions
+    from bc_science.summarizer import _integrate_source_additions, _source_review_units
     original = "--- DISPENSA: Neuroni ---\n--- Pagina 1 ---\nCorso di Laurea: Scienze Motorie\nInsegnamento: Anatomia\n\nGli interneuroni immagazzinano informazioni."
     units = _source_review_units([original])
     assert units == ["Gli interneuroni immagazzinano informazioni."]
