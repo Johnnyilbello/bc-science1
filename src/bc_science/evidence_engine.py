@@ -6,8 +6,8 @@ summary as evidence. Page numbers are cited only when cached page markers exist.
 """
 from __future__ import annotations
 
-import re
 import hashlib
+import re
 import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
