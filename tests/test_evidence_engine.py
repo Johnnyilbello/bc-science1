@@ -506,10 +506,10 @@ def test_indexed_chunk_with_explicit_markers_exposes_real_page(tmp_path: Path):
         db.replace_document(
             source, "hash-v2", "Calcio",
             [
-                "--- Pagina 1 ---\nI muscoli lisci utilizzano segnali "
-                "cellulari diversi dai muscoli striati.\n"
-                "--- Pagina 2 ---\nLa calmodulina attiva una chinasi "
-                "specifica che fosforila la miosina."
+                ("--- Pagina 1 ---\nI muscoli lisci utilizzano segnali "
+                 "cellulari diversi dai muscoli striati.\n"
+                 "--- Pagina 2 ---\nLa calmodulina attiva una chinasi "
+                 "specifica che fosforila la miosina.")
             ],
             [[1.0, 0.0, 0.0]],
         )
