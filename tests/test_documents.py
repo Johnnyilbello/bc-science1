@@ -143,6 +143,7 @@ def test_course_metadata_cannot_hide_missing_slide_content():
 
 def test_ocr_prefers_installed_italian_and_respects_override(monkeypatch):
     from types import SimpleNamespace
+
     from bc_science.documents import _default_ocr_language, _ocr_language
     _default_ocr_language.cache_clear()
     monkeypatch.delenv('BC_SCIENCE_OCR_LANG',raising=False)
