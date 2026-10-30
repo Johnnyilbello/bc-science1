@@ -668,7 +668,14 @@ def audit_report_is_current(
     report_path: Path,
     complete_text: str,
     study_text: str,
+    *,
+    expected_version: str | None = None,
 ) -> tuple[bool, str | None]:
+    """Check exact document hashes and, when supplied, the active audit pipeline.
+
+    Version matching prevents a successful legacy all-facts report from being
+    mistaken for a successful fast-Essential audit (and vice versa).
+    """
     if not report_path.exists():
         return False, None
     try:
@@ -678,8 +685,11 @@ def audit_report_is_current(
     if not isinstance(payload, dict):
         return False, None
 
+    version = payload.get("audit_version")
+    known_versions = {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
     current = (
-        payload.get("audit_version") in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+        version in known_versions
+        and (expected_version is None or version == expected_version)
         and payload.get("complete_sha256") == _sha256(complete_text)
         and payload.get("study_sha256") == _sha256(study_text)
     )
