@@ -72,6 +72,7 @@ def test_both_readers_expose_original_evidence_buttons():
 def test_source_preview_uses_only_original_course_pdf_and_valid_page(tmp_path: Path):
     import base64
     import hashlib
+
     import pymupdf
     root=tmp_path/'dispense'
     subject=root/'ANATOMIA'
