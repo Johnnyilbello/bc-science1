@@ -31,26 +31,29 @@ def _retains_uncertainty(claim: str, evidence: str, context: str = "") -> bool:
     # List continuations such as "Anche la composizione corporea è inclusa"
     # inherit the introductory qualifier. They need not repeat it in every
     # sentence. A causal assertion, however, cannot borrow a distant qualifier.
-    qualified = bool(re.search(possibility, claim, re.I))
-    strong = bool(re.search(causal, claim, re.I))
-    if re.search(possibility, evidence, re.I):
-        if not qualified and (strong or not re.search(possibility, context, re.I)):
-            return False
-    if re.search(association, evidence, re.I) and strong and not re.search(
-        association + "|" + possibility, claim, re.I,
-    ):
+    qualified = bool(re.search(possibility, claim, re.IGNORECASE))
+    strong = bool(re.search(causal, claim, re.IGNORECASE))
+    if (re.search(possibility, evidence, re.IGNORECASE)
+            and not qualified
+            and (strong or not re.search(possibility, context, re.IGNORECASE))):
         return False
-    return True
+    return not (
+        re.search(association, evidence, re.IGNORECASE)
+        and strong
+        and not re.search(
+            association + "|" + possibility, claim, re.IGNORECASE,
+        )
+    )
 
 
 def _preserves_direction_and_conditions(claim: str, evidence: str) -> bool:
     # Improvement does not imply an increase (e.g. residual lung volume).
     increasing_claim = r"\b(?:aument[ao]\w*|increment[ao]\w*|cresce|crescono)\b"
     increasing_source = r"\b(?:aument\w*|increment\w*|crescit\w*|cresce|crescono)\b"
-    if re.search(increasing_claim, claim, re.I) and not re.search(increasing_source, evidence, re.I):
+    if re.search(increasing_claim, claim, re.IGNORECASE) and not re.search(increasing_source, evidence, re.IGNORECASE):
         return False
     for stem in ("regolar", "sedentar", "quotidian", "costant"):
-        if re.search(r"\b" + stem + r"\w*", claim, re.I) and not re.search(r"\b" + stem + r"\w*", evidence, re.I):
+        if re.search(r"\b" + stem + r"\w*", claim, re.IGNORECASE) and not re.search(r"\b" + stem + r"\w*", evidence, re.IGNORECASE):
             return False
     return True
 
@@ -106,7 +109,7 @@ def review_paragraph(
         + "\n\nFONTE:\n" + "\n\n".join(f"{key}: {block}" for key, block in source_blocks.items())
     )
     raw = chat(prompt).strip()
-    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I)
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.IGNORECASE)
     try:
         verdicts = json.loads(raw)
         if not isinstance(verdicts, list) or len(verdicts) != len(claims):
@@ -115,7 +118,7 @@ def review_paragraph(
         source_text = _normalized(source)
         for verdict in verdicts:
             if not isinstance(verdict, dict):
-                raise ValueError("invalid verdict")
+                raise TypeError("invalid verdict")
             claim_id = verdict.get("id")
             supported = verdict.get("supported")
             quotes = verdict.get("quotes")
