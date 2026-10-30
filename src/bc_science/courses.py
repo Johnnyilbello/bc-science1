@@ -12,6 +12,8 @@ from pathlib import Path
 from .cache import CacheDB
 from .config import AppConfig, app_home
 from .course_audit import (
+    AUDIT_VERSION,
+    FAST_ESSENTIAL_AUDIT_VERSION,
     StudyAuditResult,
     audit_report_is_current,
     audit_study_pair,
@@ -450,6 +452,14 @@ def _pdf_is_current(scan: CourseScan, manifest: dict | None, summary_text: str) 
     )
 
 
+def _audit_version_for_manifest(manifest: dict | None) -> str:
+    """Identify which audit schema matches the study edition."""
+    study = (manifest or {}).get("study")
+    if isinstance(study, dict) and study.get("pipeline") == FAST_STUDY_VERSION:
+        return FAST_ESSENTIAL_AUDIT_VERSION
+    return AUDIT_VERSION
+
+
 def _study_is_current(
     scan: CourseScan,
     manifest: dict | None,
@@ -871,6 +881,7 @@ def course_state(scan: CourseScan) -> CourseState:
                     audit_json,
                     summary_text,
                     study_text,
+                    expected_version=_audit_version_for_manifest(manifest),
                 )
                 if audit_current and audit_status:
                     audit_state = audit_status
@@ -908,15 +919,16 @@ def _ensure_course_audit_status(
     progress: Callable[[str], None] | None = None,
 ) -> tuple[str, Path]:
     json_path = course_audit_json_path(scan)
+    manifest = _load_manifest(scan) or {}
     current, status = audit_report_is_current(
         json_path,
         complete_text,
         study_text,
+        expected_version=_audit_version_for_manifest(manifest),
     )
     if current and status == "PASS":
         return status, course_audit_markdown_path(scan)
 
-    manifest = _load_manifest(scan) or {}
     info = manifest.get("study") or {}
     if info.get("pipeline") == FAST_STUDY_VERSION:
         result_fast = audit_fast_essential(
@@ -1474,6 +1486,7 @@ def build_fast_essential_only(
             course_audit_json_path(scan),
             complete,
             course_study_output_path(scan).read_text(encoding="utf-8"),
+            expected_version=FAST_ESSENTIAL_AUDIT_VERSION,
         )
         pdf_info = manifest.get("pdf") or {}
         pdf = course_pdf_path(scan)
