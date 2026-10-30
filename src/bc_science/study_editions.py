@@ -176,8 +176,8 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
     # preserve the source-backed definition *and* its causal relationship.
     # E.g. "Calmodulina — ...", "La calmodulina attiva una chinasi".
     label_definition = re.compile(
-        r"^(?P<label>[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:\\s+[A-Za-zÀ-ÿ0-9]+){0,3})"
-        r"\\s*(?:[—–]|:)\\s+(?P<description>.{16,})$"
+        r"^(?P<label>[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:\s+[A-Za-zÀ-ÿ0-9]+){0,3})"
+        r"\s*(?:[—–]|:)\s+(?P<description>.{16,})$"
     )
     named_terms: set[str] = set()
     for sentences in sections.values():
@@ -188,14 +188,14 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
                 mandatory.append(sentence)
 
     key_relation = re.compile(
-        r"\\b(?:attiv\\w*|inib\\w*|leg\\w*|fosforil\\w*|"
-        r"defosforil\\w*|regol\\w*|produc\\w*|trasform\\w*|"
-        r"trasport\\w*|secern\\w*)\\b",
+        r"\b(?:attiv\w*|inib\w*|leg\w*|fosforil\w*|"
+        r"defosforil\w*|regol\w*|produc\w*|trasform\w*|"
+        r"trasport\w*|secern\w*)\b",
         re.IGNORECASE,
     )
     essential_condition = re.compile(
-        r"\\b(?:senza\\s+che|in\\s+assenza\\s+di|"
-        r"non\\s+(?:si\\s+verifica|richiede|può|avviene))\\b",
+        r"\b(?:senza\s+che|in\s+assenza\s+di|"
+        r"non\s+(?:si\s+verifica|richiede|può|avviene))\b",
         re.IGNORECASE,
     )
     for sentences in sections.values():
@@ -204,7 +204,7 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
                 mandatory.append(sentence)
                 continue
             if key_relation.search(sentence) and any(
-                re.search(r"(?<!\\w)" + re.escape(term) + r"(?!\\w)",
+                re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)",
                           sentence, re.IGNORECASE)
                 for term in named_terms
             ):
