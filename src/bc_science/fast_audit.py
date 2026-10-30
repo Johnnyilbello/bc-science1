@@ -147,10 +147,20 @@ def audit_fast_essential(
         )
     # The old 97% lexical fact metric is NOT an Essenziale pass/fail gate:
     # omitting secondary facts is an intentional requirement.
-    status = (
-        "FAIL" if hard_failure else
-        ("WARN" if (compression < 20 and cw >= 250) or long_paragraphs else "PASS")
+    # A widespread review queue or flagged Italian must not silently appear
+    # as PASS. WARN does not claim that the flagged omissions are confirmed.
+    widespread_review = (
+        len(chapter_signals) >= 3
+        and review_needed > len(chapter_signals) / 2
     )
+    needs_attention = (
+        (compression < 20 and cw >= 250)
+        or long_paragraphs > 0
+        or widespread_review
+        or language_chapters > 0
+        or structural_chapters > 0
+    )
+    status = "FAIL" if hard_failure else ("WARN" if needs_attention else "PASS")
     return FastEssentialAudit(
         audit_version=FAST_ESSENTIAL_AUDIT_VERSION,
         status=status,
