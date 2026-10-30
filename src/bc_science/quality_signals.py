@@ -13,6 +13,10 @@ _WORD = re.compile(r"[a-zà-ÿ0-9]+", re.IGNORECASE)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
 _NUM = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|mm|cm|kg|g|mg|ml|bpm|°C))?")
 _MARKDOWN = re.compile(r"^(?:\s*#{1,6}\s+|\s*[-*]\s+)", re.MULTILINE)
+_GLOSSARY = re.compile(
+    r"^[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:\s+[A-Za-zÀ-ÿ0-9]+){0,3}\s*"
+    r"(?:[—–]|:)\s+.{16,}$"
+)
 _TYPES = (
     ("definition", re.compile(
         r"\b(?:si definisc\w*|è definito|sono definit\w*|consiste in|"
@@ -91,7 +95,9 @@ def critical_facts(complete_chapter: str) -> tuple[KeyFact, ...]:
     seen: set[str] = set()
     for sentence in _lines(complete_chapter):
         kind = None
-        if _NUM.search(sentence):
+        if _GLOSSARY.match(sentence):
+            kind = "definition"
+        elif _NUM.search(sentence):
             kind = "number_or_formula"
         else:
             for category, pattern in _TYPES:
