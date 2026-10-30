@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
-from .clarity import audit_novice_document, audit_narrative_document
+from .clarity import audit_narrative_document, audit_novice_document
 from .summarizer import _extract_summary_chapters, topic_key
 
 FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v4-original-evidence"
