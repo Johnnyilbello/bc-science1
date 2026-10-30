@@ -406,8 +406,9 @@ def test_original_grounding_allows_complete_without_existing_essential(
 
 def test_reference_ids_resolve_to_exact_original_passages():
     import pytest
-    from bc_science.targeted_review import _resolve_original_refs
+
     from bc_science.evidence_engine import OriginalEvidence
+    from bc_science.targeted_review import _resolve_original_refs
     passage = OriginalEvidence('dispensa.pdf', 4, None, 'Potenziali meccanismi associati alla funzione neuronale.', 1, 'cached_page')
     result = _resolve_original_refs({'original_ids':['E1']}, [passage])
     assert result['original_quotes'][0] == {'source':'dispensa.pdf','page':4,'block':None,'quote':passage.excerpt}
