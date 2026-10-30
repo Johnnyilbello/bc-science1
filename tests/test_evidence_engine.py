@@ -430,3 +430,31 @@ def test_original_evidence_refreshes_when_extraction_improves_without_pdf_change
         assert hits
         assert any('lombosacrale' in hit.excerpt for hit in hits)
         assert not any('deglutizione' in hit.excerpt for hit in hits)
+
+
+def test_fast_audit_warns_when_most_chapters_need_factual_review():
+    """Technical provenance PASS must not conceal pervasive unresolved facts."""
+    titles = ("Cellule", "Muscoli", "Ossa", "Sistema nervoso")
+    first = (
+        "Il tessuto epiteliale comprende cellule vicine che rivestono "
+        "e proteggono le superfici del corpo."
+    )
+    omitted = (
+        "Il tessuto muscolare produce movimento attraverso la "
+        "contrazione delle fibre muscolari specializzate."
+    )
+    def document(edition: str, body: str) -> str:
+        toc = "\\n".join(f"- {title}" for title in titles)
+        chapters = "\\n\\n---\\n\\n".join(
+            f"## {title}\\n\\n{body}" for title in titles
+        )
+        return f"# {edition}\\n\\n## Indice degli argomenti\\n{toc}\\n\\n---\\n\\n{chapters}\\n"
+
+    complete = document("Completa", first + " " + omitted)
+    essential = document("Essenziale", first)
+    result = audit_fast_essential(complete, essential)
+    assert result.chapters_total == 4
+    assert result.chapters_needing_review == 4
+    assert result.missing_exam_number_chapters == ()
+    assert result.status == "WARN"
+    assert result.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
