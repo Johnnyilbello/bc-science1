@@ -22,7 +22,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-REVIEW_VERSION = "targeted-review-v3-original-grounding"
+REVIEW_VERSION = "targeted-review-v4-evidence-ids"
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 
 
@@ -126,6 +126,24 @@ def _validate_proposal(
     return True, ""
 
 
+def _resolve_original_refs(payload: dict, evidence: list[OriginalEvidence]) -> dict:
+    """Resolve model-selected references against the exact passages it received."""
+    if "original_ids" not in payload:
+        return payload  # Existing literal-quotation responses remain supported.
+    selected = payload["original_ids"]
+    available = {f"E{i}": item for i, item in enumerate(evidence[:4], 1)}
+    if (not isinstance(selected, list) or not selected or len(selected) > 8
+        or not all(isinstance(key, str) and key in available for key in selected)):
+        raise ValueError("Identificativi delle prove originali non validi")
+    result = dict(payload)
+    result["original_quotes"] = [
+        {"source": available[key].source_path, "page": available[key].page,
+         "block": available[key].block, "quote": available[key].excerpt}
+        for key in dict.fromkeys(selected)
+    ]
+    return result
+
+
 def review_chapter(
     title: str,
     complete_source: str,
@@ -163,17 +181,20 @@ def review_chapter(
     structure_notes = [x.quote for x in structural[:5]]
     original_context = json.dumps([
         {
+            "id": f"E{i}",
             "source": e.source_path,
             "page": e.page,
             "block": e.block,
             "text": e.excerpt,
         }
-        for e in (original_evidence or [])[:4]
+        for i, e in enumerate((original_evidence or [])[:4], 1)
     ], ensure_ascii=False)
     system = (
         "Sei un revisore di riassunti scientifici. "
         "Le fonti fornite sono l'unico riferimento. "
-        "Non aggiungere conoscenze esterne, valori inventati o sezioni ripetitive."
+        "Non aggiungere conoscenze esterne, valori inventati o sezioni ripetitive. "
+        "Conserva i qualificatori della fonte: un possibile meccanismo o una "
+        "associazione non dimostrano causa, prevenzione o protezione certe."
     )
     prompt = (
         f"Rivedi la versione {edition} del SOLO capitolo seguente, limitandoti a "
@@ -185,14 +206,13 @@ def review_chapter(
         "grammatica. Correggi soltanto quelle sostenute da citazioni originali. "
         "Conserva tutte le conoscenze necessarie allo studio, senza trasformare "
         "la Completa in una versione Essenziale. "
-        "Fornisci un JSON con rewrite, evidence e original_quotes. "
-        "original_quotes e una lista di oggetti con source, page, block, quote. "
-        "Ogni quote deve essere copiata letteralmente da FONTI_ORIGINALI e "
-        "riferita alla sua esatta pagina/blocco. "
+        "Fornisci un JSON con rewrite, evidence e original_ids. "
+        "original_ids contiene gli identificativi E1, E2 ecc. degli estratti "
+        "che sostengono le correzioni. Non ricopiare percorsi o citazioni originali: "
+        "saranno recuperati dal programma usando gli identificativi. "
         '{"rewrite":"## TITOLO\\n\\nparagrafi",'
         '"evidence":["citazione letterale dalla COMPLETA"],'
-        '"original_quotes":[{"source":"path esatto","page":1,"block":null,'
-        '"quote":"frase originale continua"}]}. '
+        '"original_ids":["E1"]}. '
         "La lista evidence deve contenere citazioni LETTERALI continue della "
         "Completa che giustificano tutte le correzioni. "
         "Se non riesci a citare una correzione non introdurla. "
@@ -217,6 +237,7 @@ def review_chapter(
         payload = json.loads(match.group())
         if not isinstance(payload, dict):
             raise TypeError("Risposta non valida")
+        payload = _resolve_original_refs(payload, original_evidence or [])
         accepted, reason = _validate_proposal(
             title, complete_source, essential, payload,
             original_evidence=original_evidence,

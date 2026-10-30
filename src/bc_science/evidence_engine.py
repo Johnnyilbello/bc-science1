@@ -7,6 +7,7 @@ summary as evidence. Page numbers are cited only when cached page markers exist.
 from __future__ import annotations
 
 import re
+import hashlib
 import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -152,17 +153,21 @@ class OriginalEvidenceIndex:
         db = self.conn
         with db:
             for source, expected in self.file_hashes.items():
-                current = db.execute(
-                    "SELECT file_hash FROM evidence_sources WHERE source_path=?",
-                    (source,),
-                ).fetchone()
-                if current and current[0] == expected:
-                    continue
                 extracted = db.execute(
-                    "SELECT text FROM extracted_documents "
-                    "WHERE source_path=? AND file_hash=?",
+                    "SELECT text FROM extracted_documents WHERE source_path=? AND file_hash=?",
                     (source, expected),
                 ).fetchone()
+                # The same PDF can yield better text after OCR/vision updates.
+                # Provenance still uses the original file hash; only this derived
+                # evidence-cache fingerprint includes the extracted contents.
+                fingerprint = expected + ":" + hashlib.sha256(
+                    str(extracted[0]).encode("utf-8") if extracted else b"indexed-fallback"
+                ).hexdigest()
+                current = db.execute(
+                    "SELECT file_hash FROM evidence_sources WHERE source_path=?", (source,),
+                ).fetchone()
+                if current and current[0] == fingerprint:
+                    continue
                 parts = _parts(str(extracted[0])) if extracted else []
                 if not parts:
                     document = db.execute(
@@ -194,7 +199,7 @@ class OriginalEvidenceIndex:
                     )
                     db.execute(
                         "INSERT INTO evidence_sources(source_path,file_hash) "
-                        "VALUES (?,?)", (source, expected),
+                        "VALUES (?,?)", (source, fingerprint),
                     )
 
     def search_semantic(

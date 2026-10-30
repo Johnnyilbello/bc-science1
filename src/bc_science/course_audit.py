@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
-from .clarity import audit_novice_document
+from .clarity import audit_novice_document, audit_narrative_document
 from .summarizer import _extract_summary_chapters, topic_key
 
 FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v4-original-evidence"
@@ -34,7 +34,7 @@ _EXCEPTION_HINTS = (
     " eccetto ", " tranne ", " tuttavia ", " invece ", " mentre ", " non ", " ma ",
 )
 
-AUDIT_VERSION = "atomic-fact-v1"
+AUDIT_VERSION = "atomic-fact-v2-source-qualifiers"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +157,8 @@ def _fact_category(text: str, *, exam: bool) -> tuple[str, int]:
     has_number = bool(_numbers(text))
     if has_number:
         return "numero", 3
+    if any(term in lowered for term in ("potenzial", "potrebbe", "potrebbero", "associazione", "associato", "associata", " può ", " possono ", " possa ")):
+        return "qualificatore", 3
     if exam:
         return "esame", 3
     if any(hint in lowered for hint in _CLASSIFICATION_HINTS):
@@ -418,7 +420,11 @@ def audit_study_pair(
         else 0.0
     )
 
-    clarity_passed, clarity_rows = audit_novice_document(study_text)
+    readability_audit = (
+        audit_narrative_document
+        if "> Modalità essenziale:" in study_text else audit_novice_document
+    )
+    clarity_passed, clarity_rows = readability_audit(study_text)
     chapter_scores = [
         audit.metrics.score
         for title, audit in clarity_rows

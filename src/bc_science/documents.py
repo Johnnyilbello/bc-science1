@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import os
+import re
 import shutil
+import subprocess
+from functools import lru_cache
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,7 +17,7 @@ import pymupdf4llm
 from docx import Document
 
 from .cache import CacheDB
-from .config import app_home
+from .config import AppConfig, app_home
 
 SUPPORTED = {".pdf", ".txt", ".md", ".docx"}
 PDF_RECOVERY_TEXT_THRESHOLD = 80
@@ -79,7 +83,12 @@ def normalize_text(text: str) -> str:
 
 
 def _needs_pdf_recovery(text: str) -> bool:
-    stripped = text.strip()
+    # Repeated course metadata can exceed the threshold while the actual
+    # educational content is an image. Measure the substantive body instead.
+    stripped = re.sub(
+        r"(?mi)^\s*(?:Corso di Laurea|Insegnamento|Lezione n[°º.]?|Numero lezione|Titolo|Attivit[aà] n[°º.]?)\s*:[^\n]*$",
+        "", text,
+    ).strip()
     if len(stripped) < PDF_RECOVERY_TEXT_THRESHOLD:
         return True
     replacement_chars = stripped.count("\ufffd")
@@ -95,6 +104,27 @@ def _ocr_dpi() -> int:
     return max(96, min(value, 300))
 
 
+@lru_cache(maxsize=1)
+def _default_ocr_language() -> str:
+    executable = shutil.which("tesseract")
+    if executable:
+        try:
+            result = subprocess.run(
+                [executable, "--list-langs"], capture_output=True,
+                text=True, timeout=5, errors="replace",
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode == 0 and "ita" in result.stdout.splitlines():
+                return "ita+eng"
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return "eng"
+
+
+def _ocr_language() -> str:
+    return os.getenv("BC_SCIENCE_OCR_LANG") or _default_ocr_language()
+
+
 def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
     if not page_indexes:
         return {}
@@ -105,7 +135,7 @@ def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
             pages=page_indexes,
             page_chunks=True,
             use_ocr=True,
-            ocr_language=os.getenv("BC_SCIENCE_OCR_LANG", "eng"),
+            ocr_language=_ocr_language(),
             ocr_dpi=_ocr_dpi(),
             show_progress=False,
         )
@@ -125,6 +155,8 @@ def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
         else:
             text = str(chunk).strip()
         if text:
+            text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+            text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
             recovered[page_index] = text
     return recovered
 
@@ -132,7 +164,7 @@ def _recover_pdf_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
 def _legacy_ocr_page(page: pymupdf.Page) -> str:
     try:
         textpage = page.get_textpage_ocr(
-            language=os.getenv("BC_SCIENCE_OCR_LANG", "eng"),
+            language=_ocr_language(),
             dpi=_ocr_dpi(),
         )
         return page.get_text(
@@ -144,10 +176,57 @@ def _legacy_ocr_page(page: pymupdf.Page) -> str:
         return ""
 
 
+def _transcribe_visual_pages(path: Path, page_indexes: list[int]) -> dict[int, str]:
+    """Read diagram labels locally when the installed model supports images."""
+    if not page_indexes or os.getenv("BC_SCIENCE_VISION_OCR", "1") == "0":
+        return {}
+    from .ollama_client import OllamaClient
+    import httpx
+
+    config = AppConfig.load()
+    client = OllamaClient(config.ollama_url)
+    try:
+        if not client.available():
+            return {}
+        response = httpx.post(config.ollama_url.rstrip("/") + "/api/show",
+            json={"model": config.generation_model}, timeout=10)
+        response.raise_for_status()
+        if "vision" not in response.json().get("capabilities", []):
+            return {}
+    except (httpx.HTTPError, ValueError):
+        return {}
+    recovered = {}
+    with pymupdf.open(path) as doc:
+        for index in page_indexes:
+            image = doc[index].get_pixmap(matrix=pymupdf.Matrix(2, 2)).tobytes("png")
+            try:
+                result = client.chat_stream(config.generation_model, [
+                    {"role": "system", "content": "Trascrivi testi presenti nelle immagini. Non aggiungere conoscenze esterne e non completare parole illeggibili."},
+                    {"role": "user", "content": "Trascrivi solo i testi degli schemi e delle figure, mantenendo separati i riquadri. Ignora intestazioni universitarie e pie di pagina. Se una parola non e leggibile scrivi [illeggibile]. Non interpretare ne spiegare le figure.",
+                     "images": [base64.b64encode(image).decode("ascii")]},
+                ], num_ctx=config.num_ctx, num_predict=1800, keep_alive=config.keep_alive)
+                if result.content.strip() and result.done_reason != "length":
+                    recovered[index] = result.content.strip()
+            except (RuntimeError, httpx.HTTPError, ValueError):
+                continue
+    return recovered
+
+
 def _extract_pdf(path: Path, ocr: bool = True) -> ExtractedDocument:
     with pymupdf.open(path) as doc:
         page_count = len(doc)
         page_texts = [page.get_text("text", sort=True).strip() for page in doc]
+        native_texts = list(page_texts)
+        image_rows = [page.get_image_info(hashes=True) for page in doc] if ocr else []
+        occurrences: dict[bytes, int] = {}
+        for rows in image_rows:
+            for digest in {row.get("digest", b"") for row in rows}:
+                occurrences[digest] = occurrences.get(digest, 0) + 1
+        visual_pages = [i for i, rows in enumerate(image_rows) if any(
+            occurrences.get(row.get("digest", b""), 0) == 1
+            and pymupdf.Rect(row["bbox"]).get_area() / doc[i].rect.get_area() >= 0.12
+            for row in rows
+        )]
 
     recovered_pages = 0
     if ocr:
@@ -175,6 +254,23 @@ def _extract_pdf(path: Path, ocr: bool = True) -> ExtractedDocument:
                     ):
                         page_texts[page_index] = candidate
                         recovered_pages += 1
+
+    if ocr:
+        visual_texts = _transcribe_visual_pages(path, visual_pages)
+        for index in visual_pages:
+            if index in visual_texts:
+                supplement = page_texts[index] if page_texts[index] != native_texts[index] else ""
+                page_texts[index] = native_texts[index] + (
+                    "\n\n[Trascrizione visiva automatica della figura: da verificare sull'originale]\n"
+                    + visual_texts[index]
+                )
+                if supplement:
+                    page_texts[index] += (
+                        "\n\n[Inizio OCR supplementare: possibile rumore, confrontare la figura originale]\n"
+                        + supplement + "\n[Fine OCR supplementare]"
+                    )
+            else:
+                page_texts[index] += "\n\n[Figura presente: trascrizione visiva non disponibile; verificare sull'originale.]"
 
     parts = [
         f"\n--- Pagina {index + 1} ---\n{text}"
@@ -211,7 +307,32 @@ def extract_document(path: Path, *, ocr: bool = True) -> ExtractedDocument:
 
 
 # Increase when extraction normalization or OCR recovery semantics change.
-EXTRACTION_CACHE_VERSION = "extraction-v1"
+EXTRACTION_CACHE_VERSION = "extraction-v4-separated-ocr-provenance"
+
+
+def readable_source(text: str) -> str:
+    """Keep every extraction channel but explicitly distinguish uncertain OCR.
+
+    No content is silently deleted: a noisy alternative transcription must not
+    masquerade as native document prose or independent confirming evidence.
+    The markers remain available to models and the original-page viewer.
+    """
+    return text.replace(
+        "[Inizio OCR supplementare: possibile rumore, confrontare la figura originale]",
+        "[Inizio OCR supplementare: trascrizione alternativa NON verificata della stessa figura, "
+        "non un secondo fatto. Preferire il testo nativo e la trascrizione visiva; "
+        "se discordano segnalare il dubbio senza inventare una riconciliazione.]",
+    )
+
+
+def extraction_signature(path: Path, *, ocr: bool = True) -> str:
+    settings = (
+        f"|ocr={int(ocr)}|dpi={_ocr_dpi()}"
+        f"|lang={_ocr_language()}"
+        f"|vision={os.getenv('BC_SCIENCE_VISION_OCR', '1')}:{AppConfig.load().generation_model}"
+        if path.suffix.casefold() == ".pdf" else ""
+    )
+    return EXTRACTION_CACHE_VERSION + settings
 
 
 def extract_document_cached(
@@ -230,12 +351,7 @@ def extract_document_cached(
     """
     path = path.expanduser().resolve()
     digest = file_hash if file_hash is not None else file_sha256(path)
-    settings = (
-        f"|ocr={int(ocr)}|dpi={_ocr_dpi()}"
-        f"|lang={os.getenv('BC_SCIENCE_OCR_LANG', 'eng')}"
-        if path.suffix.casefold() == ".pdf" else ""
-    )
-    signature = EXTRACTION_CACHE_VERSION + settings
+    signature = extraction_signature(path, ocr=ocr)
     cached = db.get_extracted_document(str(path), digest, signature)
     if cached is not None:
         if progress:
@@ -246,7 +362,7 @@ def extract_document_cached(
     if progress:
         progress(f"    Estrazione del testo (OCR se necessario): {path.name}")
     extracted = extract_document(path, ocr=ocr)
-    if extracted.text.strip():
+    if extracted.text.strip() and "trascrizione visiva non disponibile" not in extracted.text:
         db.set_extracted_document(
             str(path), digest, signature,
             extracted.text, extracted.pages, extracted.ocr_pages,

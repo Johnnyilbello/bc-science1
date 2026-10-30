@@ -403,3 +403,29 @@ def test_original_grounding_allows_complete_without_existing_essential(
     )
     assert result["edition"] == "complete"
     assert result["evidence"]
+
+def test_reference_ids_resolve_to_exact_original_passages():
+    import pytest
+    from bc_science.targeted_review import _resolve_original_refs
+    from bc_science.evidence_engine import OriginalEvidence
+    passage = OriginalEvidence('dispensa.pdf', 4, None, 'Potenziali meccanismi associati alla funzione neuronale.', 1, 'cached_page')
+    result = _resolve_original_refs({'original_ids':['E1']}, [passage])
+    assert result['original_quotes'][0] == {'source':'dispensa.pdf','page':4,'block':None,'quote':passage.excerpt}
+    with pytest.raises(ValueError,match='non validi'):
+        _resolve_original_refs({'original_ids':['E2']}, [passage])
+
+def test_original_evidence_refreshes_when_extraction_improves_without_pdf_changes(tmp_path: Path):
+    db_path, source = _create_db(tmp_path)
+    with OriginalEvidenceIndex(db_path, {source:'hash-v1'}) as index:
+        assert index.search('deglutizione')
+    db = CacheDB(db_path)
+    try:
+        db.set_extracted_document(source,'hash-v1','extraction-vision',
+            '--- Pagina 2 ---\nLo schema descrive la flessibilità del tratto lombosacrale.',2,1)
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source:'hash-v1'}) as index:
+        hits=index.search('flessibilità lombosacrale')
+        assert hits
+        assert any('lombosacrale' in hit.excerpt for hit in hits)
+        assert not any('deglutizione' in hit.excerpt for hit in hits)

@@ -499,6 +499,8 @@ def _write_manifest(
     summary_pipeline: str = PROMPT_VERSION,
     study_pipeline: str = STUDY_PROMPT_VERSION,
 ) -> None:
+    if study_text and "> Ripasso selezionato dalla versione Completa." in study_text:
+        study_pipeline = FAST_STUDY_VERSION
     target = _manifest_path(scan)
     target.parent.mkdir(parents=True, exist_ok=True)
     chapter_titles = _chapter_titles(summary_text)
@@ -656,7 +658,7 @@ def _ensure_study(
 
             repaired, restored = restore_missing_audit_facts(
                 current,
-                [fact for fact in before.missing_facts if fact.category in {"numero", "esame"}],
+                [fact for fact in before.missing_facts if fact.category in {"numero", "esame", "qualificatore"}],
             )
             if not restored:
                 if progress:
@@ -732,7 +734,7 @@ def _ensure_study(
 
     summarizer = Summarizer(config, profile, db_path=db_path)
     try:
-        builder = getattr(summarizer, "build_study_summary", None)
+        builder = getattr(summarizer, "build_source_essential", None) or getattr(summarizer, "build_study_summary", None)
         if not callable(builder):
             return None, None, None, 0, False
 
