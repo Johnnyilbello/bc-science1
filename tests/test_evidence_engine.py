@@ -539,3 +539,22 @@ def test_fallback_chunk_without_page_marker_never_invents_page(tmp_path: Path):
         results = index.search("ossa pneumatiche", limit=5)
         assert results and results[0].page is None
         assert results[0].block == 1
+
+
+def test_glossary_detection_rejects_label_only_as_fact_coverage():
+    from bc_science.quality_signals import assess_chapter
+
+    source = (
+        "## Ossa\n\n"
+        "Ossa pneumatiche: Ossa con numerose cellette aeree interne.\n"
+        "Ossa sesamoidi: Ossa sviluppate all'interno dei tendini.\n"
+    )
+    essential = (
+        "## Ossa\n\n"
+        "Un gruppo comprende le ossa pneumatiche e le ossa sesamoidi."
+    )
+    report = assess_chapter("Ossa", source, essential)
+    missing = [f.quote for f in report.possible_missing]
+    assert any("cellette aeree" in quote for quote in missing)
+    assert any("tendini" in quote for quote in missing)
+    assert report.review_priority != "nessuna"
