@@ -1,5 +1,6 @@
 import httpx
 import pytest
+
 from bc_science.ollama_client import OllamaClient, OllamaError
 
 
