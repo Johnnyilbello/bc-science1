@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 import base64
+import hashlib
 import os
 import re
 import shutil
 import subprocess
-from functools import lru_cache
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import pymupdf
@@ -110,7 +110,7 @@ def _default_ocr_language() -> str:
     if executable:
         try:
             result = subprocess.run(
-                [executable, "--list-langs"], capture_output=True,
+                [executable, "--list-langs"], check=False, capture_output=True,
                 text=True, timeout=5, errors="replace",
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
@@ -180,8 +180,9 @@ def _transcribe_visual_pages(path: Path, page_indexes: list[int]) -> dict[int, s
     """Read diagram labels locally when the installed model supports images."""
     if not page_indexes or os.getenv("BC_SCIENCE_VISION_OCR", "1") == "0":
         return {}
-    from .ollama_client import OllamaClient
     import httpx
+
+    from .ollama_client import OllamaClient
 
     config = AppConfig.load()
     client = OllamaClient(config.ollama_url)
