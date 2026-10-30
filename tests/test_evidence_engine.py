@@ -444,11 +444,11 @@ def test_fast_audit_warns_when_most_chapters_need_factual_review():
         "contrazione delle fibre muscolari specializzate."
     )
     def document(edition: str, body: str) -> str:
-        toc = "\\n".join(f"- {title}" for title in titles)
-        chapters = "\\n\\n---\\n\\n".join(
-            f"## {title}\\n\\n{body}" for title in titles
+        toc = "\n".join(f"- {title}" for title in titles)
+        chapters = "\n\n---\n\n".join(
+            f"## {title}\n\n{body}" for title in titles
         )
-        return f"# {edition}\\n\\n## Indice degli argomenti\\n{toc}\\n\\n---\\n\\n{chapters}\\n"
+        return f"# {edition}\n\n## Indice degli argomenti\n{toc}\n\n---\n\n{chapters}\n"
 
     complete = document("Completa", first + " " + omitted)
     essential = document("Essenziale", first)
