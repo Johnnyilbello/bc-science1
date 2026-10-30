@@ -422,7 +422,7 @@ def _restore_source_aliases(draft: str, units: list[str]) -> str:
         for term, alias in definition.findall(unit):
             if alias.casefold().split()[0] in {"non", "solo", "eccetto", "tranne", "per", "ad"}:
                 continue
-            if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", draft, re.I):
+            if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", draft, re.IGNORECASE):
                 continue
             blocks = re.split(r"\n\s*\n", draft)
             for index, block in enumerate(blocks):
@@ -430,7 +430,7 @@ def _restore_source_aliases(draft: str, units: list[str]) -> str:
                     continue
                 restored, count = re.subn(
                     r"(?<!\w)" + re.escape(term) + r"(?!\w)",
-                    lambda match: match[0] + f" ({alias})", block, count=1, flags=re.I,
+                    lambda match, alias=alias: match[0] + f" ({alias})", block, count=1, flags=re.IGNORECASE,
                 )
                 if count:
                     blocks[index] = restored
@@ -1709,9 +1709,9 @@ class Summarizer:
             for attempt in range(2):
                 cache_key = ""
 
-                def chat(prompt: str) -> str:
+                def chat(prompt: str, *, current_attempt: int = attempt) -> str:
                     nonlocal cache_key
-                    if attempt:
+                    if current_attempt:
                         prompt += "\nLa precedente risposta non era verificabile: controlla ID e citazioni letterali."
                     cache_key = _key(PROMPT_VERSION, "claims-v2-source-ids", self.model, prompt)
                     return self._cached_chat(
