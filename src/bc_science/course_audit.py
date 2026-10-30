@@ -674,7 +674,10 @@ def audit_report_is_current(
     report_path: Path,
     complete_text: str,
     study_text: str,
+    *,
+    expected_version: str | None = None,
 ) -> tuple[bool, str | None]:
+    """Check input hashes and match the active edition's audit version."""
     if not report_path.exists():
         return False, None
     try:
@@ -684,8 +687,10 @@ def audit_report_is_current(
     if not isinstance(payload, dict):
         return False, None
 
+    version = payload.get("audit_version")
     current = (
-        payload.get("audit_version") in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+        version in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+        and (expected_version is None or version == expected_version)
         and payload.get("complete_sha256") == _sha256(complete_text)
         and payload.get("study_sha256") == _sha256(study_text)
     )
