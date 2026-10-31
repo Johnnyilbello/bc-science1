@@ -167,3 +167,95 @@ def test_new_numerical_claim_keeps_high_priority():
     report = assess_chapter("Muscoli", source, target)
     assert report.numerical_mismatch
     assert report.review_priority == "alta"
+
+
+def test_original_lymphatic_core_is_present_despite_dropped_comparison():
+    source = (
+        "## Vasi linfatici\n\n"
+        "A differenza dei capillari sanguigni, "
+        "i capillari linfatici terminano a fondo cieco."
+    )
+    essential = (
+        "## Vasi linfatici\n\n"
+        "I capillari linfatici terminano a fondo cieco e sono "
+        "formati da cellule endoteliali non aderenti."
+    )
+    result = assess_chapter("Vasi linfatici", source, essential)
+    assert result.possible_missing == ()
+
+
+def test_source_proton_pump_inversion_is_flagged_without_editing_text():
+    from bc_science.structural_checks import find_structural_issues
+
+    chapter = (
+        "## Fosforilazione ossidativa\n\n"
+        "La catena respiratoria pompa protoni (H+) dallo spazio "
+        "intermembrana alla matrice mitocondriale."
+    )
+    issues = find_structural_issues(chapter)
+    assert any(i.category == "scientific_direction_risk" for i in issues)
+
+
+def test_correct_proton_pumping_direction_has_no_inversion_warning():
+    from bc_science.structural_checks import find_structural_issues
+
+    chapter = (
+        "## Fosforilazione ossidativa\n\n"
+        "La catena respiratoria pompa i protoni fuori dalla matrice "
+        "nello spazio intermembrana. I protoni ritornano nella "
+        "matrice attraverso l'ATP sintetasi."
+    )
+    issues = find_structural_issues(chapter)
+    assert not any(i.category == "scientific_direction_risk" for i in issues)
+
+
+def test_source_adp_proton_mechanism_is_marked_as_suspect():
+    from bc_science.structural_checks import find_structural_issues
+
+    source = (
+        "## Fosforilazione ossidativa\n\n"
+        "L'ADP deve essere presente nella matrice per ricevere "
+        "i protoni e formare ATP."
+    )
+    issues = find_structural_issues(source)
+    assert any(i.category == "scientific_mechanism_risk" for i in issues)
+
+
+def test_broken_acronym_glossary_is_structural_issue():
+    from bc_science.structural_checks import find_structural_issues
+
+    essential = (
+        "## Fosforilazione ossidativa\n\n"
+        "Oligomicina: Antibiotico che blocca l'ATP sintetasi. "
+        "DNP) che permette di dissipare il gradiente protonico."
+    )
+    issues = find_structural_issues(essential)
+    assert any(i.category == "detached_glossary_fragment" for i in issues)
+
+
+def test_complete_source_scientific_risks_prevent_unqualified_pass():
+    prefix = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        "- Fosforilazione ossidativa\n\n---\n\n"
+    )
+    source = (
+        prefix
+        + "## Fosforilazione ossidativa\n\n"
+        + "La catena respiratoria pompa protoni dallo spazio "
+        "intermembrana alla matrice mitocondriale.\n"
+        + "L'ADP deve ricevere i protoni per formare ATP."
+    )
+    # The new edition happens to omit the offending lines: the Complete
+    # still contains an inherited scientific problem.
+    essential = (
+        prefix
+        + "## Fosforilazione ossidativa\n\n"
+        + "La sintesi di ATP richiede un gradiente elettrochimico."
+    )
+    report = audit_fast_essential(source, essential)
+    issues = report.chapter_signals[0]["source_scientific_findings"]
+    assert {item["category"] for item in issues} == {
+        "scientific_direction_risk", "scientific_mechanism_risk"
+    }
+    assert report.status == "WARN"
+    assert report.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
