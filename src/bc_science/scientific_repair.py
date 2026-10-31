@@ -26,8 +26,8 @@ from .courses import (
 )
 from .fast_audit import audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
-from .study_editions import FAST_STUDY_VERSION, make_fast_essential
 from .structural_checks import find_structural_issues
+from .study_editions import FAST_STUDY_VERSION, make_fast_essential
 from .summarizer import _extract_summary_chapters
 
 CHAPTER = "Fosforilazione ossidativa"
@@ -37,25 +37,37 @@ REFERENCE_URLS = (
 )
 REPAIRS = (
     (
-        "Durante la catena respiratoria, i complessi proteici pompano "
-        'attivamente i protoni dallo spazio intermembrana alla matrice '
-        '(o viceversa, a seconda della direzione del flusso descritto come "riflusso").',
-        "Durante la catena respiratoria, i complessi proteici pompano "
-        "i protoni dalla matrice mitocondriale allo spazio intermembrana. "
-        "Il riflusso dei protoni verso la matrice avviene attraverso l'ATP sintetasi.",
+        (
+            "Durante la catena respiratoria, i complessi proteici pompano "
+            'attivamente i protoni dallo spazio intermembrana alla matrice '
+            '(o viceversa, a seconda della direzione del flusso descritto come "riflusso").'
+        ),
+        (
+            "Durante la catena respiratoria, i complessi proteici pompano "
+            "i protoni dalla matrice mitocondriale allo spazio intermembrana. "
+            "Il riflusso dei protoni verso la matrice avviene attraverso l'ATP sintetasi."
+        ),
     ),
     (
-        "La catena respiratoria pompa protoni ($H^+$) dallo spazio "
-        "intermembrana alla matrice mitocondriale",
-        "La catena respiratoria pompa protoni ($H^+$) dalla matrice "
-        "mitocondriale allo spazio intermembrana",
+        (
+            "La catena respiratoria pompa protoni ($H^+$) dallo spazio "
+            "intermembrana alla matrice mitocondriale"
+        ),
+        (
+            "La catena respiratoria pompa protoni ($H^+$) dalla matrice "
+            "mitocondriale allo spazio intermembrana"
+        ),
     ),
     (
-        "L'**ADP** deve essere presente nella matrice per ricevere "
-        "i protoni e formare ATP.",
-        "L'**ADP** e il fosfato inorganico ($Pi$) sono i substrati "
-        "da cui l'ATP sintetasi forma ATP sfruttando l'energia "
-        "del flusso protonico verso la matrice.",
+        (
+            "L'**ADP** deve essere presente nella matrice per ricevere "
+            "i protoni e formare ATP."
+        ),
+        (
+            "L'**ADP** e il fosfato inorganico ($Pi$) sono i substrati "
+            "da cui l'ATP sintetasi forma ATP sfruttando l'energia "
+            "del flusso protonico verso la matrice."
+        ),
     ),
 )
 
