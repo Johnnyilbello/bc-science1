@@ -216,6 +216,15 @@ def _supported(item: str, text: str, sentences: list[str]) -> bool:
     whole_text = " ".join(_text(text).casefold().split())
     if normalized and normalized in whole_text:
         return True
+    # A comparative preamble can be omitted while the *complete core claim*
+    # is kept verbatim. This handles "A differenza dei capillari sanguigni,
+    # i capillari linfatici terminano a fondo cieco" without treating the
+    # mere mention of "capillari" as evidence of full coverage.
+    comparative = re.match(r"^a differenza [^,]{4,140},\s*(.+)$", normalized)
+    if comparative:
+        core = comparative.group(1).rstrip(".;: ")
+        if len(core) >= 30 and core in whole_text:
+            return True
     for sentence in sentences:
         if not _qualifiers_compatible(item, sentence):
             continue
