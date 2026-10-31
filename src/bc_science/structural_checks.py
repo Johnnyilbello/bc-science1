@@ -64,7 +64,16 @@ def find_structural_issues(chapter: str, *, limit: int = 20) -> tuple[Structural
     for paragraph in paragraphs:
         if paragraph.strip().startswith("#"):
             continue
-        sentences = _SENTENCE.split(re.sub(r"\s+", " ", paragraph.strip()))
+        collapsed = re.sub(r"\s+", " ", paragraph.strip())
+        # `es. DNP` is not a full stop. Do not split the valid glossary
+        # definition and then mistake `DNP) che` for a standalone fragment.
+        protected = re.sub(
+            r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+            lambda match: match.group(1) + "\uE000",
+            collapsed,
+            flags=re.IGNORECASE,
+        )
+        sentences = [part.replace("\uE000", ".") for part in _SENTENCE.split(protected)]
         for sentence in sentences:
             cleaned = re.sub(r"[\W_]+", " ", sentence.casefold()).strip()
             if len(cleaned.split()) >= 8:
