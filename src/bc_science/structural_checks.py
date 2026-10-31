@@ -32,7 +32,7 @@ _ADP_PROTON_CONFUSION = re.compile(
     re.IGNORECASE,
 )
 _DETACHED_GLOSSARY = re.compile(
-    r"(?:^|[.!?]\s+)[A-Z]{2,6}\)\s+che\b",
+    r"(?:^|(?<!es)(?<!ecc)[.!?]\s+)[A-Z]{2,6}\)\s+che\b",
     re.IGNORECASE,
 )
 
