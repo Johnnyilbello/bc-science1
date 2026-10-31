@@ -6,10 +6,13 @@ import pytest
 
 from bc_science import courses
 from bc_science.scientific_repair import (
-    CHAPTER, REPAIRS, repair_verified_chapter, stage_mitochondrial_repair,
+    CHAPTER,
+    REPAIRS,
+    repair_verified_chapter,
+    stage_mitochondrial_repair,
 )
-from bc_science.study_editions import _sentences
 from bc_science.structural_checks import find_structural_issues
+from bc_science.study_editions import _sentences
 
 
 def _complete():
@@ -71,8 +74,13 @@ def test_dangling_dnp_still_flagged():
 
 
 def _fixture(tmp_path, monkeypatch):
-    from bc_science.courses import CourseScan, _fingerprint, _snapshot
-    from bc_science.courses import _manifest_path, _summary_sha256
+    from bc_science.courses import (
+        CourseScan,
+        _fingerprint,
+        _manifest_path,
+        _snapshot,
+        _summary_sha256,
+    )
 
     monkeypatch.setattr(courses, "app_home", lambda: tmp_path / "app-home")
     folder = tmp_path / "materiali" / "FONDAMENTI DI BIOLOGIA  E CHIMICA"
@@ -149,7 +157,7 @@ def test_stage_generates_backups_pdfs_and_manifest_without_publishing(tmp_path, 
 
 
 def test_stage_refuses_existing_path_and_changed_original_pdf(tmp_path, monkeypatch):
-    scan, source, output, manifest = _fixture(tmp_path, monkeypatch)
+    scan, source, _output, _manifest = _fixture(tmp_path, monkeypatch)
     stage = tmp_path / "previews" / "existing"
     stage.mkdir(parents=True)
     with pytest.raises(ValueError, match="già esistente"):
