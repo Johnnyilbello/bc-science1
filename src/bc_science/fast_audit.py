@@ -83,6 +83,17 @@ def audit_fast_essential(
         info["structural_findings"] = [
             finding.to_dict() for finding in find_structural_issues(simplified)
         ]
+        # Source text may itself be misleading. A fully extractive Essential
+        # could reproduce that error verbatim and still pass a fact-recall gate.
+        # Restrict source-side blockers to high-risk diagnostic patterns.
+        source_risks = {
+            "scientific_direction_risk", "scientific_mechanism_risk",
+        }
+        info["source_scientific_findings"] = [
+            issue.to_dict()
+            for issue in find_structural_issues(original)
+            if issue.category in source_risks
+        ]
         info["language_review_status"] = (
             "DA_RIVEDERE" if language else "NESSUNA_ANOMALIA_RILEVATA"
         )
@@ -148,6 +159,9 @@ def audit_fast_essential(
     structural_chapters = sum(
         bool(info["structural_findings"]) for info in chapter_signals
     )
+    scientific_source_chapters = sum(
+        bool(info["source_scientific_findings"]) for info in chapter_signals
+    )
     context_chapters = sum(
         bool(info["source_context_warnings"]) for info in chapter_signals
     )
@@ -155,6 +169,12 @@ def audit_fast_essential(
         warnings.append(
             f"{context_chapters} capitoli contengono riferimenti ambigui già "
             "nella Completa; confrontare il soggetto con la dispensa originale."
+        )
+    if scientific_source_chapters:
+        warnings.append(
+            f"{scientific_source_chapters} capitoli contengono possibili "
+            "errori scientifici già nella Completa: confrontare le fonti "
+            "originali PRIMA di approvare la versione Essenziale."
         )
     if structural_chapters:
         warnings.append(
@@ -176,6 +196,7 @@ def audit_fast_essential(
         or language_chapters > 0
         or structural_chapters > 0
         or context_chapters > 0
+        or scientific_source_chapters > 0
     )
     status = "FAIL" if hard_failure else ("WARN" if needs_attention else "PASS")
     return FastEssentialAudit(
@@ -241,6 +262,14 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
                 or item["language_findings"]
                 or item["structural_findings"]
             )
+        ],
+        "",
+        "## Potenziali errori scientifici nella Completa",
+        *[
+            f"- **{item['title']}**: «{finding['quote']}» — "
+            f"{finding['reason']}"
+            for item in report.chapter_signals
+            for finding in item["source_scientific_findings"]
         ],
         "",
         "## Riferimenti ambigui già presenti nella Completa",
