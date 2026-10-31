@@ -8,6 +8,7 @@ from bc_science import courses
 from bc_science.scientific_repair import (
     CHAPTER,
     REPAIRS,
+    apply_staged_mitochondrial_repair,
     repair_verified_chapter,
     stage_mitochondrial_repair,
 )
@@ -172,3 +173,81 @@ def test_stage_never_writes_into_course_materials(tmp_path, monkeypatch):
     scan, _source, _output, _manifest = _fixture(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="dispense"):
         stage_mitochondrial_repair(scan, scan.path / "scienza-riparata")
+
+
+
+def test_apply_requires_explicit_confirmation(tmp_path, monkeypatch):
+    scan, _source, output, _manifest = _fixture(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="Conferma esplicita"):
+        apply_staged_mitochondrial_repair(
+            scan, tmp_path / "anything", confirmed=False,
+        )
+    assert REPAIRS[0][0] in output.read_text(encoding="utf-8")
+
+
+def test_apply_staged_repair_updates_manifest_with_recoverable_backup(tmp_path, monkeypatch):
+    scan, source, output, manifest = _fixture(tmp_path, monkeypatch)
+    before_source = source.read_bytes()
+    previous_complete = output.read_text(encoding="utf-8")
+    previous_manifest = manifest.read_bytes()
+    stage = tmp_path / "preview" / "approved"
+    stage_mitochondrial_repair(scan, stage)
+
+    backup = apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
+
+    assert REPAIRS[0][0] not in output.read_text(encoding="utf-8")
+    assert REPAIRS[1][0] not in output.read_text(encoding="utf-8")
+    assert courses.course_study_output_path(scan).is_file()
+    assert courses.course_pdf_path(scan).is_file()
+    assert courses.course_study_pdf_path(scan).is_file()
+    assert source.read_bytes() == before_source
+    assert (backup / "riassunto-unico.md").read_text(encoding="utf-8") == previous_complete
+    assert (backup / "manifest.json").read_bytes() == previous_manifest
+    data = courses._load_manifest(scan)
+    assert courses._study_is_current(scan, data, output.read_text(encoding="utf-8"))
+    assert (stage / "riparazione-pubblicata.txt").is_file()
+    with pytest.raises(ValueError, match="già presente|modificato|cambiato"):
+        apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
+
+
+def test_apply_rejects_modified_staged_content_without_writing(tmp_path, monkeypatch):
+    scan, source, output, manifest = _fixture(tmp_path, monkeypatch)
+    stage = tmp_path / "preview" / "tampered"
+    stage_mitochondrial_repair(scan, stage)
+    original_complete = output.read_bytes()
+    original_manifest = manifest.read_bytes()
+    (stage / "riassunto-studio.md").write_text("Alterato", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="alterata|incompatibile"):
+        apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
+
+    assert output.read_bytes() == original_complete
+    assert manifest.read_bytes() == original_manifest
+    assert source.is_file()
+
+
+def test_apply_rolls_back_if_publication_fails(tmp_path, monkeypatch):
+    import bc_science.scientific_repair as repair
+
+    scan, _source, output, manifest = _fixture(tmp_path, monkeypatch)
+    stage = tmp_path / "preview" / "rollback"
+    stage_mitochondrial_repair(scan, stage)
+    complete_before = output.read_bytes()
+    manifest_before = manifest.read_bytes()
+    original_copy = repair._atomic_copy
+    counter = 0
+
+    def fail_on_second(source, destination):
+        nonlocal counter
+        counter += 1
+        if counter == 2:
+            raise OSError("Failure injection before PDF copy")
+        return original_copy(source, destination)
+
+    monkeypatch.setattr(repair, "_atomic_copy", fail_on_second)
+    with pytest.raises(OSError, match="Failure injection"):
+        repair.apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
+
+    assert output.read_bytes() == complete_before
+    assert manifest.read_bytes() == manifest_before
+    assert not courses.course_study_output_path(scan).exists()
