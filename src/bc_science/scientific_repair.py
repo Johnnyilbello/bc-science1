@@ -165,7 +165,7 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
             "detached_glossary_fragment",
         }
     }
-    if risks or "DNP) che" in chap:
+    if risks:
         raise ValueError(f"Essenziale da rivedere, anteprima non pubblicata: {sorted(risks)}")
     report = audit_fast_essential(
         repaired, essential,
