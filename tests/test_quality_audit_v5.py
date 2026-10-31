@@ -106,3 +106,64 @@ def test_full_omission_count_is_recorded_even_if_only_eight_quotes_shown():
     assert len(row["possible_missing"]) == 8
     assert row["possible_missing_by_category"]["mechanism"] == len(words)
     assert audit.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
+
+
+def test_number_words_and_digit_notation_are_not_a_mismatch():
+    source = "## Cranio\n\nLe ossa parietali sono due, una per ciascun lato."
+    essential = "## Cranio\n\nLe ossa parietali sono 2, una per ciascun lato."
+    report = assess_chapter("Cranio", source, essential)
+    assert not report.numerical_mismatch
+    assert not report.possible_missing
+
+
+def test_reused_statement_spanning_wrapped_source_lines_is_supported():
+    source = (
+        "## Calcio\n\n"
+        "La calmodulina attiva una chinasi specifica.\n"
+        "Le proteine partecipano alla regolazione cellulare."
+    )
+    essential = (
+        "## Calcio\n\n"
+        "La calmodulina attiva una chinasi specifica. "
+        "Le proteine partecipano alla regolazione cellulare."
+    )
+    report = assess_chapter("Calcio", source, essential)
+    assert report.unsupported_phrases == 0
+    assert report.possible_missing == ()
+
+
+def test_rephrased_claim_not_automatically_treated_as_high_severity():
+    source = (
+        "## Muscoli\n\n"
+        "I tendini collegano i muscoli alle ossa permettendo il movimento."
+    )
+    essential = (
+        "## Muscoli\n\n"
+        "Il movimento nasce dal collegamento tra muscoli e ossa "
+        "attraverso i tendini."
+    )
+    report = assess_chapter("Muscoli", source, essential)
+    assert not report.numerical_mismatch
+    assert report.review_priority != "alta"
+
+
+def test_outline_preamble_is_not_an_omitted_fact():
+    source = (
+        "## Rene\n\n"
+        "La sequenza fisiologica avviene come segue:\n"
+        "La pressione arteriosa provoca stiramento dell'arteriola afferente."
+    )
+    target = (
+        "## Rene\n\n"
+        "La pressione arteriosa provoca stiramento dell'arteriola afferente."
+    )
+    report = assess_chapter("Rene", source, target)
+    assert all("come segue" not in fact.quote for fact in report.possible_missing)
+
+
+def test_new_numerical_claim_keeps_high_priority():
+    source = "## Muscoli\n\nQuattro muscoli formano la cuffia dei rotatori."
+    target = "## Muscoli\n\nCinque muscoli formano la cuffia dei rotatori."
+    report = assess_chapter("Muscoli", source, target)
+    assert report.numerical_mismatch
+    assert report.review_priority == "alta"
