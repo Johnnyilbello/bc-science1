@@ -5,8 +5,11 @@ cannot modify published summaries, source PDFs, or workspace manifests.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import shutil
+import uuid
 from pathlib import Path
 
 from .courses import (
@@ -254,3 +257,191 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8",
     )
     return root
+
+
+
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    """Publish one complete file atomically on its destination volume."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(
+        destination.name + ".repair-" + uuid.uuid4().hex + ".tmp"
+    )
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def apply_staged_mitochondrial_repair(
+    scan: CourseScan, preview_dir: Path, *, confirmed: bool = False,
+) -> Path:
+    """Explicit opt-in publication with strict freshness checks and rollback.
+
+    Originals (course PDFs) are never touched. Every pre-existing generated
+    artifact and manifest is backed up before the first replacement.
+    """
+    from .courses import (
+        _fingerprint,
+        _manifest_path,
+        _study_is_current,
+    )
+
+    if not confirmed:
+        raise ValueError("Conferma esplicita richiesta: nessun file modificato.")
+    if not scan.name.upper().startswith("FONDAMENTI"):
+        raise ValueError("Materia non supportata per questa riparazione.")
+    root = preview_dir.expanduser().resolve()
+    manifest_path = _manifest_path(scan)
+    canonical = course_output_path(scan)
+    if not root.is_dir() or root == canonical.parent or canonical.parent in root.parents:
+        raise ValueError("Cartella delle anteprime non valida.")
+    if scan.path.resolve() in root.parents or root == scan.path.resolve():
+        raise ValueError("Cartella delle anteprime dentro le dispense non ammessa.")
+
+    notes = json.loads((root / "riparazione-prove.json").read_text(encoding="utf-8"))
+    proposed = json.loads((root / "manifest-PROPOSTO.json").read_text(encoding="utf-8"))
+    previous = _load_manifest(scan)
+    if (
+        notes.get("status") != "ANTEPRIMA_NON_PUBBLICATA"
+        or notes.get("course") != scan.name
+        or notes.get("chapter") != CHAPTER
+        or not isinstance(previous, dict)
+        or proposed.get("files") != previous.get("files")
+        or proposed.get("coverage") != previous.get("coverage")
+        or proposed.get("summary_pipeline") != previous.get("summary_pipeline")
+        or proposed.get("source") != previous.get("source")
+        or proposed.get("course") != scan.name
+        or notes.get("original_complete_sha256") != previous.get("summary_sha256")
+        or notes.get("source_fingerprint_unchanged") != _fingerprint(_snapshot(scan))
+        or notes.get("source_fingerprint_unchanged") != previous.get("fingerprint")
+    ):
+        raise ValueError("Fonti o manifest mutati dopo l'anteprima: pubblicazione bloccata.")
+
+    targets = {
+        "riassunto-unico.md": canonical,
+        "riassunto-unico.pdf": course_pdf_path(scan),
+        "riassunto-studio.md": course_study_output_path(scan),
+        "riassunto-studio.pdf": course_study_pdf_path(scan),
+        "audit.json": course_audit_json_path(scan),
+        "audit.md": course_audit_markdown_path(scan),
+        "manifest-PROPOSTO.json": manifest_path,
+    }
+    original_dir = root / "backup-originali"
+    for staged, target in targets.items():
+        source = root / staged
+        if not source.is_file():
+            raise ValueError(f"File staged non trovato: {staged}")
+        old = original_dir / ("manifest.json" if staged.startswith("manifest-") else staged)
+        if old.is_file() != target.is_file():
+            raise ValueError(f"Output cambiato dall'anteprima: {target.name}")
+        if old.is_file() and _file_sha256(old) != _file_sha256(target):
+            raise ValueError(f"Output modificato dall'anteprima: {target.name}")
+
+    if (
+        _summary_sha256((root / "riassunto-unico.md").read_text(encoding="utf-8"))
+        != notes.get("proposed_complete_sha256")
+        or _summary_sha256((root / "riassunto-studio.md").read_text(encoding="utf-8"))
+        != notes.get("proposed_essential_sha256")
+        or proposed.get("summary_sha256") != notes.get("proposed_complete_sha256")
+        or proposed.get("study", {}).get("source_summary_sha256")
+        != proposed.get("summary_sha256")
+        or proposed.get("study", {}).get("summary_sha256")
+        != notes.get("proposed_essential_sha256")
+        or proposed.get("study", {}).get("pipeline") != FAST_STUDY_VERSION
+    ):
+        raise ValueError("Anteprima alterata o manifest incompatibile: nessuna scrittura.")
+
+    repaired = (root / "riassunto-unico.md").read_text(encoding="utf-8")
+    proposed_study = (root / "riassunto-studio.md").read_text(encoding="utf-8")
+    risks = {
+        item.category
+        for item in find_structural_issues(
+            dict(_extract_summary_chapters(repaired))[CHAPTER]
+        )
+        if item.category in {"scientific_direction_risk", "scientific_mechanism_risk"}
+    }
+    if risks:
+        raise ValueError("La Completa staged contiene ancora rischi scientifici.")
+    audit = audit_fast_essential(
+        repaired, proposed_study, source_documents=len(scan.supported_files),
+    )
+    if audit.status == "FAIL":
+        raise ValueError("Audit della versione staged fallito, pubblicazione bloccata.")
+    published_audit = json.loads((root / "audit.json").read_text(encoding="utf-8"))
+    if (
+        published_audit.get("complete_sha256") != audit.complete_sha256
+        or published_audit.get("study_sha256") != audit.study_sha256
+        or published_audit.get("audit_version") != audit.audit_version
+    ):
+        raise ValueError("Audit staged non coerente: nessuna scrittura.")
+
+    import pymupdf
+
+    for name, pages in (
+        ("riassunto-unico.pdf", proposed["pdf"]["pages"]),
+        ("riassunto-studio.pdf", proposed["study"]["pdf"]["pages"]),
+    ):
+        with pymupdf.open(root / name) as document:
+            if document.page_count != pages or pages < 1:
+                raise ValueError(f"PDF staged non integro: {name}")
+
+    backups = root / "backup-prima-della-pubblicazione"
+    if backups.exists():
+        raise ValueError("Backup di pubblicazione già presente: blocco doppia applicazione.")
+    backups.mkdir()
+    existed = {}
+    for staged, target in targets.items():
+        backup_name = "manifest.json" if staged.startswith("manifest-") else staged
+        existed[staged] = target.is_file()
+        if target.is_file():
+            shutil.copy2(target, backups / backup_name)
+
+    committed = []
+    try:
+        # Manifest LAST: readers never see a new manifest pointing at old outputs.
+        for staged, target in targets.items():
+            _atomic_copy(root / staged, target)
+            committed.append((staged, target))
+        installed_manifest = _load_manifest(scan)
+        if not (
+            _manifest_baseline_verified(repaired, installed_manifest)
+            and _study_is_current(scan, installed_manifest, repaired)
+            and audit_course_summary(
+                scan, repaired, manifest=installed_manifest,
+                snapshot=_snapshot(scan),
+            ).complete
+        ):
+            raise ValueError("Verifica post-pubblicazione fallita; rollback.")
+    except Exception:
+        rollback_errors = []
+        for staged, target in reversed(committed):
+            backup_name = "manifest.json" if staged.startswith("manifest-") else staged
+            try:
+                if existed[staged]:
+                    _atomic_copy(backups / backup_name, target)
+                else:
+                    target.unlink(missing_ok=True)
+            except OSError as exc:
+                rollback_errors.append(f"{target}: {exc}")
+        if rollback_errors:
+            raise RuntimeError(
+                "Ripristino INCOMPLETO; usare backup in "
+                + str(backups) + ": " + "; ".join(rollback_errors)
+            ) from None
+        raise
+    (root / "riparazione-pubblicata.txt").write_text(
+        "Riparazione applicata con verifica manifest e hash delle fonti.\n"
+        "Backup precedenti: " + str(backups) + "\n"
+        "La verifica scientifica degli altri capitoli resta da completare.\n",
+        encoding="utf-8",
+    )
+    return backups
