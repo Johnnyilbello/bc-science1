@@ -12,10 +12,15 @@ from dataclasses import asdict, dataclass
 _WORD = re.compile(r"[a-zà-ÿ0-9]+", re.IGNORECASE)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
 _NUM = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|mm|cm|kg|g|mg|ml|bpm|°C))?")
+_NUMBER_VALUES = {
+    "due": "2", "tre": "3", "quattro": "4", "cinque": "5",
+    "sei": "6", "sette": "7", "otto": "8", "nove": "9",
+    "dieci": "10", "undici": "11", "dodici": "12",
+    "venti": "20", "trenta": "30", "quaranta": "40",
+    "cinquanta": "50", "cento": "100", "mille": "1000",
+}
 _NUMBER_WORD = re.compile(
-    r"\b(?:due|tre|quattro|cinque|sei|sette|otto|nove|dieci|"
-    r"undici|dodici|venti|trenta|quaranta|cinquanta|cento|mille)\b",
-    re.IGNORECASE,
+    r"\b(?:" + "|".join(_NUMBER_VALUES) + r")\b", re.IGNORECASE,
 )
 _MARKDOWN = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+", re.MULTILINE)
 _HEADING_ONLY = re.compile(
@@ -32,6 +37,13 @@ _NEGATIVE = re.compile(
 )
 _CONTEXT = re.compile(
     r"^(?:terziariamente|secondariamente|tale ormone|questo ormone)\b",
+    re.IGNORECASE,
+)
+_OUTLINE_PREAMBLE = re.compile(
+    r"^(?:(?:la |il )?sequenza (?:fisiologica |di eventi )?"
+    r"(?:avviene |si svolge )?come segue|"
+    r"(?:i )?passaggi (?:sono )?(?:i seguenti|questi)|"
+    r"(?:le )?fasi (?:sono )?(?:le seguenti|queste))\s*:?\s*$",
     re.IGNORECASE,
 )
 _GLOSSARY = re.compile(
@@ -78,10 +90,22 @@ def _tokens(body: str) -> set[str]:
 
 
 def _number_markers(body: str) -> set[str]:
-    return {
-        *(match.casefold() for match in _NUMBER_WORD.findall(body)),
-        *_NUM.findall(body),
+    """Compare two/2 and equivalent numeric notation consistently.
+
+    Units are deliberately checked elsewhere; this is only a mismatch
+    detector for quantities, never a scientific verification.
+    """
+    numbers = set(_NUM.findall(body))
+    values = {
+        match.group().casefold()
+        for match in _NUMBER_WORD.finditer(body)
     }
+    canonical = {_NUMBER_VALUES[value] for value in values}
+    canonical.update(
+        re.match(r"\d+(?:[.,]\d+)?", number).group().replace(",", ".")
+        for number in numbers
+    )
+    return canonical
 
 
 def _lines(body: str) -> list[str]:
@@ -93,12 +117,17 @@ def _lines(body: str) -> list[str]:
             not stripped
             or stripped.startswith((">", "#", "---"))
             or _HEADING_ONLY.fullmatch(_text(stripped).strip())
+            or _OUTLINE_PREAMBLE.fullmatch(_text(stripped).strip())
         ):
             continue
         paragraph = _text(stripped)
         for item in _SENTENCE.split(paragraph):
             item = re.sub(r"\s+", " ", item).strip()
-            if len(item) >= 22 and not _HEADING_ONLY.fullmatch(item):
+            if (
+                len(item) >= 22
+                and not _HEADING_ONLY.fullmatch(item)
+                and not _OUTLINE_PREAMBLE.fullmatch(item)
+            ):
                 result.append(item)
     return result
 
@@ -181,6 +210,12 @@ def _qualifiers_compatible(source: str, target: str) -> bool:
 def _supported(item: str, text: str, sentences: list[str]) -> bool:
     """Conservative lexical evidence for candidate triage, not entailment."""
     normalized = " ".join(_text(item).casefold().split())
+    # Extractive reflow sometimes joins sentences originally on separate lines.
+    # Literal reuse of the FULL statement is good evidence of source linkage.
+    # Never treat mere presence of the concept label as sufficient.
+    whole_text = " ".join(_text(text).casefold().split())
+    if normalized and normalized in whole_text:
+        return True
     for sentence in sentences:
         if not _qualifiers_compatible(item, sentence):
             continue
@@ -235,11 +270,12 @@ def assess_chapter(
                           "number_or_formula", "causal"}
         for fact in uncertain
     )
-    # Candidate omissions are NOT confirmed errors. Escalation guides review,
-    # particularly for numbers, qualifications and causal claims.
-    if numbers_unmatched or unsupported:
+    # A lexical mismatch is NOT an unsupported scientific assertion.
+    # Only new numerical values get the highest automatic triage priority.
+    # Other unmatched claims remain in the report for evidence review.
+    if numbers_unmatched:
         priority = "alta"
-    elif critical_missing or len(uncertain) >= 3 or too_long or bad_sentences:
+    elif unsupported or critical_missing or len(uncertain) >= 3 or too_long or bad_sentences:
         priority = "media"
     elif uncertain or context_warnings:
         priority = "bassa"
