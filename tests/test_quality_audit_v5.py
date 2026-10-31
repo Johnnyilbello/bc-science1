@@ -97,8 +97,9 @@ def test_full_omission_count_is_recorded_even_if_only_eight_quotes_shown():
         f"La proteina {word} attiva una specifica cascata di segnali cellulari."
         for word in words
     )
-    source = "## Proteine\n\n" + statements
-    summary = "## Proteine\n\nLe proteine partecipano a vari processi cellulari."
+    prefix = "# Corso\n\n## Indice degli argomenti\n- Proteine\n\n---\n\n"
+    source = prefix + "## Proteine\n\n" + statements
+    summary = prefix + "## Proteine\n\nLe proteine partecipano a vari processi cellulari."
     audit = audit_fast_essential(source, summary)
     row = audit.chapter_signals[0]
     assert row["possible_missing_total"] == len(words)
