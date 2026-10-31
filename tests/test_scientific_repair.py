@@ -206,7 +206,7 @@ def test_apply_staged_repair_updates_manifest_with_recoverable_backup(tmp_path, 
     data = courses._load_manifest(scan)
     assert courses._study_is_current(scan, data, output.read_text(encoding="utf-8"))
     assert (stage / "riparazione-pubblicata.txt").is_file()
-    with pytest.raises(ValueError, match="già presente|modificato|cambiato"):
+    with pytest.raises(ValueError, match="mutati|già presente|modificato|cambiato"):
         apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
 
 
