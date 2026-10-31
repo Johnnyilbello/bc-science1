@@ -16,7 +16,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "fast-essential-v4-glossary-and-mechanisms"
+FAST_STUDY_VERSION = "fast-essential-v5-abbreviation-safe"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
@@ -36,9 +36,17 @@ def _clean_line(line: str, *, preserve_bold: bool = False) -> str:
 
 
 def _sentences(line: str) -> list[str]:
+    # `es. DNP` and `ecc. DNA` are abbreviations, not sentence boundaries.
+    # Splitting there used to generate orphan fragments like `DNP) che...`.
+    protected = re.sub(
+        r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+        lambda match: match.group(1) + "\uE000",
+        line,
+        flags=re.IGNORECASE,
+    )
     return [
-        value.strip()
-        for value in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", line)
+        value.replace("\uE000", ".").strip()
+        for value in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", protected)
         if len(value.strip()) >= 15
     ]
 
