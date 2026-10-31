@@ -12,6 +12,11 @@ from dataclasses import asdict, dataclass
 _WORD = re.compile(r"[a-zà-ÿ0-9]+", re.IGNORECASE)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
 _NUM = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?(?:\s*(?:%|mm|cm|kg|g|mg|ml|bpm|°C))?")
+_NUMBER_WORD = re.compile(
+    r"\b(?:due|tre|quattro|cinque|sei|sette|otto|nove|dieci|"
+    r"undici|dodici|venti|trenta|quaranta|cinquanta|cento|mille)\b",
+    re.IGNORECASE,
+)
 _MARKDOWN = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+", re.MULTILINE)
 _HEADING_ONLY = re.compile(
     r"^(?:classificazione\s+(?:\S+\s*){1,7}|tipi\s+di\s+(?:\S+\s*){1,7}|"
@@ -72,6 +77,13 @@ def _tokens(body: str) -> set[str]:
     return {x for x in _WORD.findall(body.casefold()) if len(x) >= 4}
 
 
+def _number_markers(body: str) -> set[str]:
+    return {
+        *(match.casefold() for match in _NUMBER_WORD.findall(body)),
+        *_NUM.findall(body),
+    }
+
+
 def _lines(body: str) -> list[str]:
     """Return content statements, excluding Markdown and outline headings."""
     result = []
@@ -121,7 +133,7 @@ def critical_facts(complete_chapter: str) -> tuple[KeyFact, ...]:
         kind = None
         if _GLOSSARY.match(sentence):
             kind = "definition"
-        elif _NUM.search(sentence):
+        elif _NUM.search(sentence) or _NUMBER_WORD.search(sentence):
             kind = "number_or_formula"
         elif _ABSOLUTE.search(sentence):
             kind = "absolute_condition"
@@ -154,8 +166,8 @@ def _overlap(source: str, candidate: str) -> float:
 
 def _qualifiers_compatible(source: str, target: str) -> bool:
     """Never equate a positive claim with its negation or change absolutes."""
-    source_nums = set(_NUM.findall(source))
-    target_nums = set(_NUM.findall(target))
+    source_nums = _number_markers(source)
+    target_nums = _number_markers(target)
     if not source_nums <= target_nums:
         return False
     if bool(_NEGATIVE.search(source)) != bool(_NEGATIVE.search(target)):
@@ -209,8 +221,8 @@ def assess_chapter(
         for p in re.split(r"\n\s*\n", essential_chapter)
         if p.strip() and not p.lstrip().startswith("#")
     )
-    source_nums = set(_NUM.findall(complete_chapter))
-    target_nums = set(_NUM.findall(essential_chapter))
+    source_nums = _number_markers(complete_chapter)
+    target_nums = _number_markers(essential_chapter)
     numbers_unmatched = bool(target_nums - source_nums)
     # Preserve possible ambiguity inherited from the Complete. Do not guess
     # whether "terziariamente" refers to the kidney, a hormone, or a gland.
