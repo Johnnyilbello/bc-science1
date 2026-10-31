@@ -158,6 +158,7 @@ class OllamaClient:
         keep_alive: str = "20m",
         think: bool = False,
         temperature: float = 0.1,
+        response_format: dict | None = None,
     ) -> ChatResult:
         payload = self._chat_payload(
             model,
@@ -169,6 +170,8 @@ class OllamaClient:
             think=think,
             temperature=temperature,
         )
+        if response_format is not None:
+            payload["format"] = response_format
         pieces: list[str] = []
         final: dict = {}
 
@@ -214,12 +217,14 @@ class OllamaClient:
         if not items:
             return []
         try:
-            with httpx.Client(timeout=None) as client:
+            with httpx.Client(timeout=httpx.Timeout(180.0, connect=10.0)) as client:
                 response = client.post(
                     f"{self.base_url}/api/embed",
                     json={"model": model, "input": items, "truncate": True},
                 )
                 response.raise_for_status()
                 return response.json()["embeddings"]
+        except httpx.TimeoutException as exc:
+            raise OllamaError("Ollama non ha completato la ricerca delle fonti entro 3 minuti. Il modello potrebbe essere occupato: attendi e riprova.") from exc
         except (httpx.HTTPError, KeyError) as exc:
             raise OllamaError(f"Errore Ollama durante l'embedding: {exc}") from exc

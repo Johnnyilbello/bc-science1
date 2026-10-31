@@ -16,7 +16,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-FAST_STUDY_VERSION = "study-v7-original-evidence-diagnostics"
+FAST_STUDY_VERSION = "fast-essential-v5-abbreviation-safe"
 _BOILERPLATE = {
     "in parole semplici", "spiegazione semplice", "spiegazione ordinata",
     "concetti chiave", "concetti da ricordare", "definizioni e termini",
@@ -36,9 +36,17 @@ def _clean_line(line: str, *, preserve_bold: bool = False) -> str:
 
 
 def _sentences(line: str) -> list[str]:
+    # `es. DNP` and `ecc. DNA` are abbreviations, not sentence boundaries.
+    # Splitting there used to generate orphan fragments like `DNP) che...`.
+    protected = re.sub(
+        r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+        lambda match: match.group(1) + "\uE000",
+        line,
+        flags=re.IGNORECASE,
+    )
     return [
-        value.strip()
-        for value in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", line)
+        value.replace("\uE000", ".").strip()
+        for value in re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", protected)
         if len(value.strip()) >= 15
     ]
 
@@ -48,6 +56,13 @@ def _keywords(text: str) -> set[str]:
 
 
 def _similar(a: str, b: str) -> bool:
+    # Similar vocabulary does not make a qualified claim equivalent to a
+    # certain claim, or a negative statement equivalent to a positive one.
+    distinctions = (r"\b(?:potenzial\w*|potreb\w*|possibil\w*|ipotet\w*|può|possono|possa)\b",
+                    r"\bnon\b", r"\b(?:solo|soltanto|eccetto|tranne)\b")
+    if any(bool(re.search(pattern, a, re.IGNORECASE)) != bool(re.search(pattern, b, re.IGNORECASE))
+           for pattern in distinctions):
+        return False
     nums = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
     if set(nums.findall(a)) != set(nums.findall(b)):
         return False
@@ -102,6 +117,11 @@ def readable_complete_chapter(title: str, chapter: str) -> str:
     flush()
     text = f"## {title}\n\n" + "\n\n".join(paragraphs)
     text, _fix_count = conservative_italian_fixes(text)
+    from .clarity import normalize_novice_layout
+
+    text, _layout_fixes = normalize_novice_layout(
+        text, max_sentences_per_paragraph=3, max_words_per_paragraph=90,
+    )
     return text
 
 
@@ -151,6 +171,53 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
         for sentence in sentences:
             if re.search(r"(?<!\w)\d+(?:[.,]\d+)?", sentence):
                 mandatory.append(sentence)
+    # Definitions, classifications and uncertainty cannot be discarded merely
+    # because the optional prose budget was consumed by introductory sentences.
+    from .course_audit import _fact_category
+    for sentences in sections.values():
+        for sentence in sentences:
+            category, _weight = _fact_category(sentence, exam=False)
+            if (category in {"definizione", "classificazione", "qualificatore", "eccezione", "sequenza"}
+                or re.search(r"\b[A-Z]{2,}\d", sentence)):
+                mandatory.append(sentence)
+    # A glossary term by itself is not enough to learn the concept:
+    # preserve the source-backed definition *and* its causal relationship.
+    # E.g. "Calmodulina — ...", "La calmodulina attiva una chinasi".
+    label_definition = re.compile(
+        r"^(?P<label>[A-ZÀ-Ý][A-Za-zÀ-ÿ0-9]*(?:\s+[A-Za-zÀ-ÿ0-9]+){0,3})"
+        r"\s*(?:[—–]|:)\s+(?P<description>.{16,})$"
+    )
+    named_terms: set[str] = set()
+    for sentences in sections.values():
+        for sentence in sentences:
+            match = label_definition.match(sentence)
+            if match:
+                named_terms.add(match.group("label").casefold())
+                mandatory.append(sentence)
+
+    key_relation = re.compile(
+        r"\b(?:attiv\w*|inib\w*|leg\w*|fosforil\w*|"
+        r"defosforil\w*|regol\w*|produc\w*|trasform\w*|"
+        r"trasport\w*|secern\w*)\b",
+        re.IGNORECASE,
+    )
+    essential_condition = re.compile(
+        r"\b(?:senza\s+che|in\s+assenza\s+di|"
+        r"non\s+(?:si\s+verifica|richiede|può|avviene))\b",
+        re.IGNORECASE,
+    )
+    for sentences in sections.values():
+        for sentence in sentences:
+            if essential_condition.search(sentence):
+                mandatory.append(sentence)
+                continue
+            if key_relation.search(sentence) and any(
+                re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)",
+                          sentence, re.IGNORECASE)
+                for term in named_terms
+            ):
+                mandatory.append(sentence)
+
     selected: list[str] = []
     max_words = min(550, max(95, int(source_words * 0.43)))
     current_words = 0
@@ -166,6 +233,14 @@ def make_fast_essential_chapter(title: str, complete_chapter: str) -> ReadableCh
         selected.append(value)
         current_words += count
 
+    # Each prose paragraph introduces a topic or stage. Keep a source
+    # representative before optional introductory detail consumes the budget.
+    for paragraph in re.split(r"\n\s*\n", complete_chapter):
+        prose = " ".join(_clean_line(line.strip()) for line in paragraph.splitlines()
+                         if line.strip() and not line.lstrip().startswith(("#", ">", "---")))
+        units = _sentences(prose)
+        if units:
+            add(units[0], force=True)
     for sentence in intro:
         add(sentence)
     for sentence in mandatory:

@@ -8,10 +8,10 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
-from .clarity import audit_novice_document
+from .clarity import audit_narrative_document, audit_novice_document
 from .summarizer import _extract_summary_chapters, topic_key
 
-FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v4-original-evidence"
+FAST_ESSENTIAL_AUDIT_VERSION = "audit-fast-essential-v5.2-source-scientific-guards"
 
 _STOPWORDS = {
     "anche", "alla", "alle", "agli", "allo", "attraverso", "come", "con", "dalla",
@@ -34,7 +34,7 @@ _EXCEPTION_HINTS = (
     " eccetto ", " tranne ", " tuttavia ", " invece ", " mentre ", " non ", " ma ",
 )
 
-AUDIT_VERSION = "atomic-fact-v1"
+AUDIT_VERSION = "atomic-fact-v2-source-qualifiers"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +157,8 @@ def _fact_category(text: str, *, exam: bool) -> tuple[str, int]:
     has_number = bool(_numbers(text))
     if has_number:
         return "numero", 3
+    if any(term in lowered for term in ("potenzial", "potrebbe", "potrebbero", "associazione", "associato", "associata", " può ", " possono ", " possa ")):
+        return "qualificatore", 3
     if exam:
         return "esame", 3
     if any(hint in lowered for hint in _CLASSIFICATION_HINTS):
@@ -418,7 +420,11 @@ def audit_study_pair(
         else 0.0
     )
 
-    clarity_passed, clarity_rows = audit_novice_document(study_text)
+    readability_audit = (
+        audit_narrative_document
+        if "> Modalità essenziale:" in study_text else audit_novice_document
+    )
+    clarity_passed, clarity_rows = readability_audit(study_text)
     chapter_scores = [
         audit.metrics.score
         for title, audit in clarity_rows
@@ -443,6 +449,12 @@ def audit_study_pair(
         warnings.append(f"{missing_exam} punti d'esame non risultano coperti con sufficiente confidenza.")
     if missing_numeric:
         warnings.append(f"{missing_numeric} fatti numerici non risultano coperti.")
+    insufficient_compression = complete_words >= 250 and compression < 0.20
+    if insufficient_compression:
+        warnings.append(
+            f"Compressione {compression:.1%}: la versione studio è troppo simile "
+            "alla Completa e non costituisce un riassunto abbastanza breve."
+        )
     if duplicate_rate > 0.08:
         warnings.append(
             f"Ridondanza globale stimata {duplicate_rate:.1%}: sopra il target dell'8%."
@@ -463,6 +475,7 @@ def audit_study_pair(
         weighted_coverage < 0.97
         or missing_exam > 0
         or duplicate_rate > 0.08
+        or insufficient_compression
         or clarity_score < 80
         or not clarity_passed
     ):
@@ -668,7 +681,10 @@ def audit_report_is_current(
     report_path: Path,
     complete_text: str,
     study_text: str,
+    *,
+    expected_version: str | None = None,
 ) -> tuple[bool, str | None]:
+    """Check input hashes and match the active edition's audit version."""
     if not report_path.exists():
         return False, None
     try:
@@ -678,8 +694,10 @@ def audit_report_is_current(
     if not isinstance(payload, dict):
         return False, None
 
+    version = payload.get("audit_version")
     current = (
-        payload.get("audit_version") in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+        version in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+        and (expected_version is None or version == expected_version)
         and payload.get("complete_sha256") == _sha256(complete_text)
         and payload.get("study_sha256") == _sha256(study_text)
     )

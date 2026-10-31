@@ -45,6 +45,7 @@ function showQualityStatus(){
  if(readerEvidence&&readerEvidence.title===chapter.title&&readerEvidence.edition===mode){
     const hits=readerEvidence.evidence||[];
     html+='<p class="hint">'+esc(readerEvidence.status==='PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE'?'Passaggi originali trovati: non equivalgono a fatti verificati.':'Nessuna prova originale recuperabile dalla cache.')+'</p>';
+    html+=hits.map((x,i)=>x.source_path.toLowerCase().endsWith('.pdf')?'<button class="button source-preview" data-source-index="'+i+'">'+icon('file')+'Pagina originale · '+esc(x.page||1)+'</button>':'').join('');
     html+=details('Fonti originali · pagine o blocchi',hits,x=>{
       const location=x.page!=null?'pagina '+x.page:(x.block!=null?'blocco '+x.block:'posizione non disponibile');
       return x.source_path.split(/[\\/]/).pop()+' · '+location+'\n'+x.excerpt;
@@ -81,3 +82,22 @@ $('#question-form').onsubmit=async e=>{e.preventDefault();if(!course){notice('Se
 $('#new-subject').onclick=()=>$('#subject-dialog').showModal();
 $('#cancel-subject').onclick=()=>$('#subject-dialog').close();
 $('#subject-form').onsubmit=async e=>{e.preventDefault();const name=$('#subject-name').value.trim();const result=await call(()=>api.create_subject(name));if(result){$('#subject-dialog').close();await sync();course=name;view='library';render();}};
+
+let previewSource=null, previewRequest=0;
+async function showSourcePage(page){
+ const request=++previewRequest, target=previewSource;if(!target)return;
+ $('#source-image').hidden=true;$('#source-caption').textContent='Apertura della pagina originale…';$('#load-source-page').disabled=true;
+ try{const result=await api.source_preview(target.course,target.source,page);if(request!==previewRequest)return;
+ $('#source-image').src=result.image;$('#source-image').alt=result.label+', pagina '+result.page;$('#source-image').hidden=false;
+ $('#source-caption').textContent=result.label+' · Pagina '+result.page+' di '+result.pages;
+ $('#source-page').value=result.page;$('#source-page').max=result.pages;
+ }catch(error){if(request===previewRequest)$('#source-caption').textContent=error.message||String(error);}
+ finally{if(request===previewRequest)$('#load-source-page').disabled=false;}
+}
+$('#quality-findings').addEventListener('click',event=>{const button=event.target.closest('[data-source-index]');if(!button)return;
+ const evidence=readerEvidence?.evidence?.[Number(button.dataset.sourceIndex)];if(!evidence)return;
+ previewSource={course,source:evidence.source_path};$('#source-dialog').showModal();showSourcePage(evidence.page||1);
+});
+$('#close-source').onclick=()=>{$('#source-dialog').close();++previewRequest;};
+$('#source-dialog').addEventListener('close',()=>{++previewRequest;});
+$('#source-page-form').onsubmit=event=>{event.preventDefault();showSourcePage(Number($('#source-page').value));};

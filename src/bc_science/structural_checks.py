@@ -17,6 +17,25 @@ _HEAD_FRAGMENT = re.compile(
     re.IGNORECASE,
 )
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+# Targeted scientific-risk patterns: these are verified against the actual
+# course PDF before being promoted from a warning to a correction.
+# The respiratory chain pumps H+ OUT of the mitochondrial matrix; ATP synthase
+# uses H+ returning IN. Flag an inverted chain direction, never auto-rewrite.
+_INVERTED_PROTON_PUMP = re.compile(
+    r"(?:catena\s+respiratoria|complessi\s+proteici)\b.{0,95}?"
+    r"\bpomp\w*\b.{0,65}?\bprotoni\b.{0,95}?"
+    r"\bdallo\s+spazio\s+intermembrana\s+alla\s+matrice\b",
+    re.IGNORECASE,
+)
+_ADP_PROTON_CONFUSION = re.compile(
+    r"\bADP\b.{0,65}?\b(?:ricevere|riceve)\s+(?:i\s+)?protoni\b",
+    re.IGNORECASE,
+)
+_DETACHED_GLOSSARY = re.compile(
+    r"(?:^|(?<!es)(?<!ecc)[.!?]\s+)[A-Z]{2,6}\)\s+che\b",
+    re.IGNORECASE,
+)
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,13 +64,45 @@ def find_structural_issues(chapter: str, *, limit: int = 20) -> tuple[Structural
     for paragraph in paragraphs:
         if paragraph.strip().startswith("#"):
             continue
-        sentences = _SENTENCE.split(re.sub(r"\s+", " ", paragraph.strip()))
+        collapsed = re.sub(r"\s+", " ", paragraph.strip())
+        # `es. DNP` is not a full stop. Do not split the valid glossary
+        # definition and then mistake `DNP) che` for a standalone fragment.
+        protected = re.sub(
+            r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+            lambda match: match.group(1) + "\uE000",
+            collapsed,
+            flags=re.IGNORECASE,
+        )
+        sentences = [part.replace("\uE000", ".") for part in _SENTENCE.split(protected)]
         for sentence in sentences:
             cleaned = re.sub(r"[\W_]+", " ", sentence.casefold()).strip()
             if len(cleaned.split()) >= 8:
                 if cleaned in repeated:
                     add("repetition", sentence, "Frase ripetuta nel capitolo")
                 repeated.add(cleaned)
+        # Flag exact high-risk patterns that cannot be fixed by removing
+        # repeated words or raising the compression budget.
+        for sentence in sentences:
+            proton = _INVERTED_PROTON_PUMP.search(sentence)
+            if proton:
+                add(
+                    "scientific_direction_risk", proton.group(),
+                    "La direzione del pompaggio protonico attribuita alla "
+                    "catena respiratoria è invertita: verificare i PDF originali",
+                )
+            adp = _ADP_PROTON_CONFUSION.search(sentence)
+            if adp:
+                add(
+                    "scientific_mechanism_risk", adp.group(),
+                    "L'ADP non riceve protoni per formare ATP: verificare "
+                    "il meccanismo con la fonte originale",
+                )
+            fragment = _DETACHED_GLOSSARY.search(sentence)
+            if fragment:
+                add(
+                    "detached_glossary_fragment", sentence,
+                    "Possibile definizione spezzata dopo una sigla tra parentesi",
+                )
         tail = paragraph.strip()
         if tail and _HEAD_FRAGMENT.search(tail):
             add(
