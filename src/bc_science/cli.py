@@ -351,6 +351,38 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("repair-preview")
+def courses_repair_preview(
+    root: Annotated[
+        Path, typer.Argument(help="Cartella radice delle dispense originali"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Nuova cartella per anteprime e backup"),
+    ],
+) -> None:
+    """Crea un dossier di riparazione senza modificare gli output pubblicati."""
+    from .scientific_repair import stage_mitochondrial_repair
+
+    scans = [
+        scan for scan in scan_courses(root)
+        if scan.name.upper().startswith("FONDAMENTI")
+    ]
+    if len(scans) != 1:
+        console.print("[red]Impossibile identificare una sola materia Fondamenti.[/]")
+        raise typer.Exit(1)
+    try:
+        destination = stage_mitochondrial_repair(scans[0], output_dir)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Anteprima non creata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    console.print("[green]Anteprima e backup pronti, nessun output modificato.[/]")
+    console.print(f"Controlla il dossier: {destination}")
+    console.print(
+        "[yellow]Questo comando NON pubblica la riparazione; "
+        "manifest e PDF esistenti restano invariati.[/]"
+    )
+
+
 @courses_app.command("audit")
 def courses_audit(
     root: Annotated[
