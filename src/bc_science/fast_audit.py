@@ -69,6 +69,14 @@ def audit_fast_essential(
         # Store only short source quotes for actionable manual review;
         # never misrepresent lexical overlap as semantic entailment.
         info = report.to_dict()
+        # Truncate quoted examples for report size, never the real counts.
+        info["possible_missing_total"] = len(info["possible_missing"])
+        info["possible_missing_by_category"] = {
+            category: sum(
+                fact.category == category for fact in report.possible_missing
+            )
+            for category in sorted({fact.category for fact in report.possible_missing})
+        }
         info["possible_missing"] = info["possible_missing"][:8]
         language = grammar_findings(simplified, limit=15)
         info["language_findings"] = [finding.to_dict() for finding in language]
@@ -140,6 +148,14 @@ def audit_fast_essential(
     structural_chapters = sum(
         bool(info["structural_findings"]) for info in chapter_signals
     )
+    context_chapters = sum(
+        bool(info["source_context_warnings"]) for info in chapter_signals
+    )
+    if context_chapters:
+        warnings.append(
+            f"{context_chapters} capitoli contengono riferimenti ambigui già "
+            "nella Completa; confrontare il soggetto con la dispensa originale."
+        )
     if structural_chapters:
         warnings.append(
             f"{structural_chapters} capitoli con possibili ripetizioni, "
@@ -159,6 +175,7 @@ def audit_fast_essential(
         or widespread_review
         or language_chapters > 0
         or structural_chapters > 0
+        or context_chapters > 0
     )
     status = "FAIL" if hard_failure else ("WARN" if needs_attention else "PASS")
     return FastEssentialAudit(
@@ -215,7 +232,7 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         "## Capitoli con possibili problemi",
         *[
             f"- **{item['title']}**: priorità {item['review_priority']}; "
-            f"possibili omissioni {len(item['possible_missing'])}; "
+            f"possibili omissioni {item['possible_missing_total']}; "
             f"frasi difficili {item['difficult_sentences']}; "
             f"frasi non ben allineate {item['unsupported_phrases']}"
             for item in report.chapter_signals
@@ -224,6 +241,14 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
                 or item["language_findings"]
                 or item["structural_findings"]
             )
+        ],
+        "",
+        "## Riferimenti ambigui già presenti nella Completa",
+        *[
+            f"- **{item['title']}**: «{phrase}» — "
+            "soggetto/contesto da verificare nelle dispense originali"
+            for item in report.chapter_signals
+            for phrase in item["source_context_warnings"][:5]
         ],
         "",
         "## Forme grammaticali e problemi di significato da verificare",
