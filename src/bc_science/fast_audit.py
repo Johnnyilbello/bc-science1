@@ -46,6 +46,7 @@ class FastEssentialAudit:
     chapters_with_language_issues: int = 0
     chapters_with_structural_issues: int = 0
     title_spelling_variants: tuple[tuple[str, str], ...] = ()
+    expanded_chapters: tuple[dict, ...] = ()
 
 
 def _title_spelling_key(title: str) -> str:
@@ -101,6 +102,8 @@ def audit_fast_essential(
     )
     missing_numeric: list[str] = []
     chapter_signals: list[dict] = []
+    expanded_chapters: list[dict] = []
+    word = r"\b[\wÀ-ÿ'+-]+\b"
     for (name, original), (target, simplified) in zip(originals, essential):
         if _title_spelling_key(name) != _title_spelling_key(target):
             continue
@@ -110,6 +113,18 @@ def audit_fast_essential(
         # Store only short source quotes for actionable manual review;
         # never misrepresent lexical overlap as semantic entailment.
         info = report.to_dict()
+        original_words = len(re.findall(word, original))
+        simplified_words = len(re.findall(word, simplified))
+        info["complete_words"] = original_words
+        info["study_words"] = simplified_words
+        info["word_delta"] = simplified_words - original_words
+        if simplified_words > original_words:
+            expanded_chapters.append({
+                "title": name,
+                "complete_words": original_words,
+                "study_words": simplified_words,
+                "extra_words": simplified_words - original_words,
+            })
         # Truncate quoted examples for report size, never the real counts.
         info["possible_missing_total"] = len(info["possible_missing"])
         info["possible_missing_by_category"] = {
@@ -140,7 +155,6 @@ def audit_fast_essential(
         )
         chapter_signals.append(info)
 
-    word = r"\b[\wÀ-ÿ'+-]+\b"
     cw = len(re.findall(word, complete_text))
     sw = len(re.findall(word, study_text))
     # A negative percentage is meaningful: Essential is LONGER than Complete.
@@ -283,6 +297,9 @@ def audit_fast_essential(
         chapters_with_language_issues=language_chapters,
         chapters_with_structural_issues=structural_chapters,
         title_spelling_variants=spelling_variants,
+        expanded_chapters=tuple(
+            sorted(expanded_chapters, key=lambda entry: entry["extra_words"], reverse=True)
+        ),
     )
 
 
@@ -298,6 +315,7 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         f"**Capitoli:** {report.chapters_present}/{report.chapters_total}",
         f"**Compressione effettiva (può essere negativa):** {report.compression_percent:.1f}%",
         f"**Differenze ortografiche nei titoli:** {len(report.title_spelling_variants)}",
+        f"**Capitoli con Essenziale più lunga:** {len(report.expanded_chapters)}",
         f"**Numeri d'esame assenti:** {len(report.missing_exam_number_chapters)}",
         f"**Verifica contenutistica:** {report.content_review_status}",
         f"**Capitoli da controllare:** {report.chapters_needing_review}",
@@ -316,6 +334,13 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         *[
             f"- Completa: «{source}» → Essenziale: «{target}»"
             for source, target in report.title_spelling_variants
+        ],
+        "",
+        "## Capitoli che allungano l'Essenziale",
+        *[
+            f"- **{item['title']}**: {item['complete_words']} → "
+            f"{item['study_words']} parole (+{item['extra_words']})"
+            for item in report.expanded_chapters
         ],
         "",
         "## Capitoli con possibili problemi",
