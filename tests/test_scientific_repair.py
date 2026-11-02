@@ -407,3 +407,29 @@ def test_scoped_integrity_rejects_altered_preface(tmp_path, monkeypatch):
         _verify_scoped_content(
             original_complete, fixed, original_study, changed_preface,
         )
+
+
+
+def test_apply_rechecks_warn_even_when_older_preview_did_not_block(tmp_path, monkeypatch):
+    """A stale preview with an old 'unblocked' flag cannot bypass current WARN."""
+    from dataclasses import replace
+
+    import bc_science.scientific_repair as repair
+
+    scan, _source, complete, manifest = _fixture(tmp_path, monkeypatch)
+    destination = tmp_path / "previews" / "warn-rechecked"
+    stage_mitochondrial_repair(scan, destination)
+
+    before_complete = complete.read_bytes()
+    before_manifest = manifest.read_bytes()
+    original_audit = repair.audit_fast_essential
+
+    def warn_audit(*args, **kwargs):
+        return replace(original_audit(*args, **kwargs), status="WARN")
+
+    monkeypatch.setattr(repair, "audit_fast_essential", warn_audit)
+
+    with pytest.raises(ValueError, match="non in PASS"):
+        repair.apply_staged_mitochondrial_repair(scan, destination, confirmed=True)
+    assert complete.read_bytes() == before_complete
+    assert manifest.read_bytes() == before_manifest
