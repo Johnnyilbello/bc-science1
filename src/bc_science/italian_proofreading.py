@@ -113,7 +113,16 @@ def grammar_findings(text: str, *, limit: int = 30) -> tuple[GrammarFinding, ...
             continue
         if len(block) > 700:
             continue
-        last = block.splitlines()[-1].strip()
+        # Markdown section headings can occur at the end of a prose block
+        # without a blank line. They are not broken sentences. Inspect the
+        # preceding prose instead, so a real orphan before a heading is still
+        # reported, but never report `### Concetti chiave` as a fragment.
+        lines = block.splitlines()
+        while lines and re.match(r"^\s*#{1,6}(?:\s|$)", lines[-1]):
+            lines.pop()
+        if not lines:
+            continue
+        last = lines[-1].strip()
         if (
             3 <= len(last.split()) <= 13
             and last[-1:] not in {".", "!", "?", ":", ";", "»", "”"}
