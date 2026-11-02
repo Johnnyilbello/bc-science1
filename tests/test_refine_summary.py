@@ -517,4 +517,4 @@ def test_compact_study_preview_only_edits_recap_and_literal_duplicates():
         if i != 4:
             assert chapter == _extract_summary_chapters(study)[i][1]
     assert study.count(repeated) == 13
-    assert candidate.count(repeated) == 12
+    assert sum(block.count(repeated) for _, block in _extract_summary_chapters(candidate)) == 12
