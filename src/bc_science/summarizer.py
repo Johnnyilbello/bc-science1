@@ -1090,17 +1090,20 @@ def _build_compact_global_recap(refined: list[tuple[str, str]]) -> str:
         slots.append(length - 1)
     total = sum(len(text_words.findall(line)) for line in lines)
     selected = 0
+    seen_sentences: set[str] = set()
     for index in slots:
         title, chapter = refined[index]
         sentence = _compact_recap_source_sentence(chapter)
-        if not sentence:
-            # Never invent a fact or mutilate a scientific sentence to fit.
+        normalized = re.sub(r"\s+", " ", sentence).casefold()
+        if not sentence or normalized in seen_sentences:
+            # Avoid echoing the same claim across different chapters.
             continue
         entry = f"{selected + 1}. **{title}**: {sentence}"
         words = len(text_words.findall(entry))
         if total + words > 475:
             continue
         lines.append(entry)
+        seen_sentences.add(normalized)
         selected += 1
         total += words
         if total >= 320:
