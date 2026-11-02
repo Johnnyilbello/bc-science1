@@ -182,7 +182,7 @@ def audit_fast_essential(
         )
     if not source_coverage_complete:
         warnings.append("Provenienza della Completa non verificata.")
-    if compression < 0 and cw >= 250:
+    if compression < 0 and cw > 0:
         warnings.append(
             f"Compressione effettiva {compression:.1f}%: l'Essenziale "
             "contiene più parole della Completa; serve revisione, "
@@ -248,7 +248,8 @@ def audit_fast_essential(
         and review_needed > len(chapter_signals) / 2
     )
     needs_attention = (
-        (compression < 20 and cw >= 250)
+        compression < 0
+        or (compression < 20 and cw >= 250)
         or long_paragraphs > 0
         or widespread_review
         or language_chapters > 0
