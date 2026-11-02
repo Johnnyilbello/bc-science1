@@ -101,3 +101,40 @@ def test_report_json_and_markdown_preserve_spelling_and_signed_percent(tmp_path)
     assert "Le mebrane cellulari" in view
     assert "Le membrane cellulari" in view
     assert "Compressione effettiva" in view
+
+
+
+def test_expansion_diagnostics_are_per_chapter_and_keep_real_repetitions(tmp_path):
+    from bc_science.structural_checks import find_structural_issues
+
+    fact = (
+        "La cellula è l'unità fondamentale della vita e tutte le cellule "
+        "derivano da altre cellule secondo la teoria cellulare."
+    )
+    complete = _course([
+        ("Cellula", fact),
+        ("Membrana", "La membrana separa i compartimenti cellulari e regola gli scambi."),
+    ])
+    essential = _course([
+        ("Cellula", fact + "\n\n" + fact),
+        ("Membrana", "La membrana regola gli scambi."),
+    ])
+    audit = audit_fast_essential(complete, essential)
+    assert len(audit.expanded_chapters) == 1
+    assert audit.expanded_chapters[0]["title"] == "Cellula"
+    assert audit.expanded_chapters[0]["extra_words"] > 0
+    chapter = audit.chapter_signals[0]
+    assert chapter["word_delta"] > 0
+    assert audit.chapter_signals[1]["word_delta"] < 0
+    assert any(
+        issue.category == "repetition"
+        for issue in find_structural_issues(
+            "## Cellula\n\n" + fact + "\n\n" + fact
+        )
+    )
+    markdown, metadata = write_fast_audit(audit, tmp_path)
+    payload = json.loads(metadata.read_text(encoding="utf-8"))
+    assert payload["expanded_chapters"][0]["title"] == "Cellula"
+    assert "Capitoli che allungano l'Essenziale" in markdown.read_text(
+        encoding="utf-8"
+    )
