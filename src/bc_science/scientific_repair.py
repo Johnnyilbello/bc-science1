@@ -30,7 +30,7 @@ from .courses import (
 from .fast_audit import audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .structural_checks import find_structural_issues
-from .study_editions import FAST_STUDY_VERSION, make_fast_essential
+from .study_editions import FAST_STUDY_VERSION, make_fast_essential_chapter
 from .summarizer import _extract_summary_chapters
 
 CHAPTER = "Fosforilazione ossidativa"
@@ -105,6 +105,55 @@ def repair_verified_chapter(complete_text: str) -> tuple[str, tuple[int, ...]]:
     return complete_text.replace(original, fixed, 1), tuple(counts)
 
 
+def _replace_single_study_chapter(
+    existing: str, replacement: str, *, chapter: str = CHAPTER,
+) -> str:
+    """Replace one chapter, preserving every other study byte unchanged.
+
+    Reject duplicate/unindexed titles and any unrelated difference. A whole
+    course regeneration is never acceptable for a one-chapter repair.
+    """
+    old_entries = _extract_summary_chapters(existing)
+    replacement_entries = _extract_summary_chapters(
+        "# Staging\n\n## Indice degli argomenti\n- "
+        + chapter + "\n\n---\n\n" + replacement + "\n"
+    )
+    if (
+        not old_entries
+        or len({title for title, _ in old_entries}) != len(old_entries)
+        or [title for title, _ in replacement_entries] != [chapter]
+        or [title for title, _ in old_entries].count(chapter) != 1
+    ):
+        raise ValueError(
+            "Indice dell'Essenziale ambiguo o capitolo mancante: "
+            "non modifico altri capitoli."
+        )
+    old_block = dict(old_entries)[chapter]
+    new_block = dict(replacement_entries)[chapter]
+    if existing.count(old_block) != 1 or old_block == new_block:
+        raise ValueError("Capitolo non univoco oppure nessuna modifica.")
+    repaired = existing.replace(old_block, new_block, 1)
+    new_entries = _extract_summary_chapters(repaired)
+    if (
+        [title for title, _ in new_entries] != [title for title, _ in old_entries]
+        or any(
+            before != after
+            for (title, before), (_, after) in zip(
+                old_entries, new_entries, strict=True,
+            )
+            if title != chapter
+        )
+    ):
+        raise ValueError(
+            "Rilevate variazioni fuori dal capitolo autorizzato: "
+            "riparazione rifiutata."
+        )
+    # A byte-for-byte guard also covers prefatory text, index and footer.
+    if repaired.replace(new_block, old_block, 1) != existing:
+        raise ValueError("Modifiche fuori ambito rilevate.")
+    return repaired
+
+
 def _original_pdf_evidence(scan: CourseScan, manifest: dict) -> list[dict]:
     """Locate real page-level evidence in mapped original PDFs, without OCR."""
     import pymupdf
@@ -169,10 +218,19 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
 
     evidence = _original_pdf_evidence(scan, manifest)
     repaired, counts = repair_verified_chapter(complete)
-    essential, records = make_fast_essential(
-        repaired, title=f"{scan.name} - Riassunto essenziale corretto (ANTEPRIMA)",
+    existing_study = course_study_output_path(scan)
+    if not existing_study.is_file():
+        raise ValueError(
+            "Essenziale originale assente: riparazione mirata non possibile."
+        )
+    original_study = existing_study.read_text(encoding="utf-8")
+    complete_chapter = dict(_extract_summary_chapters(repaired))[CHAPTER]
+    new_chapter = make_fast_essential_chapter(CHAPTER, complete_chapter)
+    essential = _replace_single_study_chapter(
+        original_study, new_chapter.markdown,
     )
-    chap = dict(_extract_summary_chapters(essential))[CHAPTER]
+    records = _extract_summary_chapters(essential)
+    chap = dict(records)[CHAPTER]
     risks = {
         issue.category for issue in find_structural_issues(chap)
         if issue.category in {
@@ -247,6 +305,9 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         "source_fingerprint_unchanged": manifest.get("fingerprint"),
         "replacement_occurrences": counts,
         "chapter_count": len(records),
+        "study_repair_scope": CHAPTER,
+        "original_study_sha256": _summary_sha256(original_study),
+        "preserved_other_study_chapters": len(records) - 1,
         "audit_status": report.status,
         "content_review_status": report.content_review_status,
         "pdf_original_evidence": evidence,
@@ -345,6 +406,39 @@ def apply_staged_mitochondrial_repair(
             raise ValueError(f"Output cambiato dall'anteprima: {target.name}")
         if old.is_file() and _file_sha256(old) != _file_sha256(target):
             raise ValueError(f"Output modificato dall'anteprima: {target.name}")
+
+    original_study_backup = root / "backup-originali" / "riassunto-studio.md"
+    if (
+        notes.get("study_repair_scope") != CHAPTER
+        or not original_study_backup.is_file()
+        or notes.get("original_study_sha256")
+        != _summary_sha256(original_study_backup.read_text(encoding="utf-8"))
+        or notes.get("preserved_other_study_chapters") != (
+            len(_extract_summary_chapters(
+                (root / "riassunto-studio.md").read_text(encoding="utf-8")
+            )) - 1
+        )
+    ):
+        raise ValueError("Provenienza o ambito della Essenziale non verificati.")
+    old_essential = original_study_backup.read_text(encoding="utf-8")
+    new_essential = (root / "riassunto-studio.md").read_text(encoding="utf-8")
+    old_ess_entries = _extract_summary_chapters(old_essential)
+    new_ess_entries = _extract_summary_chapters(new_essential)
+    if (
+        [title for title, _ in old_ess_entries]
+        != [title for title, _ in new_ess_entries]
+        or any(
+            before != after
+            for (title, before), (_, after) in zip(
+                old_ess_entries, new_ess_entries, strict=True,
+            ) if title != CHAPTER
+        )
+    ):
+        raise ValueError("Anteprima alterata fuori capitolo: nessuna pubblicazione.")
+    if _replace_single_study_chapter(
+        old_essential, dict(new_ess_entries)[CHAPTER],
+    ) != new_essential:
+        raise ValueError("Differenze extra-capitolo: pubblicazione bloccata.")
 
     if (
         _summary_sha256((root / "riassunto-unico.md").read_text(encoding="utf-8"))
