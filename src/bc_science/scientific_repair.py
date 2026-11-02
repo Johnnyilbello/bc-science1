@@ -382,7 +382,7 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         "audit_status": report.status,
         "baseline_audit_status": baseline_audit.status,
         "scoped_repair_integrity": "PASS",
-        "publication_blocked_by_global_audit": report.status == "FAIL",
+        "publication_blocked_by_global_audit": report.status != "PASS",
         "content_review_status": report.content_review_status,
         "pdf_original_evidence": evidence,
         "external_scientific_references": REFERENCE_URLS,
@@ -540,7 +540,7 @@ def apply_staged_mitochondrial_repair(
     )
     if notes.get("publication_blocked_by_global_audit"):
         raise ValueError(
-            "Audit globale ancora in FAIL: l'anteprima può essere esaminata "
+            "Audit globale non in PASS: l'anteprima può essere esaminata "
             "ma non pubblicata."
         )
     risks = {
