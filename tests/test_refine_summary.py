@@ -1,9 +1,8 @@
 from bc_science.summarizer import (
     _build_global_recap,
-    _compact_recap_source_sentence,
-    preview_compact_global_recap,
     _chapter_quality_issues,
     _chapter_title_supported,
+    _compact_recap_source_sentence,
     _dedupe_exact_blocks,
     _extract_exam_points,
     _extract_exam_recap,
@@ -13,6 +12,7 @@ from bc_science.summarizer import (
     _preserves_existing_exam_points,
     _restore_exam_recap_from_source,
     _restore_missing_exam_points,
+    preview_compact_global_recap,
 )
 
 
