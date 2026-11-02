@@ -377,6 +377,20 @@ def courses_repair_preview(
         raise typer.Exit(1) from exc
     console.print("[green]Anteprima e backup pronti, nessun output modificato.[/]")
     console.print(f"Controlla il dossier: {destination}")
+    import json
+
+    notes = json.loads(
+        (destination / "riparazione-prove.json").read_text(encoding="utf-8")
+    )
+    if notes.get("publication_blocked_by_global_audit"):
+        console.print(
+            "[red]AUDIT GLOBALE IN FAIL: l'anteprima è consultabile, "
+            "ma repair-apply resta BLOCCATO.[/]"
+        )
+        console.print(
+            "[yellow]Il controllo del solo capitolo è PASS; ciò non certifica "
+            "gli altri capitoli.[/]"
+        )
     console.print(
         "[yellow]Questo comando NON pubblica la riparazione; "
         "manifest e PDF esistenti restano invariati.[/]"
