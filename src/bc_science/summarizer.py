@@ -1139,6 +1139,105 @@ def preview_compact_global_recap(study_text: str) -> tuple[str, dict[str, int]]:
     }
 
 
+def _remove_identical_study_sentences(chapter: str) -> tuple[str, tuple[str, ...]]:
+    """Remove only subsequent literally identical *complete* prose sentences.
+
+    Negated/paraphrased statements, headings, bullets and numbers are not
+    rewritten. Never deduplicate incomplete fragments or abbreviations.
+    """
+    seen: set[str] = set()
+    removed: list[str] = []
+    parts = re.split(r"(\n\s*\n)", chapter)
+    result: list[str] = []
+    sentence_re = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+    for part in parts:
+        if not part.strip() or part.lstrip().startswith(("#", "-", "*", ">")):
+            result.append(part)
+            continue
+        # Preserve abbreviation boundaries when extracting complete sentences.
+        protected = re.sub(
+            r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+            lambda match: match.group(1) + "\uE000",
+            part,
+            flags=re.IGNORECASE,
+        )
+        sentences = sentence_re.split(protected)
+        keep: list[str] = []
+        for sentence in sentences:
+            restored = sentence.replace("\uE000", ".").strip()
+            tokens = re.findall(r"\b[\wÀ-ÿ'+-]+\b", restored)
+            eligible = len(tokens) >= 8 and restored[-1:] in {".", "!", "?"}
+            key = re.sub(r"\s+", " ", restored).casefold()
+            if eligible and key in seen:
+                removed.append(restored)
+                continue
+            if eligible:
+                seen.add(key)
+            keep.append(restored)
+        result.append(part if len(keep) == len(sentences) else " ".join(keep))
+    candidate = "".join(result)
+    if removed:
+        from .structural_checks import find_structural_issues
+
+        if (
+            not _preserves_exam_numbers(chapter, candidate)
+            or re.findall(r"(?m)^#{1,6}\s+.*$", chapter)
+            != re.findall(r"(?m)^#{1,6}\s+.*$", candidate)
+            or any(sentence not in candidate for sentence in removed)
+        ):
+            raise ValueError("Deduplicazione non verificabile: anteprima bloccata.")
+        scientific = {"scientific_direction_risk", "scientific_mechanism_risk"}
+        old_risks = {
+            (issue.category, issue.quote)
+            for issue in find_structural_issues(chapter, limit=500)
+            if issue.category in scientific
+        }
+        new_risks = {
+            (issue.category, issue.quote)
+            for issue in find_structural_issues(candidate, limit=500)
+            if issue.category in scientific
+        }
+        if new_risks - old_risks:
+            raise ValueError("Nuovo rischio scientifico dopo la deduplicazione.")
+    return candidate, tuple(removed)
+
+
+def preview_compact_study(study_text: str) -> tuple[str, dict]:
+    """An independently reviewable suggestion, NEVER a publication operation."""
+    candidate, metrics = preview_compact_global_recap(study_text)
+    source = _extract_summary_chapters(candidate)
+    edited_titles: list[str] = []
+    removed_quotes: list[str] = []
+    for title, block in source:
+        deduped, removed = _remove_identical_study_sentences(block)
+        if not removed:
+            continue
+        if candidate.count(block) != 1:
+            raise ValueError("Blocco capitolo ambiguo: anteprima non creata.")
+        candidate = candidate.replace(block, deduped, 1)
+        edited_titles.append(title)
+        removed_quotes.extend(removed)
+    new_chapters = _extract_summary_chapters(candidate)
+    if (
+        [title for title, _ in new_chapters]
+        != [title for title, _ in source]
+        or any(
+            original != revised
+            for (title, original), (_, revised) in zip(
+                source, new_chapters, strict=True,
+            )
+            if title not in edited_titles
+        )
+    ):
+        raise ValueError("Capitoli estranei modificati: anteprima rifiutata.")
+    word = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    metrics["preview_total_words"] = len(word.findall(candidate))
+    metrics["deduplicated_chapters"] = edited_titles
+    metrics["repeated_sentences_removed"] = len(removed_quotes)
+    metrics["removed_quotes"] = removed_quotes
+    return candidate, metrics
+
+
 def _build_global_recap(refined: list[tuple[str, str]]) -> str:
     """Build grounded recap; large courses get a bounded navigation recap."""
     if len(refined) > 8:
