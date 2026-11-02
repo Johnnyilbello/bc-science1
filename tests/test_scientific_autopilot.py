@@ -164,14 +164,14 @@ def test_priority_course_only_changes_authorized_chapter(monkeypatch):
         "- la celulla e il nuucleo\n"
         "- Il ciclo di Krebs\n"
         "- Un altro capitolo\n\n---\n\n"
-        + "\n\n---\n\n".join([source, other_source, unrelated])
+        + f"{source}\n\n---\n\n{other_source}\n\n---\n\n{unrelated}"
     )
     study = (
         "# Biologia\n\n## Indice degli argomenti\n"
         "- la cellula e il nucleo\n"
         "- Il ciclo di Krebs\n"
         "- Un altro capitolo\n\n---\n\n"
-        + "\n\n---\n\n".join([original, other, unrelated])
+        + f"{original}\n\n---\n\n{other}\n\n---\n\n{unrelated}"
     )
     monkeypatch.setattr(
         autopilot, "review_chapter",
