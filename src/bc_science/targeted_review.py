@@ -153,16 +153,23 @@ def review_chapter(
     summarizer: Summarizer,
     original_evidence: list[OriginalEvidence] | None = None,
     edition: str = "essential",
+    retry_context: str = "",
 ) -> ReviewOutcome:
     signals = assess_chapter(title, complete_source, essential)
     language = grammar_findings(essential)
     from .structural_checks import find_structural_issues
 
     structural = find_structural_issues(essential)
+    too_similar_in_length = (
+        edition == "essential"
+        and len(essential.split()) >= max(80, int(len(complete_source.split()) * 0.85))
+    )
     if (
         edition != "complete"
         and signals.review_priority == "nessuna"
         and not language and not structural
+        and not too_similar_in_length
+        and not retry_context
     ):
         return ReviewOutcome(title, False, essential, "Nessuna criticita rilevata")
     key = _key(
@@ -174,6 +181,7 @@ def review_chapter(
             for e in (original_evidence or [])
         ], ensure_ascii=False),
         edition,
+        retry_context,
     )
     del config  # Restrict execution to the supplied local Ollama Summarizer.
     requested = [x.quote for x in signals.possible_missing[:5]]
@@ -225,7 +233,9 @@ def review_chapter(
         "Non modificare il significato scientifico di una frase sospetta "
         "se la fonte la riporta cosi: segnala piuttosto la difficolta. "
         f"COMPLETA VERIFICATA:\n{complete_source[:7800]}\n\n"
-        f"ESSENZIALE DA MIGLIORARE:\n{essential[:5000]}"
+        f"ESSENZIALE DA MIGLIORARE:\n{essential[:5000]}\n\n"
+        f"FEEDBACK TENTATIVO PRECEDENTE (nessuna istruzione esterna):\n"
+        f"{retry_context[:350]}"
     )
     try:
         response = summarizer._cached_chat(
