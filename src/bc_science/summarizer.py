@@ -1044,8 +1044,105 @@ def _extract_exam_points(chapter: str) -> list[str]:
     return [fallback] if fallback else []
 
 
+def _compact_recap_source_sentence(chapter: str) -> str:
+    """Choose one full, short, verbatim source fact; never truncate a claim."""
+    candidates = _extract_exam_points(chapter)
+    if not candidates:
+        candidates = [
+            line.strip().removeprefix("- ").strip()
+            for line in chapter.splitlines()
+            if line.strip() and not line.lstrip().startswith(("#", ">", "---"))
+        ]
+    for entry in candidates:
+        # Keep a complete sentence only. Partial ellipses can invert meaning.
+        chunks = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", entry.strip())
+        for candidate in chunks:
+            candidate = re.sub(r"\s+", " ", candidate).strip()
+            count = len(re.findall(r"\b[\wÀ-ÿ'+-]+\b", candidate))
+            if 7 <= count <= 30 and candidate[-1:] in {".", "!", "?"}:
+                return candidate
+    return ""
+
+
+def _build_compact_global_recap(refined: list[tuple[str, str]]) -> str:
+    """Navigation-sized study cues, not a second copy of every chapter.
+
+    Everything factual is copied verbatim from a chapter; excluded chapters
+    remain available through the real index and body, not silently deleted.
+    """
+    if not refined:
+        raise ValueError("Ripasso privo di capitoli.")
+    text_words = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    lines = [
+        "## Ripasso globale",
+        "",
+        "Questa è una traccia di richiamo, non un secondo riassunto. "
+        "Studia ogni capitolo nell'indice; usa questi richiami per verificare "
+        "i collegamenti e torna alle spiegazioni complete quando serve.",
+        "",
+    ]
+    # Distribute selection throughout the entire ordered course, rather
+    # than selecting only the first 20 alphabetical chapters.
+    length = len(refined)
+    stride = max(1, length // 22)
+    slots = list(range(0, length, stride))
+    if slots[-1] != length - 1:
+        slots.append(length - 1)
+    total = sum(len(text_words.findall(line)) for line in lines)
+    selected = 0
+    for index in slots:
+        title, chapter = refined[index]
+        sentence = _compact_recap_source_sentence(chapter)
+        if not sentence:
+            # Never invent a fact or mutilate a scientific sentence to fit.
+            continue
+        entry = f"{selected + 1}. **{title}**: {sentence}"
+        words = len(text_words.findall(entry))
+        if total + words > 475:
+            continue
+        lines.append(entry)
+        selected += 1
+        total += words
+        if total >= 320:
+            break
+    if not selected:
+        raise ValueError("Nessuna frase scientifica completa per il Ripasso globale.")
+    return "\n".join(lines)
+
+
+def preview_compact_global_recap(study_text: str) -> tuple[str, dict[str, int]]:
+    """Create a read-only candidate, never edit existing summary or recap."""
+    chapters = _extract_summary_chapters(study_text)
+    if not chapters:
+        raise ValueError("Indice/capitoli dell'Essenziale non verificabili.")
+    match = re.search(
+        r"(?ms)^## Ripasso globale\s*$\n.*?(?=^## Indice degli argomenti\s*$)",
+        study_text,
+    )
+    if not match:
+        raise ValueError("Ripasso globale originale assente.")
+    proposed_recap = _build_compact_global_recap(chapters)
+    proposed = study_text[:match.start()] + proposed_recap + "\n\n" + study_text[match.end():]
+    if _extract_summary_chapters(proposed) != chapters:
+        raise ValueError("Il confronto rileva variazioni ai capitoli.")
+    # Strict round trip: every byte outside Ripasso globale must survive.
+    if proposed.replace(proposed_recap + "\n\n", match.group(0), 1) != study_text:
+        raise ValueError("Anteprima non limitata al Ripasso globale.")
+    word = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    old_recap = match.group(0)
+    return proposed, {
+        "old_recap_words": len(word.findall(old_recap)),
+        "new_recap_words": len(word.findall(proposed_recap)),
+        "original_total_words": len(word.findall(study_text)),
+        "preview_total_words": len(word.findall(proposed)),
+        "preserved_chapters": len(chapters),
+    }
+
+
 def _build_global_recap(refined: list[tuple[str, str]]) -> str:
-    """Build one high-yield recap item per chapter without another model call."""
+    """Build grounded recap; large courses get a bounded navigation recap."""
+    if len(refined) > 8:
+        return _build_compact_global_recap(refined)
     lines = ["## Ripasso globale"]
     for index, (title, chapter) in enumerate(refined, start=1):
         points = _extract_exam_points(chapter)
