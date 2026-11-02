@@ -8,11 +8,13 @@ from bc_science.summarizer import (
     _extract_exam_recap,
     _extract_summary_chapters,
     _normalize_refined_structure,
+    _remove_identical_study_sentences,
     _preserves_exam_numbers,
     _preserves_existing_exam_points,
     _restore_exam_recap_from_source,
     _restore_missing_exam_points,
     preview_compact_global_recap,
+    preview_compact_study,
 )
 
 
@@ -454,3 +456,65 @@ def test_preview_compact_recap_requires_original_recap_and_complete_statements()
             "# Test\n\n## Ripasso globale\nLungo\n\n"
             + text.split("# Test\n\n", 1)[1]
         )
+
+
+
+def test_exact_duplicate_sentence_only_removed_once_with_critical_numbers():
+    fact = "La membrana cellulare contiene 3 componenti principali che regolano gli scambi."
+    unique = "Il canale ionico può aprirsi durante le variazioni del potenziale elettrico."
+    chapter = (
+        "## Membrana\n\n" + fact
+        + "\n\n### Concetti chiave\n\n" + fact
+        + "\n\n" + unique
+    )
+    reduced, removed = _remove_identical_study_sentences(chapter)
+    assert len(removed) == 1
+    assert reduced.count(fact) == 1
+    assert unique in reduced
+    assert "3 componenti" in reduced
+    assert "### Concetti chiave" in reduced
+
+
+def test_negated_and_incomplete_study_statements_are_never_deduplicated():
+    fact = "La proteina non può aprire il canale durante questa fase specifica."
+    other = "La proteina può aprire il canale durante questa fase specifica."
+    incomplete = "La proteina viene "
+    chapter = (
+        "## Canali\n\n" + fact + "\n\n" + other
+        + "\n\n" + incomplete + "\n\n" + incomplete
+    )
+    result, removed = _remove_identical_study_sentences(chapter)
+    assert not removed
+    assert result == chapter
+
+
+def test_compact_study_preview_only_edits_recap_and_literal_duplicates():
+    chapters = []
+    repeated = (
+        "La cellula contiene 2 compartimenti che contribuiscono "
+        "ai processi cellulari e al suo funzionamento."
+    )
+    for n in range(12):
+        name = f"Capitolo {n}"
+        body = (
+            f"## {name}\n\n" + repeated
+            + ("\n\n" + repeated if n == 4 else "")
+        )
+        chapters.append((name, body))
+    index = "\n".join(f"- {name}" for name, _ in chapters)
+    study = (
+        "# Essenziale\n\n## Ripasso globale\n"
+        "Questa frase introduttiva è molto lunga ma non rappresenta una dispensa.\n\n"
+        f"## Indice degli argomenti\n{index}\n\n---\n\n"
+        + "\n\n---\n\n".join(body for _, body in chapters) + "\n"
+    )
+    candidate, metrics = preview_compact_study(study)
+    assert metrics["preserved_chapters"] == 12
+    assert metrics["repeated_sentences_removed"] == 1
+    assert metrics["deduplicated_chapters"] == ["Capitolo 4"]
+    assert _extract_summary_chapters(candidate)[4][1].count(repeated) == 1
+    for i, (_name, chapter) in enumerate(_extract_summary_chapters(candidate)):
+        if i != 4:
+            assert chapter == _extract_summary_chapters(study)[i][1]
+    assert study.count(repeated) == 13
+    assert candidate.count(repeated) == 12
