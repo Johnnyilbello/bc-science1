@@ -9,6 +9,7 @@ from bc_science.scientific_repair import (
     CHAPTER,
     REPAIRS,
     _replace_single_study_chapter,
+    _verify_scoped_content,
     apply_staged_mitochondrial_repair,
     repair_verified_chapter,
     stage_mitochondrial_repair,
@@ -350,3 +351,59 @@ def test_apply_rejects_revised_unrelated_study_chapter(tmp_path, monkeypatch):
         apply_staged_mitochondrial_repair(scan, preview, confirmed=True)
     assert output.read_bytes() == before_complete
     assert manifest.read_bytes() == before_manifest
+
+
+
+def test_preexisting_global_fail_stages_but_cannot_publish(tmp_path, monkeypatch):
+    """Legacy whole-course mismatch is reported, never hidden or published."""
+    from bc_science.courses import _summary_sha256
+
+    scan, source, complete_path, manifest_path = _fixture(tmp_path, monkeypatch)
+    old_complete = complete_path.read_text(encoding="utf-8")
+    # The original Complete contains one chapter absent from the old
+    # Essential. Repairing the mitochondrial chapter cannot fix that history.
+    expanded_complete = old_complete.replace(
+        "- Fosforilazione ossidativa\n",
+        "- Fosforilazione ossidativa\n- Altro capitolo\n",
+    ) + "\n---\n\n## Altro capitolo\n\nUna spiegazione non presente nell'Essenziale.\n"
+    complete_path.write_text(expanded_complete, encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["summary_sha256"] = _summary_sha256(expanded_complete)
+    manifest["chapters"].append("Altro capitolo")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    before_pdf = source.read_bytes()
+    old_study = courses.course_study_output_path(scan).read_bytes()
+    output = tmp_path / "previews" / "legacy-global-fail"
+
+    stage_mitochondrial_repair(scan, output)
+    notes = json.loads((output / "riparazione-prove.json").read_text(encoding="utf-8"))
+    audit = json.loads((output / "audit.json").read_text(encoding="utf-8"))
+    assert notes["baseline_audit_status"] == "FAIL"
+    assert notes["audit_status"] == "FAIL"
+    assert notes["scoped_repair_integrity"] == "PASS"
+    assert notes["publication_blocked_by_global_audit"] is True
+    assert audit["status"] == "FAIL"
+    assert courses.course_study_output_path(scan).read_bytes() == old_study
+    assert complete_path.read_text(encoding="utf-8") == expanded_complete
+    assert source.read_bytes() == before_pdf
+    with pytest.raises(ValueError, match="Audit globale ancora in FAIL"):
+        apply_staged_mitochondrial_repair(scan, output, confirmed=True)
+    assert complete_path.read_text(encoding="utf-8") == expanded_complete
+    assert courses.course_study_output_path(scan).read_bytes() == old_study
+
+
+def test_scoped_integrity_rejects_altered_preface(tmp_path, monkeypatch):
+    scan, _source, full_path, _manifest = _fixture(tmp_path, monkeypatch)
+    original_complete = full_path.read_text(encoding="utf-8")
+    original_study = courses.course_study_output_path(scan).read_text(encoding="utf-8")
+    fixed, _ = repair_verified_chapter(original_complete)
+    new_target = "## Fosforilazione ossidativa\n\n"
+    new_target += "I protoni tornano attraverso l'ATP sintetasi e formano ATP."
+    staged = _replace_single_study_chapter(original_study, new_target)
+    changed_preface = staged.replace(
+        "# Fondamenti - Essenziale", "# Titolo cambiato", 1,
+    )
+    with pytest.raises(ValueError, match="fuori capitolo"):
+        _verify_scoped_content(
+            original_complete, fixed, original_study, changed_preface,
+        )
