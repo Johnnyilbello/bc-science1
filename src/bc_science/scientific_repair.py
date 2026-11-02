@@ -31,7 +31,7 @@ from .fast_audit import audit_fast_essential, write_fast_audit
 from .finalizer import export_pdf
 from .structural_checks import find_structural_issues
 from .study_editions import FAST_STUDY_VERSION, make_fast_essential_chapter
-from .summarizer import _extract_summary_chapters
+from .summarizer import _extract_summary_chapters, _preserves_exam_numbers
 
 CHAPTER = "Fosforilazione ossidativa"
 REFERENCE_URLS = (
@@ -154,6 +154,66 @@ def _replace_single_study_chapter(
     return repaired
 
 
+def _verify_scoped_content(
+    original_complete: str,
+    repaired_complete: str,
+    original_study: str,
+    repaired_study: str,
+) -> None:
+    """Fail closed on any unintended edit or lost exam number.
+
+    This local gate is independent of historical whole-course audit failures.
+    Passing it is NOT a scientific validation of the complete course.
+    """
+    expected_complete, _counts = repair_verified_chapter(original_complete)
+    if repaired_complete != expected_complete:
+        raise ValueError("Modifiche impreviste nella Completa.")
+    complete_before = _extract_summary_chapters(original_complete)
+    complete_after = _extract_summary_chapters(repaired_complete)
+    study_before = _extract_summary_chapters(original_study)
+    study_after = _extract_summary_chapters(repaired_study)
+    if (
+        [name for name, _ in complete_before]
+        != [name for name, _ in complete_after]
+        or [name for name, _ in study_before]
+        != [name for name, _ in study_after]
+        or CHAPTER not in dict(complete_after)
+        or CHAPTER not in dict(study_after)
+    ):
+        raise ValueError("Indice o capitolo riparato non verificabile.")
+    if any(
+        original != repaired
+        for (name, original), (_, repaired) in zip(
+            complete_before, complete_after, strict=True,
+        )
+        if name != CHAPTER
+    ):
+        raise ValueError("La Completa presenta differenze fuori capitolo.")
+    expected_study = _replace_single_study_chapter(
+        original_study, dict(study_after)[CHAPTER],
+    )
+    if expected_study != repaired_study:
+        raise ValueError("L'Essenziale presenta differenze fuori capitolo.")
+
+    complete_target = dict(complete_after)[CHAPTER]
+    study_target = dict(study_after)[CHAPTER]
+    if not _preserves_exam_numbers(complete_target, study_target):
+        raise ValueError("Numeri d'esame mancanti nel capitolo riparato.")
+    invalid = {
+        "scientific_direction_risk",
+        "scientific_mechanism_risk",
+        "detached_glossary_fragment",
+    }
+    if invalid.intersection(
+        finding.category for finding in find_structural_issues(study_target)
+    ):
+        raise ValueError("Il capitolo Essenziale ha ancora anomalie rilevate.")
+    if invalid.intersection(
+        finding.category for finding in find_structural_issues(complete_target)
+    ):
+        raise ValueError("La Completa riparata ha ancora anomalie rilevate.")
+
+
 def _original_pdf_evidence(scan: CourseScan, manifest: dict) -> list[dict]:
     """Locate real page-level evidence in mapped original PDFs, without OCR."""
     import pymupdf
@@ -230,6 +290,7 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         original_study, new_chapter.markdown,
     )
     records = _extract_summary_chapters(essential)
+    _verify_scoped_content(complete, repaired, original_study, essential)
     chap = dict(records)[CHAPTER]
     risks = {
         issue.category for issue in find_structural_issues(chap)
@@ -245,8 +306,18 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         source_documents=len(scan.supported_files),
         source_coverage_complete=True,
     )
-    if report.status == "FAIL":
-        raise ValueError("Audit della nuova Essenziale in FAIL: " + "; ".join(report.warnings))
+    baseline_audit = audit_fast_essential(
+        complete, original_study,
+        source_documents=len(scan.supported_files),
+        source_coverage_complete=True,
+    )
+    if report.status == "FAIL" and baseline_audit.status != "FAIL":
+        raise ValueError(
+            "La riparazione introduce un nuovo FAIL globale: " +
+            "; ".join(report.warnings)
+        )
+    # Historical FAIL is retained visibly; it is not interpreted as a PASS.
+    # We allow staging for manual review but forbid publishing such a preview.
 
     # Materialize only after all source and content checks above have passed.
     root.mkdir(parents=True, exist_ok=False)
@@ -309,6 +380,9 @@ def stage_mitochondrial_repair(scan: CourseScan, output_dir: Path) -> Path:
         "original_study_sha256": _summary_sha256(original_study),
         "preserved_other_study_chapters": len(records) - 1,
         "audit_status": report.status,
+        "baseline_audit_status": baseline_audit.status,
+        "scoped_repair_integrity": "PASS",
+        "publication_blocked_by_global_audit": report.status == "FAIL",
         "content_review_status": report.content_review_status,
         "pdf_original_evidence": evidence,
         "external_scientific_references": REFERENCE_URLS,
@@ -456,6 +530,19 @@ def apply_staged_mitochondrial_repair(
 
     repaired = (root / "riassunto-unico.md").read_text(encoding="utf-8")
     proposed_study = (root / "riassunto-studio.md").read_text(encoding="utf-8")
+    if notes.get("scoped_repair_integrity") != "PASS":
+        raise ValueError("Anteprima priva della verifica integrità di capitolo.")
+    _verify_scoped_content(
+        canonical.read_text(encoding="utf-8"),
+        repaired,
+        original_study_backup.read_text(encoding="utf-8"),
+        proposed_study,
+    )
+    if notes.get("publication_blocked_by_global_audit"):
+        raise ValueError(
+            "Audit globale ancora in FAIL: l'anteprima può essere esaminata "
+            "ma non pubblicata."
+        )
     risks = {
         item.category
         for item in find_structural_issues(
