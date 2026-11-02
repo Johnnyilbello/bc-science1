@@ -8,10 +8,10 @@ from bc_science import courses
 from bc_science.scientific_repair import (
     CHAPTER,
     REPAIRS,
+    _replace_single_study_chapter,
     apply_staged_mitochondrial_repair,
     repair_verified_chapter,
     stage_mitochondrial_repair,
-    _replace_single_study_chapter,
 )
 from bc_science.structural_checks import find_structural_issues
 from bc_science.study_editions import _sentences
