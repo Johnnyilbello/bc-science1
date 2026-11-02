@@ -231,7 +231,7 @@ def test_apply_rejects_modified_staged_content_without_writing(tmp_path, monkeyp
     original_manifest = manifest.read_bytes()
     (stage / "riassunto-studio.md").write_text("Alterato", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="alterata|incompatibile"):
+    with pytest.raises(ValueError, match="alterata|incompatibile|Provenienza o ambito"):
         apply_staged_mitochondrial_repair(scan, stage, confirmed=True)
 
     assert output.read_bytes() == original_complete
@@ -318,6 +318,21 @@ def test_apply_rejects_revised_unrelated_study_chapter(tmp_path, monkeypatch):
     )
     content += "\n---\n\n## Un altro capitolo\n\nUna definizione conservata.\n"
     study.write_text(content, encoding="utf-8")
+    # The extra chapter must exist in the Complete as well, otherwise the
+    # course audit correctly rejects an inconsistent edition before staging.
+    from bc_science.courses import _summary_sha256
+
+    complete = output.read_text(encoding="utf-8")
+    complete = complete.replace(
+        "- Fosforilazione ossidativa\n",
+        "- Fosforilazione ossidativa\n- Un altro capitolo\n",
+    )
+    complete += "\n---\n\n## Un altro capitolo\n\nUna definizione conservata.\n"
+    output.write_text(complete, encoding="utf-8")
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["summary_sha256"] = _summary_sha256(complete)
+    data["chapters"].append("Un altro capitolo")
+    manifest.write_text(json.dumps(data), encoding="utf-8")
     preview = tmp_path / "previews" / "tamper-other-chapter"
     stage_mitochondrial_repair(scan, preview)
 
