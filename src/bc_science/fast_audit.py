@@ -298,7 +298,11 @@ def audit_fast_essential(
         chapters_with_structural_issues=structural_chapters,
         title_spelling_variants=spelling_variants,
         expanded_chapters=tuple(
-            sorted(expanded_chapters, key=lambda entry: entry["extra_words"], reverse=True)
+            sorted(
+                expanded_chapters,
+                key=lambda entry: entry["extra_words"],
+                reverse=True,
+            )
         ),
     )
 
