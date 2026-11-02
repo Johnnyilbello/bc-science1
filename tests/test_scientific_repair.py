@@ -11,6 +11,7 @@ from bc_science.scientific_repair import (
     apply_staged_mitochondrial_repair,
     repair_verified_chapter,
     stage_mitochondrial_repair,
+    _replace_single_study_chapter,
 )
 from bc_science.structural_checks import find_structural_issues
 from bc_science.study_editions import _sentences
@@ -106,6 +107,17 @@ def _fixture(tmp_path, monkeypatch):
     output = courses.course_output_path(scan)
     output.parent.mkdir(parents=True)
     output.write_text(original, encoding="utf-8")
+    old_study = courses.course_study_output_path(scan)
+    old_study.write_text(
+        "# Fondamenti - Essenziale\n\n"
+        "## Indice degli argomenti\n"
+        "- Fosforilazione ossidativa\n\n"
+        "---\n\n"
+        "## Fosforilazione ossidativa\n\n"
+        "La catena respiratoria pompa protoni nella direzione errata. "
+        "L'ADP riceve protoni e forma ATP.\n",
+        encoding="utf-8",
+    )
     snap = _snapshot(scan)
     manifest = {
         "schema": 3,
@@ -154,7 +166,8 @@ def test_stage_generates_backups_pdfs_and_manifest_without_publishing(tmp_path, 
     assert output.read_text(encoding="utf-8") == original_text
     assert original_manifest.read_bytes() == old_manifest
     assert source.read_bytes() == original_pdf_hash
-    assert not courses.course_study_output_path(scan).exists()
+    assert courses.course_study_output_path(scan).is_file()
+    assert (stage / "backup-originali" / "riassunto-studio.md").is_file()
 
 
 def test_stage_refuses_existing_path_and_changed_original_pdf(tmp_path, monkeypatch):
@@ -250,4 +263,75 @@ def test_apply_rolls_back_if_publication_fails(tmp_path, monkeypatch):
 
     assert output.read_bytes() == complete_before
     assert manifest.read_bytes() == manifest_before
-    assert not courses.course_study_output_path(scan).exists()
+    assert courses.course_study_output_path(scan).is_file()
+    assert "direzione errata" in courses.course_study_output_path(scan).read_text(
+        encoding="utf-8"
+    )
+
+
+
+def test_single_chapter_replacement_keeps_other_chapters_byte_identical():
+    original = (
+        "# Studio\n\n## Indice degli argomenti\n"
+        "- Introduzione\n- Fosforilazione ossidativa\n- Osservazioni\n\n"
+        "---\n\n## Introduzione\n\nLe cellule hanno membrane.\n\n"
+        "---\n\n## Fosforilazione ossidativa\n\n"
+        "La catena respiratoria sposta i protoni nella direzione errata.\n\n"
+        "---\n\n## Osservazioni\n\nNon modificare la sezione di ripasso.\n"
+    )
+    replacement = (
+        "## Fosforilazione ossidativa\n\n"
+        "I protoni vengono pompati dalla matrice allo spazio intermembrana.\n"
+    )
+    result = _replace_single_study_chapter(original, replacement)
+    chapters_before = dict(courses._extract_summary_chapters(original))
+    chapters_after = dict(courses._extract_summary_chapters(result))
+    assert chapters_before["Introduzione"] == chapters_after["Introduzione"]
+    assert chapters_before["Osservazioni"] == chapters_after["Osservazioni"]
+    assert result.count(replacement.strip()) == 1
+    assert len(result.splitlines()) > 5
+
+
+def test_single_chapter_replacement_rejects_missing_target():
+    text = "# Studio\n\n## Indice degli argomenti\n- Altro\n\n---\n\n## Altro\n\nTesto."
+    with pytest.raises(ValueError, match="ambiguo|mancante"):
+        _replace_single_study_chapter(
+            text, "## Fosforilazione ossidativa\n\nNuovo testo."
+        )
+
+
+def test_staging_refuses_missing_original_study(tmp_path, monkeypatch):
+    scan, _source, _output, _manifest = _fixture(tmp_path, monkeypatch)
+    courses.course_study_output_path(scan).unlink()
+    with pytest.raises(ValueError, match="Essenziale originale assente"):
+        stage_mitochondrial_repair(scan, tmp_path / "previews" / "missing-study")
+
+
+def test_apply_rejects_revised_unrelated_study_chapter(tmp_path, monkeypatch):
+    scan, _source, output, manifest = _fixture(tmp_path, monkeypatch)
+    study = courses.course_study_output_path(scan)
+    # Add a second chapter to the existing edition before staging.
+    content = study.read_text(encoding="utf-8")
+    content = content.replace(
+        "- Fosforilazione ossidativa\n",
+        "- Fosforilazione ossidativa\n- Un altro capitolo\n",
+    )
+    content += "\n---\n\n## Un altro capitolo\n\nUna definizione conservata.\n"
+    study.write_text(content, encoding="utf-8")
+    preview = tmp_path / "previews" / "tamper-other-chapter"
+    stage_mitochondrial_repair(scan, preview)
+
+    staged = preview / "riassunto-studio.md"
+    staged.write_text(
+        staged.read_text(encoding="utf-8").replace(
+            "Una definizione conservata.",
+            "Una definizione manipolata.",
+        ),
+        encoding="utf-8",
+    )
+    before_complete = output.read_bytes()
+    before_manifest = manifest.read_bytes()
+    with pytest.raises(ValueError, match="extra-capitolo|alterata|incompatibile"):
+        apply_staged_mitochondrial_repair(scan, preview, confirmed=True)
+    assert output.read_bytes() == before_complete
+    assert manifest.read_bytes() == before_manifest
