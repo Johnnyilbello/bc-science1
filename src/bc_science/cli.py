@@ -384,8 +384,9 @@ def courses_repair_preview(
     )
     if notes.get("publication_blocked_by_global_audit"):
         console.print(
-            "[red]AUDIT GLOBALE IN FAIL: l'anteprima è consultabile, "
-            "ma repair-apply resta BLOCCATO.[/]"
+            "[red]AUDIT GLOBALE IN " + str(notes.get("audit_status")) +
+            ": l'anteprima è consultabile, ma repair-apply "
+            "resta BLOCCATO finché l'audit non è PASS.[/]"
         )
         console.print(
             "[yellow]Il controllo del solo capitolo è PASS; ciò non certifica "
