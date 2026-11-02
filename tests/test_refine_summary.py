@@ -1,5 +1,7 @@
 from bc_science.summarizer import (
     _build_global_recap,
+    _compact_recap_source_sentence,
+    preview_compact_global_recap,
     _chapter_quality_issues,
     _chapter_title_supported,
     _dedupe_exact_blocks,
@@ -362,3 +364,93 @@ Il capitolo presenta il processo in ordine progressivo.
     issues = _chapter_quality_issues(repaired, "Contrazione muscolare")
     assert not any("Da ricordare per l'esame" in issue for issue in issues)
 
+
+
+
+def test_large_global_recap_is_bounded_and_uses_verbatim_source_only():
+    import re
+
+    chapters = []
+    for i in range(65):
+        title = f"Capitolo {i + 1}"
+        fact = (
+            f"Il capitolo {i + 1} descrive un esempio specifico "
+            "che serve a comprendere i principali processi cellulari."
+        )
+        chapters.append((
+            title,
+            f"## {title}\n\n### Da ricordare per l'esame\n- {fact}\n",
+        ))
+
+    recap = _build_global_recap(chapters)
+    word_count = len(re.findall(r"\b[\wÀ-ÿ'+-]+\b", recap))
+    assert 300 <= word_count <= 500
+    assert "## Ripasso globale" in recap
+    assert len(recap) < 5000
+    lines = [line for line in recap.splitlines() if re.match(r"^\d+\. \*\*", line)]
+    assert len(lines) >= 12
+    for line in lines:
+        title = line.split("**:", 1)[0].split("**")[1]
+        factual_sentence = line.split("**: ", 1)[1]
+        source = dict(chapters)[title]
+        assert factual_sentence in source
+    # This is a study navigation aid; every chapter remains in the original.
+    assert len(chapters) == 65
+
+
+def test_compact_recap_skips_long_claim_instead_of_truncating():
+    raw = (
+        "La membrana cellulare potrebbe svolgere un ruolo specifico "
+        "in numerose reazioni fisiologiche e in molte condizioni diverse "
+        "che richiedono verifiche approfondite " + "confrontando ogni misura " * 20
+        + "nel materiale originale."
+    )
+    assert _compact_recap_source_sentence(
+        "## Membrana\n\n### Da ricordare per l'esame\n- " + raw
+    ) == ""
+
+
+def test_existing_recap_preview_changes_only_frontmatter_and_never_original():
+    import re
+
+    chapters = []
+    for i in range(65):
+        title = f"Capitolo {i + 1}"
+        chapters.append((title, (
+            f"## {title}\n\nLa cellula usa un meccanismo "
+            f"descritto nella dispensa del capitolo {i + 1}."
+        )))
+    index = "\n".join(f"- {title}" for title, _ in chapters)
+    body = "\n\n---\n\n".join(block for _title, block in chapters)
+    original = (
+        "# Essenziale\n\n## Ripasso globale\n"
+        "Un ripasso tradizionale ripete tutte le informazioni senza selezione.\n\n"
+        f"## Indice degli argomenti\n{index}\n\n---\n\n{body}\n"
+    )
+    candidate, notes = preview_compact_global_recap(original)
+    assert original.startswith("# Essenziale\n\n## Ripasso globale\nUn ripasso")
+    assert candidate != original
+    assert _extract_summary_chapters(candidate) == _extract_summary_chapters(original)
+    assert notes["preserved_chapters"] == 65
+    assert notes["new_recap_words"] < 500
+    assert notes["old_recap_words"] > 0
+    assert candidate.endswith(body + "\n")
+    assert re.search(r"(?m)^## Indice degli argomenti", candidate)
+
+
+def test_preview_compact_recap_requires_original_recap_and_complete_statements():
+    chapters = "\n".join(f"- Capitolo {i}" for i in range(10))
+    blocks = "\n\n---\n\n".join(
+        f"## Capitolo {i}\n\nEtichetta isolata"
+        for i in range(10)
+    )
+    text = "# Test\n\n## Indice degli argomenti\n" + chapters + "\n\n---\n\n" + blocks
+    import pytest
+
+    with pytest.raises(ValueError, match="Ripasso globale"):
+        preview_compact_global_recap(text)
+    with pytest.raises(ValueError, match="Nessuna frase scientifica completa"):
+        preview_compact_global_recap(
+            "# Test\n\n## Ripasso globale\nLungo\n\n"
+            + text.split("# Test\n\n", 1)[1]
+        )
