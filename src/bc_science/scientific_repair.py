@@ -555,8 +555,11 @@ def apply_staged_mitochondrial_repair(
     audit = audit_fast_essential(
         repaired, proposed_study, source_documents=len(scan.supported_files),
     )
-    if audit.status == "FAIL":
-        raise ValueError("Audit della versione staged fallito, pubblicazione bloccata.")
+    if audit.status != "PASS":
+        raise ValueError(
+            "Audit della versione staged non in PASS: "
+            "pubblicazione bloccata, anche per anteprime precedenti."
+        )
     published_audit = json.loads((root / "audit.json").read_text(encoding="utf-8"))
     if (
         published_audit.get("complete_sha256") != audit.complete_sha256
