@@ -386,7 +386,7 @@ def test_preexisting_global_fail_stages_but_cannot_publish(tmp_path, monkeypatch
     assert courses.course_study_output_path(scan).read_bytes() == old_study
     assert complete_path.read_text(encoding="utf-8") == expanded_complete
     assert source.read_bytes() == before_pdf
-    with pytest.raises(ValueError, match="Audit globale ancora in FAIL"):
+    with pytest.raises(ValueError, match="Audit globale non in PASS"):
         apply_staged_mitochondrial_repair(scan, output, confirmed=True)
     assert complete_path.read_text(encoding="utf-8") == expanded_complete
     assert courses.course_study_output_path(scan).read_bytes() == old_study
