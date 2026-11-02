@@ -1076,9 +1076,9 @@ def _build_compact_global_recap(refined: list[tuple[str, str]]) -> str:
     lines = [
         "## Ripasso globale",
         "",
-        "Questa è una traccia di richiamo, non un secondo riassunto. "
-        "Studia ogni capitolo nell'indice; usa questi richiami per verificare "
-        "i collegamenti e torna alle spiegazioni complete quando serve.",
+        ("Questa è una traccia di richiamo, non un secondo riassunto. "
+         "Studia ogni capitolo nell'indice; usa questi richiami per verificare "
+         "i collegamenti e torna alle spiegazioni complete quando serve."),
         "",
     ]
     # Distribute selection throughout the entire ordered course, rather
