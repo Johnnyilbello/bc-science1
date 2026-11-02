@@ -296,10 +296,8 @@ def write_fast_audit(report: FastEssentialAudit, directory: Path) -> tuple[Path,
         "",
         f"**Esito tecnico:** {report.status}",
         f"**Capitoli:** {report.chapters_present}/{report.chapters_total}",
-        f"**Compressione effettiva (può essere negativa):** "
-        f"{report.compression_percent:.1f}%",
-        f"**Differenze ortografiche nei titoli:** "
-        f"{len(report.title_spelling_variants)}",
+        f"**Compressione effettiva (può essere negativa):** {report.compression_percent:.1f}%",
+        f"**Differenze ortografiche nei titoli:** {len(report.title_spelling_variants)}",
         f"**Numeri d'esame assenti:** {len(report.missing_exam_number_chapters)}",
         f"**Verifica contenutistica:** {report.content_review_status}",
         f"**Capitoli da controllare:** {report.chapters_needing_review}",
