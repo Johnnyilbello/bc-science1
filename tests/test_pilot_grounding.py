@@ -117,3 +117,22 @@ def test_pilot_writer_returns_only_rewrite_and_numeric_gate_stays_on():
 def test_pilot_missing_rewrite_is_not_silently_accepted():
     with pytest.raises(ValueError, match="rewrite"):
         _ground_pilot_rewrite({}, SOURCE, PREVIOUS, _original())
+
+
+
+def test_pilot_rejects_negation_and_invented_causal_certainty():
+    altered_negative = REWRITE.replace(
+        "regola il passaggio", "non regola il passaggio",
+    )
+    with pytest.raises(ValueError, match="Qualificatore o negazione"):
+        _ground_pilot_rewrite(
+            {"rewrite": altered_negative}, SOURCE, PREVIOUS, _original(),
+        )
+
+    overstated = REWRITE.replace(
+        "partecipano al trasporto", "sono responsabili del trasporto",
+    )
+    with pytest.raises(ValueError, match="Qualificatore o negazione"):
+        _ground_pilot_rewrite(
+            {"rewrite": overstated}, SOURCE, PREVIOUS, _original(),
+        )
