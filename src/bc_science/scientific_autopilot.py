@@ -17,7 +17,7 @@ from .config import AppConfig
 from .evidence_engine import OriginalEvidence
 from .fast_audit import _title_spelling_key, audit_fast_essential
 from .italian_proofreading import grammar_findings
-from .quality_signals import _lines, _overlap, assess_chapter
+from .quality_signals import _lines, _overlap, _qualifiers_compatible, assess_chapter
 from .structural_checks import find_structural_issues
 from .summarizer import (
     Summarizer,
@@ -28,7 +28,7 @@ from .summarizer import (
 )
 from .targeted_review import review_chapter
 
-AGENT_VERSION = "scientific-autopilot-v3-actionable-windows"
+AGENT_VERSION = "scientific-autopilot-v4-source-gap-diagnostics"
 PRIORITY_CHAPTERS = (
     "la cellula e il nucleo",
     "Il ciclo di Krebs",
@@ -70,6 +70,88 @@ def _issues(title: str, complete: str, text: str) -> tuple[int, int, int, int]:
         len(grammar_findings(text)),
         risky,
     )
+
+
+def diagnose_content_gaps(
+    title: str,
+    complete: str,
+    essential: str,
+    evidence: list[OriginalEvidence],
+    *,
+    limit: int = 12,
+) -> dict:
+    """Create a bounded, human-review dossier of *possible* missing facts.
+
+    Lexical agreement with a retrieved original passage is useful for triage,
+    but is not semantic entailment, proof of correctness, or a licence to edit.
+    Evidence consists only of the limited excerpts already retrieved by the
+    pilot; absence in this sample does not mean absence from the original PDF.
+    """
+    signals = assess_chapter(title, complete, essential)
+    essential_statements = _lines(essential)
+    original_statements = [
+        (f"E{index}", item, sentence)
+        for index, item in enumerate(evidence[:4], 1)
+        for sentence in _lines(getattr(item, "excerpt", ""))
+    ]
+    priority = {
+        "number_or_formula": 0, "negative_condition": 1,
+        "absolute_condition": 2, "causal": 3, "mechanism": 4,
+        "definition": 5, "classification": 6, "exception": 7,
+    }
+    candidates = sorted(
+        signals.possible_missing,
+        key=lambda fact: (priority.get(fact.category, 9), fact.quote),
+    )
+    findings = []
+    for fact in candidates[:limit]:
+        nearest = max(
+            essential_statements,
+            key=lambda item: _overlap(fact.quote, item),
+            default="",
+        )
+        best = None
+        for source_id, item, sentence in original_statements:
+            score = _overlap(fact.quote, sentence)
+            if score < 0.76 or not _qualifiers_compatible(fact.quote, sentence):
+                continue
+            if best is None or score > best["lexical_recall"]:
+                best = {
+                    "evidence_id": source_id,
+                    "source_path": item.source_path,
+                    "page": item.page,
+                    "block": item.block,
+                    "original_quote": sentence[:650],
+                    "lexical_recall": round(score, 3),
+                }
+        findings.append({
+            "category": fact.category,
+            "complete_quote": fact.quote[:850],
+            "nearest_essential_quote": nearest[:450],
+            "nearest_essential_recall": round(
+                _overlap(fact.quote, nearest), 3,
+            ),
+            "original_excerpt_match": best,
+            "review_required": True,
+        })
+    return {
+        "possible_missing_total": len(candidates),
+        "reported_missing_count": len(findings),
+        "source_matched_in_report": sum(
+            item["original_excerpt_match"] is not None for item in findings
+        ),
+        "unsupported_phrases_heuristic": signals.unsupported_phrases,
+        "numerical_mismatch_heuristic": signals.numerical_mismatch,
+        "source_excerpt_count": len(evidence),
+        "limit": limit,
+        "scientifically_verified": False,
+        "interpretation": (
+            "Possibili lacune della Completa rispetto all'Essenziale, "
+            "non omissioni confermate. Match lessicali su estratti "
+            "parziali delle dispense; controllare contesto e PDF originali."
+        ),
+        "candidates": findings,
+    }
 
 
 def _critic_verdict(
