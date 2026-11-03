@@ -28,7 +28,7 @@ from .summarizer import (
 )
 from .targeted_review import review_chapter
 
-AGENT_VERSION = "scientific-autopilot-v4-source-gap-diagnostics"
+AGENT_VERSION = "scientific-autopilot-v5-targeted-original-context"
 PRIORITY_CHAPTERS = (
     "la cellula e il nucleo",
     "Il ciclo di Krebs",
@@ -79,6 +79,7 @@ def diagnose_content_gaps(
     evidence: list[OriginalEvidence],
     *,
     limit: int = 12,
+    original_context: dict[str, dict] | None = None,
 ) -> dict:
     """Create a bounded, human-review dossier of *possible* missing facts.
 
@@ -124,14 +125,27 @@ def diagnose_content_gaps(
                     "original_quote": sentence[:650],
                     "lexical_recall": round(score, 3),
                 }
+        recall = _overlap(fact.quote, nearest)
+        # This is only a triage label; overlapping concepts may still
+        # have contradictory numbers, qualifiers, or omitted subclauses.
+        potential_paraphrase = (
+            recall >= 0.60
+            and _qualifiers_compatible(fact.quote, nearest)
+        )
+        context = (original_context or {}).get(fact.quote)
         findings.append({
             "category": fact.category,
+            "triage": (
+                "POSSIBLE_PARAPHRASE" if potential_paraphrase
+                else "CHECK_MISSING_OR_ALTERED_DETAIL"
+            ),
             "complete_quote": fact.quote[:850],
             "nearest_essential_quote": nearest[:450],
             "nearest_essential_recall": round(
                 _overlap(fact.quote, nearest), 3,
             ),
             "original_excerpt_match": best,
+            "nearest_original_context": context,
             "review_required": True,
         })
     return {
@@ -139,6 +153,12 @@ def diagnose_content_gaps(
         "reported_missing_count": len(findings),
         "source_matched_in_report": sum(
             item["original_excerpt_match"] is not None for item in findings
+        ),
+        "source_context_candidates": sum(
+            item["nearest_original_context"] is not None for item in findings
+        ),
+        "potential_paraphrases_in_report": sum(
+            item["triage"] == "POSSIBLE_PARAPHRASE" for item in findings
         ),
         "unsupported_phrases_heuristic": signals.unsupported_phrases,
         "numerical_mismatch_heuristic": signals.numerical_mismatch,
@@ -148,7 +168,9 @@ def diagnose_content_gaps(
         "interpretation": (
             "Possibili lacune della Completa rispetto all'Essenziale, "
             "non omissioni confermate. Match lessicali su estratti "
-            "parziali delle dispense; controllare contesto e PDF originali."
+            "parziali delle dispense; gli estratti mirati sono "
+            "SOLTANTO contesto da verificare, non prove della verita "
+            "o della completezza del fatto. Controllare i PDF originali."
         ),
         "candidates": findings,
     }
