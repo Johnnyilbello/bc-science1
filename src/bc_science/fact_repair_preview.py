@@ -277,9 +277,9 @@ def stage_two_fact_preview(
         "",
         "**NON PUBBLICATO. Nessuna verifica scientifica automatica.**",
         "",
-        "Le fonti sono pagine/paragrafi originali mappati. La presenza di "
-        "termini sulla stessa pagina non garantisce da sola la correttezza "
-        "del nuovo testo. Verificare contesto, significato e omissioni.",
+        ("Le fonti sono pagine/paragrafi originali mappati. La presenza di "
+         "termini sulla stessa pagina non garantisce da sola la correttezza "
+         "del nuovo testo. Verificare contesto, significato e omissioni."),
         "",
         f"Audit: {before_audit.status} → {after_audit.status}",
         (f"Compressione: {before_audit.compression_percent:.1f}% → "
