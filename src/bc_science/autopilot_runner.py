@@ -31,7 +31,7 @@ from .scientific_autopilot import (
 from .scientific_repair import _replace_single_study_chapter
 from .summarizer import Summarizer, _extract_summary_chapters, _key
 
-RUNNER_SCHEMA = 1
+RUNNER_SCHEMA = 2
 _SKIP = frozenset({
     "della", "delle", "degli", "nelle", "sono", "come", "questo",
     "questa", "anche", "dello", "sulla", "dalla", "del", "alla",
@@ -134,6 +134,90 @@ def _original_evidence(
         for n, (_score, path, page, block, excerpt, provenance)
         in enumerate(candidates[:limit], 1)
     ]
+
+
+def _targeted_source_context(
+    scan: CourseScan,
+    mapping: dict[str, str],
+    title: str,
+    quotes: list[str],
+    *,
+    min_recall: float = 0.32,
+) -> dict[str, dict]:
+    """Find *context candidates*, not scientific evidence for an edit.
+
+    Search complete original pages/paragraphs mapped to this chapter, not
+    the initial four generic excerpts. Read each mapped PDF/DOCX only once.
+    All page numbers and snippets come from real source text. Low lexical
+    recall can indicate an unrelated passage, so no match is marked verified.
+    """
+    import pymupdf
+
+    if not quotes:
+        return {}
+    query_terms = {
+        quote: _terms(quote)
+        for quote in dict.fromkeys(quotes)
+    }
+    results: dict[str, dict] = {}
+    allowed = set(scan.supported_files)
+    target = _title_spelling_key(title)
+    relevant = sorted(
+        scan.path / name for name, chapter in mapping.items()
+        if _title_spelling_key(chapter) == target
+    )
+    sentence_boundary = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+
+    def consider(text: str, source: Path, page: int | None, block: int | None) -> None:
+        normalized = " ".join(text.split())
+        if len(normalized) < 22:
+            return
+        for sentence in sentence_boundary.split(normalized):
+            # Long source sentences are split into overlapping *literal*
+            # context windows; never concatenate invented source prose.
+            windows = (
+                [sentence[offset:offset + 900]
+                 for offset in range(0, len(sentence), 450)]
+                if len(sentence) > 900 else [sentence]
+            )
+            for excerpt in windows:
+                words = _terms(excerpt)
+                if not words:
+                    continue
+                for quote, desired in query_terms.items():
+                    if len(desired) < 3:
+                        continue
+                    recall = len(words & desired) / len(desired)
+                    if recall < min_recall:
+                        continue
+                    current = results.get(quote)
+                    if current is not None and recall <= current["lexical_recall"]:
+                        continue
+                    results[quote] = {
+                        "source_path": str(source.resolve()),
+                        "page": page,
+                        "block": block,
+                        "original_context": excerpt[:900],
+                        "lexical_recall": round(recall, 4),
+                        "verification": "CONTEXT_ONLY_NOT_SCIENTIFICALLY_VERIFIED",
+                    }
+
+    for source in relevant:
+        if source.resolve() not in allowed:
+            raise ValueError("Documento diagnostico fuori dalla mappatura autorizzata.")
+        if source.suffix.casefold() == ".pdf":
+            with pymupdf.open(source) as pdf:
+                for page_no, page in enumerate(pdf, 1):
+                    consider(
+                        page.get_text("text", sort=True),
+                        source, page_no, None,
+                    )
+        elif source.suffix.casefold() == ".docx":
+            from docx import Document
+
+            for block_no, paragraph in enumerate(Document(source).paragraphs, 1):
+                consider(paragraph.text, source, None, block_no)
+    return results
 
 
 def _atomic_json(path: Path, value: dict) -> None:
@@ -247,8 +331,15 @@ def run_scientific_pilot(
                 outcome = AgentResult(
                     title, "BLOCKED_NO_ORIGINAL_EVIDENCE", original, (), 0,
                 )
-            diagnostic = diagnose_content_gaps(
+            preliminary = diagnose_content_gaps(
                 title, source, original, hits,
+            )
+            context = _targeted_source_context(
+                scan, mapping, title,
+                [item["complete_quote"] for item in preliminary["candidates"]],
+            )
+            diagnostic = diagnose_content_gaps(
+                title, source, original, hits, original_context=context,
             )
             completed.append({
                 "title": title,
@@ -337,6 +428,10 @@ def run_scientific_pilot(
                  f"{item['diagnostics']['possible_missing_total']}"),
                 ("- Con riscontro lessicale negli estratti campionati: "
                  f"{item['diagnostics']['source_matched_in_report']}"),
+                ("- Con contesto originale da esaminare: "
+                 f"{item['diagnostics']['source_context_candidates']}"),
+                ("- Possibili parafrasi (non verificate): "
+                 f"{item['diagnostics']['potential_paraphrases_in_report']}"),
             ]
         (root / "autopilot-report.md").write_text(
             "\n".join(lines) + "\n", encoding="utf-8",
@@ -361,6 +456,10 @@ def run_scientific_pilot(
                 f"- Possibili lacune totali: {diagnosis['possible_missing_total']}",
                 ("- Estratti originali con riscontro per i candidati mostrati: "
                  f"{diagnosis['source_matched_in_report']}"),
+                ("- Contesti mirati dei PDF/DOCX da esaminare: "
+                 f"{diagnosis['source_context_candidates']}"),
+                ("- Possibili parafrasi non certificate: "
+                 f"{diagnosis['potential_paraphrases_in_report']}"),
                 "- Nessuna prova scientifica automatica.",
                 "",
             ]
@@ -368,6 +467,7 @@ def run_scientific_pilot(
                 diagnostic_lines += [
                     f"### Segnalazione {index}: {entry['category']}",
                     "",
+                    f"- Triage: {entry['triage']} (richiede revisione umana)",
                     f"- Completa: {entry['complete_quote']}",
                     f"- Essenziale più vicina: {entry['nearest_essential_quote']}",
                     ("- Somiglianza lessicale: "
@@ -387,6 +487,22 @@ def run_scientific_pilot(
                          f"pagina {original['page']}, "
                          f"blocco {original['block']}"),
                         f"- Testo estratto: {original['original_quote']}",
+                    ]
+                context = entry["nearest_original_context"]
+                if context is None:
+                    diagnostic_lines.append(
+                        "- Contesto mirato: nessun passaggio sufficientemente "
+                        "simile trovato nei documenti mappati."
+                    )
+                else:
+                    diagnostic_lines += [
+                        ("- Contesto mirato NON verificato: "
+                         f"{context['source_path']}, "
+                         f"pagina {context['page']}, "
+                         f"blocco {context['block']}"),
+                        f"- Estratto letterale: {context['original_context']}",
+                        ("- Richiamo lessicale (NON prova): "
+                         f"{context['lexical_recall']:.3f}"),
                     ]
                 diagnostic_lines.append("")
         (root / "autopilot-diagnostics.md").write_text(

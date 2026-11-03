@@ -273,3 +273,63 @@ def test_gap_dossier_does_not_invent_pdf_support_for_unrelated_excerpt():
     assert diagnosis["source_matched_in_report"] == 0
     assert diagnosis["candidates"][0]["original_excerpt_match"] is None
     assert not diagnosis["scientifically_verified"]
+
+
+
+def test_gap_dossier_context_is_not_mistaken_for_strict_source_support():
+    from bc_science.scientific_autopilot import diagnose_content_gaps
+
+    fact = (
+        "I legami disolfuro si formano tra due residui di cisteina "
+        "e contribuiscono alla stabilizzazione della struttura proteica."
+    )
+    complete = "## Proteine\n\n" + fact
+    essential = (
+        "## Proteine\n\nI legami disolfuro contribuiscono "
+        "alla stabilità della struttura."
+    )
+    context = {
+        fact: {
+            "source_path": "dispensa.pdf",
+            "page": 3,
+            "block": None,
+            "original_context": fact,
+            "lexical_recall": 0.8,
+            "verification": "CONTEXT_ONLY_NOT_SCIENTIFICALLY_VERIFIED",
+        },
+    }
+    diagnosis = diagnose_content_gaps(
+        "Proteine", complete, essential, [],
+        original_context=context,
+    )
+    assert diagnosis["possible_missing_total"] == 1
+    assert diagnosis["source_matched_in_report"] == 0
+    assert diagnosis["source_context_candidates"] == 1
+    assert not diagnosis["scientifically_verified"]
+    assert diagnosis["candidates"][0]["original_excerpt_match"] is None
+    assert diagnosis["candidates"][0]["nearest_original_context"] == context[fact]
+    assert diagnosis["candidates"][0]["review_required"]
+
+
+def test_possible_paraphrase_is_still_marked_for_human_review():
+    from bc_science.scientific_autopilot import diagnose_content_gaps
+
+    complete = (
+        "## Metabolismo\n\n"
+        "La reazione irreversibile non può procedere in senso inverso "
+        "durante il metabolismo cellulare."
+    )
+    essential = (
+        "## Metabolismo\n\n"
+        "La reazione irreversibile non può procedere in direzione "
+        "inversa durante il metabolismo cellulare."
+    )
+    diagnosis = diagnose_content_gaps("Metabolismo", complete, essential, [])
+    # A paraphrase can be suspected by the checker or already accepted by
+    # the conservative recall heuristic; neither outcome is a certification.
+    assert not diagnosis["scientifically_verified"]
+    for candidate in diagnosis["candidates"]:
+        assert candidate["review_required"]
+        assert candidate["triage"] in {
+            "POSSIBLE_PARAPHRASE", "CHECK_MISSING_OR_ALTERED_DETAIL",
+        }

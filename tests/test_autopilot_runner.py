@@ -49,6 +49,7 @@ def _source_snapshot(monkeypatch, scan):
     monkeypatch.setattr(runner, "_snapshot", lambda *_: files)
     monkeypatch.setattr(runner, "_fingerprint", lambda *_: "unchanged")
     monkeypatch.setattr(runner, "_load_manifest", lambda *_: manifest)
+    monkeypatch.setattr(runner, "_targeted_source_context", lambda *_a: {})
     monkeypatch.setattr(
         runner, "_coverage_map_from_manifest",
         lambda *_: {"biologia.pdf": PRIORITY_CHAPTERS[0]},
@@ -214,3 +215,52 @@ def test_original_snapshot_mismatch_fails_before_creating_output(tmp_path, monke
     with pytest.raises(ValueError, match="mappatura cambiate"):
         runner.run_scientific_pilot(scan, complete, study, output, AppConfig())
     assert not output.exists()
+
+
+
+def test_targeted_gap_context_comes_from_actual_mapped_pdf_page(tmp_path, monkeypatch):
+    scan, _complete, _study, _text = _files(tmp_path)
+    detail = (
+        "I legami disolfuro sono legami covalenti che si formano "
+        "tra due residui di cisteina nella struttura delle proteine."
+    )
+
+    class FakePage:
+        def get_text(self, _format, *, sort):
+            assert sort
+            return "Introduzione alla lezione sulle proteine. " + detail
+
+    class FakePDF:
+        def __enter__(self):
+            return [FakePage()]
+
+        def __exit__(self, *_args):
+            pass
+
+    import pymupdf
+
+    monkeypatch.setattr(pymupdf, "open", lambda _path: FakePDF())
+    query = (
+        "Legami disolfuro tra due cisteine sono legami covalenti "
+        "della struttura terziaria delle proteine."
+    )
+    results = runner._targeted_source_context(
+        scan, {"biologia.pdf": PRIORITY_CHAPTERS[0]},
+        PRIORITY_CHAPTERS[0], [query],
+    )
+    assert query in results
+    assert results[query]["source_path"] == str(scan.supported_files[0])
+    assert results[query]["page"] == 1
+    assert results[query]["block"] is None
+    assert "due residui di cisteina" in results[query]["original_context"]
+    assert results[query]["verification"] == "CONTEXT_ONLY_NOT_SCIENTIFICALLY_VERIFIED"
+
+
+def test_targeted_context_refuses_source_outside_verified_mapping(tmp_path):
+    scan, _complete, _study, _text = _files(tmp_path)
+    with pytest.raises(ValueError, match="mappatura autorizzata"):
+        runner._targeted_source_context(
+            scan, {"../../altro.pdf": PRIORITY_CHAPTERS[0]},
+            PRIORITY_CHAPTERS[0],
+            ["Le proteine sono composte da diverse catene di amminoacidi."],
+        )
