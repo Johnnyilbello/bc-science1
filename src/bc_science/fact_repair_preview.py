@@ -149,6 +149,10 @@ def _unique_study_span(
     if location < 0 or normalized.find(needle, location + 1) >= 0:
         return None
     start, stop = offsets[location], offsets[location + len(needle) - 1] + 1
+    # Include the opening Markdown emphasis in the replaceable span.
+    # Otherwise replacing a bold-labelled statement would leave a stray **.
+    if start >= 2 and study[start - 2:start] == "**":
+        start -= 2
     if not study[start:stop].strip():
         return None
     return start, stop
