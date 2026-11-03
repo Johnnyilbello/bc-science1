@@ -351,6 +351,41 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("scientific-clarifications-preview")
+def courses_scientific_clarifications_preview(
+    course: Annotated[Path, typer.Argument(help="Cartella delle dispense originali")],
+    complete: Annotated[Path, typer.Option("--complete")],
+    v10_candidate: Annotated[Path, typer.Option("--v10-candidate")],
+    v10_report: Annotated[Path, typer.Option("--v10-report")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """Solo sette chiarimenti V10.1, sempre non pubblicati e non certificati."""
+    from .courses import scan_course
+    from .scientific_clarifications_v101 import run_scientific_clarifications
+
+    try:
+        destination = run_scientific_clarifications(
+            scan_course(course), complete, v10_candidate, v10_report, output_dir,
+        )
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        console.print(f"[red]V10.1 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads(
+        (destination / "v10.1-report.json").read_text(encoding="utf-8")
+    )
+    console.print("[green]V10.1: candidata NON PUBBLICATA.[/]")
+    console.print(f"Modifiche mirate: {len(report['changes'])}")
+    for chapter in report["chapters"]:
+        console.print(
+            f"  {chapter['title']}: riduzione {chapter['reduction_percent']}%"
+        )
+    console.print(f"Audit: {report['before_audit']} → {report['after_audit']}")
+    console.print(f"Dossier: {destination / 'v10.1-dossier.md'}")
+    console.print(
+        "[yellow]Verificare le dispense e la convenzione ATP prima di ogni merge.[/]"
+    )
+
+
 @courses_app.command("structural-compression-preview")
 def courses_structural_compression_preview(
     course: Annotated[Path, typer.Argument(help="Cartella delle dispense originali")],
