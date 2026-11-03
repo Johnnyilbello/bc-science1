@@ -15,8 +15,11 @@ from pathlib import Path
 from .autopilot_runner import _validated_manifest
 from .courses import CourseScan, _fingerprint, _snapshot
 from .fact_repair_preview import (
-    CASES, _canonical_with_offsets, _exact_statement_exists,
-    _source_fact_evidence, _unique_study_span,
+    CASES,
+    _canonical_with_offsets,
+    _exact_statement_exists,
+    _source_fact_evidence,
+    _unique_study_span,
 )
 from .fast_audit import _ordered_title_match, _title_spelling_key, audit_fast_essential
 from .italian_proofreading import grammar_findings
