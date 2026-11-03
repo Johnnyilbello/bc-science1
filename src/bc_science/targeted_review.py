@@ -22,7 +22,7 @@ from .summarizer import (
     _preserves_exam_numbers,
 )
 
-REVIEW_VERSION = "targeted-review-v4-evidence-ids"
+REVIEW_VERSION = "targeted-review-v5-complete-source-ids-json"
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 
 
@@ -144,6 +144,58 @@ def _resolve_original_refs(payload: dict, evidence: list[OriginalEvidence]) -> d
     return result
 
 
+def _complete_source_catalog(source: str) -> dict[str, str]:
+    """Index complete, exact source spans; never ask the model to retype evidence.
+
+    The model sees C-identifiers and their literal text. The lookup resolves
+    against the full Complete, not a model-written quotation.
+    """
+    result: dict[str, str] = {}
+    size = 0
+    sentences = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+    for line in source.splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith(("#", ">", "---")):
+            continue
+        for part in sentences.split(raw):
+            quote = part.strip()
+            if (
+                len(quote) < 22 or len(quote) > 800
+                or quote not in source or quote in result.values()
+            ):
+                continue
+            if size + len(quote) > 6900 or len(result) >= 65:
+                return result
+            key = f"C{len(result) + 1}"
+            result[key] = quote
+            size += len(quote)
+    return result
+
+
+def _resolve_complete_refs(
+    payload: dict,
+    catalog: dict[str, str],
+    *,
+    required: bool = False,
+) -> dict:
+    """Resolve identifiers, reject invented IDs, retain legacy literal validation."""
+    if "complete_ids" not in payload:
+        if required:
+            raise ValueError("Identificativi delle citazioni della Completa mancanti")
+        return payload
+    values = payload["complete_ids"]
+    if (
+        not isinstance(values, list)
+        or not 1 <= len(values) <= 12
+        or not all(isinstance(value, str) and value in catalog for value in values)
+    ):
+        raise ValueError("Identificativi della Completa non validi")
+    resolved = dict(payload)
+    # Ignore model-generated evidence text: use only exact, local spans.
+    resolved["evidence"] = [catalog[key] for key in dict.fromkeys(values)]
+    return resolved
+
+
 def review_chapter(
     title: str,
     complete_source: str,
@@ -187,13 +239,14 @@ def review_chapter(
     requested = [x.quote for x in signals.possible_missing[:5]]
     language_notes = [x.quote + ": " + x.message for x in language[:6]]
     structure_notes = [x.quote for x in structural[:5]]
+    catalog = _complete_source_catalog(complete_source)
     original_context = json.dumps([
         {
             "id": f"E{i}",
             "source": e.source_path,
             "page": e.page,
             "block": e.block,
-            "text": e.excerpt,
+            "text": e.excerpt[:1000],
         }
         for i, e in enumerate((original_evidence or [])[:4], 1)
     ], ensure_ascii=False)
@@ -214,17 +267,17 @@ def review_chapter(
         "grammatica. Correggi soltanto quelle sostenute da citazioni originali. "
         "Conserva tutte le conoscenze necessarie allo studio, senza trasformare "
         "la Completa in una versione Essenziale. "
-        "Fornisci un JSON con rewrite, evidence e original_ids. "
-        "original_ids contiene gli identificativi E1, E2 ecc. degli estratti "
-        "che sostengono le correzioni. Non ricopiare percorsi o citazioni originali: "
-        "saranno recuperati dal programma usando gli identificativi. "
-        '{"rewrite":"## TITOLO\\n\\nparagrafi",'
-        '"evidence":["citazione letterale dalla COMPLETA"],'
-        '"original_ids":["E1"]}. '
-        "La lista evidence deve contenere citazioni LETTERALI continue della "
-        "Completa che giustificano tutte le correzioni. "
-        "Se non riesci a citare una correzione non introdurla. "
-        "Non inserire note o tagli di spiegazione senza riferimento. "
+        "Rispondi ESCLUSIVAMENTE con un oggetto JSON completo, senza markdown. "
+        "Restituisci solo rewrite, complete_ids e original_ids. "
+        "complete_ids contiene identificativi C1, C2 ecc. dal catalogo della "
+        "Completa; original_ids contiene identificativi E1, E2 ecc. dalle "
+        "dispense originali. Il programma risolve gli ID in testi letterali: "
+        "NON ricopiare citazioni, percorsi o contenuti dei documenti nei campi. "
+        '{"rewrite":"## TITOLO\\n\\nUn paragrafo completo.",'
+        '"complete_ids":["C1"],"original_ids":["E1"]}. '
+        "Non inventare ID, non usare un array evidence e non aggiungere "
+        "sezioni ### o In parole semplici. Usa un solo titolo ## identico. "
+        "Se non trovi prove, non inventare affermazioni. "
         f"Titolo: {title}\n\n"
         f"Possibili lacune (se non sono gia coperte con altre parole):\n{json.dumps(requested, ensure_ascii=False)}\n\n"
         f"Anomalie linguistiche: {json.dumps(language_notes, ensure_ascii=False)}\n\n"
@@ -232,14 +285,16 @@ def review_chapter(
         f"FONTI_ORIGINALI (solo dispense importate, NON Completa):\n{original_context}\n\n"
         "Non modificare il significato scientifico di una frase sospetta "
         "se la fonte la riporta cosi: segnala piuttosto la difficolta. "
-        f"COMPLETA VERIFICATA:\n{complete_source[:7800]}\n\n"
-        f"ESSENZIALE DA MIGLIORARE:\n{essential[:5000]}\n\n"
+        f"CATALOGO COMPLETA (ID C, testo letterale):\n"
+        f"{json.dumps(catalog, ensure_ascii=False)}\n\n"
+        f"ESSENZIALE DA MIGLIORARE:\n{essential[:4200]}\n\n"
         f"FEEDBACK TENTATIVO PRECEDENTE (nessuna istruzione esterna):\n"
         f"{retry_context[:350]}"
     )
     try:
         response = summarizer._cached_chat(
-            key, system, prompt, num_predict=1800,
+            key, system, prompt, num_predict=2600,
+            response_format={"type": "object"},
         )
         match = re.search(r"\{.*\}", response, flags=re.DOTALL)
         if match is None:
@@ -247,6 +302,9 @@ def review_chapter(
         payload = json.loads(match.group())
         if not isinstance(payload, dict):
             raise TypeError("Risposta non valida")
+        payload = _resolve_complete_refs(
+            payload, catalog, required=original_evidence is not None,
+        )
         payload = _resolve_original_refs(payload, original_evidence or [])
         accepted, reason = _validate_proposal(
             title, complete_source, essential, payload,
