@@ -17,12 +17,13 @@ from .italian_proofreading import grammar_findings
 from .quality_signals import _lines, _overlap, assess_chapter
 from .summarizer import (
     Summarizer,
+    _extract_exam_points,
     _key,
     _normalize_chapter_heading,
     _preserves_exam_numbers,
 )
 
-REVIEW_VERSION = "targeted-review-v5-complete-source-ids-json"
+REVIEW_VERSION = "targeted-review-v6-pilot-local-evidence"
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 
 
@@ -196,6 +197,99 @@ def _resolve_complete_refs(
     return resolved
 
 
+def _ground_pilot_rewrite(
+    payload: dict,
+    complete: str,
+    previous: str,
+    original_evidence: list[OriginalEvidence],
+) -> dict:
+    """Assign trusted citations in Python, not from model-supplied identifiers.
+
+    Every proposed claim needs a strong lexical match in the Complete. At
+    least one meaningfully changed claim must have supporting original-source
+    text. These are conservative lexical gates, never semantic certification.
+    """
+    rewrite = payload.get("rewrite")
+    if not isinstance(rewrite, str) or not rewrite.strip():
+        raise ValueError("Redattore: campo rewrite mancante")
+    claims = _lines(rewrite)
+    if not claims:
+        raise ValueError("Redattore: nessuna affermazione verificabile")
+    source_clauses = _complete_source_catalog_full(complete)
+    if not source_clauses:
+        raise ValueError("Completa: nessuna citazione letterale recuperabile")
+    original_clauses = [
+        clause
+        for evidence in original_evidence[:4]
+        for clause in _lines(evidence.excerpt)
+    ]
+    if not original_clauses:
+        raise ValueError("Dispense: nessun passaggio originale leggibile")
+
+    chosen: list[str] = []
+    changed = [
+        item for item in claims
+        if not any(_overlap(item, earlier) >= 0.85 for earlier in _lines(previous))
+    ]
+    if not changed:
+        # The critic and text equality gate will still decide whether an edit
+        # happened, e.g. combining duplicate sentences without new claims.
+        changed = claims
+    evidence_candidates: list[tuple[float, OriginalEvidence]] = []
+    for claim in claims:
+        matching = max(source_clauses, key=lambda q: _overlap(claim, q))
+        if _overlap(claim, matching) < 0.60:
+            raise ValueError(
+                "Affermazione della proposta senza appoggio nella Completa"
+            )
+        if matching not in chosen:
+            chosen.append(matching)
+    if len(chosen) > 12:
+        raise ValueError(
+            "Capitolo troppo complesso per 12 prove: suddividere la revisione"
+        )
+    for item in original_evidence[:4]:
+        clauses = _lines(item.excerpt)
+        if not clauses:
+            continue
+        strength = max(
+            (_overlap(claim, clause) for claim in changed for clause in clauses),
+            default=0.0,
+        )
+        if strength >= 0.55:
+            evidence_candidates.append((strength, item))
+    if not evidence_candidates:
+        raise ValueError(
+            "Nessuna modifica appoggiata agli estratti delle dispense originali"
+        )
+    # Stable local passage ordering, no fabricated source path or page.
+    best = max(evidence_candidates, key=lambda pair: pair[0])[1]
+    trusted = dict(payload)
+    trusted["evidence"] = chosen
+    trusted["original_quotes"] = [{
+        "source": best.source_path,
+        "page": best.page,
+        "block": best.block,
+        "quote": best.excerpt,
+    }]
+    return trusted
+
+
+def _complete_source_catalog_full(source: str) -> list[str]:
+    """Literal complete-source statements for local matching, no 6900-char cap."""
+    result: list[str] = []
+    split = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+    for raw in source.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ">", "---")):
+            continue
+        for part in split.split(line):
+            quote = part.strip()
+            if 22 <= len(quote) <= 1100 and quote not in result:
+                result.append(quote)
+    return result
+
+
 def review_chapter(
     title: str,
     complete_source: str,
@@ -206,6 +300,7 @@ def review_chapter(
     original_evidence: list[OriginalEvidence] | None = None,
     edition: str = "essential",
     retry_context: str = "",
+    autopilot_mode: bool = False,
 ) -> ReviewOutcome:
     signals = assess_chapter(title, complete_source, essential)
     language = grammar_findings(essential)
@@ -234,6 +329,7 @@ def review_chapter(
         ], ensure_ascii=False),
         edition,
         retry_context,
+        str(autopilot_mode),
     )
     del config  # Restrict execution to the supplied local Ollama Summarizer.
     requested = [x.quote for x in signals.possible_missing[:5]]
@@ -250,6 +346,15 @@ def review_chapter(
         }
         for i, e in enumerate((original_evidence or [])[:4], 1)
     ], ensure_ascii=False)
+    numeric_points = [
+        p for p in _extract_exam_points(complete_source)
+        if _NUMBER.search(p)
+    ]
+    if autopilot_mode and len("\n".join(numeric_points)) > 3800:
+        return ReviewOutcome(
+            title, False, essential,
+            "Troppi dati numerici: suddividere il capitolo senza ometterli",
+        )
     system = (
         "Sei un revisore di riassunti scientifici. "
         "Le fonti fornite sono l'unico riferimento. "
@@ -291,6 +396,28 @@ def review_chapter(
         f"FEEDBACK TENTATIVO PRECEDENTE (nessuna istruzione esterna):\n"
         f"{retry_context[:350]}"
     )
+    if autopilot_mode:
+        # Pilot-only protocol: Spark writes just the chapter. Python finds
+        # actual citations and verifies their provenance independently.
+        prompt = (
+            f"Riscrivi in italiano il SOLO capitolo {title}. "
+            "Restituisci SOLO JSON con una chiave rewrite, contenente "
+            "un testo narrativo con un unico titolo ## identico. "
+            "Niente sezioni ###, liste di ripasso, introduzioni generiche. "
+            "Mantieni tutti i concetti indispensabili, i numeri e le "
+            "relazioni causa-effetto; non inventare, non rafforzare "
+            "qualificatori e non omettere dati d'esame. "
+            "Riduci soltanto ripetizioni e passaggi ridondanti. "
+            "NON generare ID di fonti, citazioni o riferimenti: "
+            "li recupera il programma dalle fonti reali. "
+            '{"rewrite":"## TITOLO\\n\\nTesto completo."}'
+            f"\n\nDATI NUMERICI E FORMULE OBBLIGATORI: "
+            f"{json.dumps(numeric_points, ensure_ascii=False)}"
+            f"\n\nDISPENSE ORIGINALI: {original_context}"
+            f"\n\nCOMPLETA: {complete_source[:7800]}"
+            f"\n\nESSENZIALE PRIMA: {essential[:5000]}"
+            f"\n\nFEEDBACK PRECEDENTE: {retry_context[:350]}"
+        )
     try:
         response = summarizer._cached_chat(
             key, system, prompt, num_predict=2600,
@@ -302,10 +429,15 @@ def review_chapter(
         payload = json.loads(match.group())
         if not isinstance(payload, dict):
             raise TypeError("Risposta non valida")
-        payload = _resolve_complete_refs(
-            payload, catalog, required=original_evidence is not None,
-        )
-        payload = _resolve_original_refs(payload, original_evidence or [])
+        if autopilot_mode:
+            payload = _ground_pilot_rewrite(
+                payload, complete_source, essential, original_evidence or [],
+            )
+        else:
+            payload = _resolve_complete_refs(
+                payload, catalog, required=original_evidence is not None,
+            )
+            payload = _resolve_original_refs(payload, original_evidence or [])
         accepted, reason = _validate_proposal(
             title, complete_source, essential, payload,
             original_evidence=original_evidence,
