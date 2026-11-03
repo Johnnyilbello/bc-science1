@@ -351,6 +351,33 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("structural-compression-preview")
+def courses_structural_compression_preview(
+    course: Annotated[Path, typer.Argument(help="Cartella delle dispense originali")],
+    complete: Annotated[Path, typer.Option("--complete")],
+    essential: Annotated[Path, typer.Option("--essential")],
+    v9_report: Annotated[Path, typer.Option("--v9-report")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """Pilot V10 sui tre capitoli; nessuna pubblicazione o cancellazione semantica."""
+    from .courses import scan_course
+    from .structural_compression import run_structural_compression
+
+    try:
+        destination = run_structural_compression(
+            scan_course(course), complete, essential, v9_report, output_dir,
+        )
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        console.print(f"[red]V10 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads((destination / "v10-report.json").read_text(encoding="utf-8"))
+    console.print("[green]V10: candidata non pubblicata; revisione manuale richiesta.[/]")
+    for item in report["chapters"]:
+        console.print(f"{item['title']}: riduzione {item['reduction_percent']}% · "
+                      f"obiettivo raggiunto: {item['target_met']}")
+    console.print(f"Dossier: {destination / 'v10-dossier.md'}")
+
+
 @courses_app.command("chapter-context-preview")
 def courses_chapter_context_preview(
     course: Annotated[
