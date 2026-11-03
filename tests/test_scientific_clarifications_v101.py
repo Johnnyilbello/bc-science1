@@ -196,3 +196,46 @@ def test_new_audit_fail_closed(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="nuovo FAIL"):
         v101.run_scientific_clarifications(*args)
     assert not args[4].exists()
+
+
+def test_real_style_exam_point_four_groups_survives_chirality_clarification():
+    """Regression for local V10.1: '4 gruppi' must not become 'quattro gruppi'."""
+    from bc_science.summarizer import _preserves_exam_numbers
+
+    candidate, records = v101.apply_clarifications(_document())
+    chapter = candidate[slice(*_spans(candidate)[TITLES[2]])]
+    complete = (
+        "## CHIMICA ORGANICA e carboidrati\n\n"
+        "### Da ricordare per l'esame\n"
+        "9. Ricordare che gli enantiomeri esistono solo se il carbonio "
+        "è legato a 4 gruppi diversi; sono immagini speculari "
+        "non sovrapponibili.\n"
+    )
+    assert _preserves_exam_numbers(complete, chapter)
+    assert not _preserves_exam_numbers(
+        complete, chapter.replace("4 gruppi", "quattro gruppi", 1),
+    )
+    change = next(
+        record for record in records
+        if record["ident"] == "CHIRALITY_NO_ONLY_CARBON"
+    )
+    assert "4 gruppi" in change["after"]
+    assert change["numeric_change_disclosed"] is False
+
+
+def test_real_style_new_audit_fail_explains_missing_chapter(tmp_path, monkeypatch):
+    args = _bundle(tmp_path, monkeypatch)
+    states = iter([
+        SimpleNamespace(status="WARN", missing_exam_number_chapters=()),
+        SimpleNamespace(
+            status="FAIL",
+            missing_exam_number_chapters=("CHIMICA ORGANICA e carboidrati",),
+        ),
+    ])
+    monkeypatch.setattr(
+        v101, "audit_fast_essential",
+        lambda *_args: next(states),
+    )
+    with pytest.raises(ValueError, match="Numeri d'esame non preservati"):
+        v101.run_scientific_clarifications(*args)
+    assert not args[4].exists()
