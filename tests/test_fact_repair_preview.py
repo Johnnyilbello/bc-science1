@@ -254,3 +254,69 @@ def test_v8_does_not_match_altered_essential_even_when_complete_matches():
     )
     assert unchanged == changed
     assert reason == "BLOCKED_ESSENTIAL_ANCHOR_NOT_UNIQUE"
+
+
+
+@pytest.mark.parametrize("case", repair.CASES)
+def test_other_chapter_mentions_do_not_suppress_local_fact_proposal(case):
+    """The real V8.1 false skip: a term elsewhere is NOT in the target."""
+    header = (
+        "# Biologia\n\n## Indice degli argomenti\n- "
+        + case.title + "\n\n---\n\n## " + case.title + "\n\n"
+    )
+    complete = header + case.complete_anchor
+    other = (
+        "Nota separata sugli stessi argomenti: "
+        + "; ".join(case.already_present) + " vengono citati qui."
+    )
+    study = header + case.old + "\n\n" + other
+    evidence = {"source_path": "dispensa.pdf", "page": 8}
+    proposed, state = repair._validated_scoped_edit(
+        study, complete, case, evidence,
+    )
+    assert state == "CANDIDATE_UNVERIFIED"
+    assert proposed == study.replace(case.old, case.revised, 1)
+    assert proposed.endswith(other)
+    mentions = repair._elsewhere_term_mentions(
+        dict(repair._extract_summary_chapters(study))[case.title],
+        case,
+    )
+    assert mentions
+    assert set(mentions[0]["terms"]) == set(case.already_present)
+    assert mentions[0]["status"] == "CONTEXT_ONLY_NOT_SEMANTICALLY_VERIFIED"
+
+
+@pytest.mark.parametrize("case", repair.CASES)
+def test_elsewhere_terms_cannot_override_absent_original_evidence(case):
+    header = (
+        "# Biologia\n\n## Indice degli argomenti\n- "
+        + case.title + "\n\n---\n\n## " + case.title + "\n\n"
+    )
+    complete = header + case.complete_anchor
+    study = (
+        header + case.old + "\n\nAltro paragrafo: "
+        + " e ".join(case.already_present) + "."
+    )
+    proposed, state = repair._validated_scoped_edit(
+        study, complete, case, None,
+    )
+    assert proposed == study
+    assert state == "BLOCKED_ORIGINAL_SOURCE_CONTEXT_MISSING"
+
+
+def test_mismatched_target_is_never_replaced_based_on_other_chapter_terms():
+    case = repair.CASES[0]
+    header = (
+        "# Biologia\n\n## Indice degli argomenti\n- "
+        "Il ciclo di Krebs\n\n---\n\n## Il ciclo di Krebs\n\n"
+    )
+    complete = header + case.complete_anchor
+    study = (
+        header + case.old.replace("rientrano", "non rientrano")
+        + "\n\nNota: le reazioni anaplerotiche sono importanti."
+    )
+    proposed, state = repair._validated_scoped_edit(
+        study, complete, case, {"source_path": "reale.pdf", "page": 8},
+    )
+    assert proposed == study
+    assert state == "BLOCKED_ESSENTIAL_ANCHOR_NOT_UNIQUE"
