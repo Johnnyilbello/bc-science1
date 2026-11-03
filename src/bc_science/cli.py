@@ -351,6 +351,48 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("fact-repair-preview")
+def courses_fact_repair_preview(
+    course: Annotated[
+        Path, typer.Argument(help="Cartella delle dispense originali della materia"),
+    ],
+    complete: Annotated[
+        Path, typer.Option("--complete", help="Completa esistente, letta senza modifiche"),
+    ],
+    essential: Annotated[
+        Path, typer.Option("--essential", help="Essenziale esistente, letta senza modifiche"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Nuova cartella per le proposte V8"),
+    ],
+) -> None:
+    """Solo due fatti documentati: anteprima reversibile e senza pubblicazione."""
+    from .courses import scan_course
+    from .fact_repair_preview import stage_two_fact_preview
+
+    try:
+        destination = stage_two_fact_preview(
+            scan_course(course), complete, essential, output_dir,
+        )
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        console.print(f"[red]V8 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads(
+        (destination / "v8-report.json").read_text(encoding="utf-8")
+    )
+    console.print("[green]Anteprima V8 conclusa; nessuna pubblicazione.[/]")
+    for item in report["proposals"]:
+        console.print(f"  {item['title']}: {item['status']}")
+    console.print(
+        f"Audit {report['before_audit']} → {report['after_audit']}"
+    )
+    console.print(
+        f"Candidati non verificati: {report['candidate_count']}"
+    )
+    console.print(f"Dossier: {destination / 'v8-dossier.md'}")
+    console.print(f"Report: {destination / 'v8-report.json'}")
+
+
 @courses_app.command("autopilot-preview")
 def courses_autopilot_preview(
     course: Annotated[
