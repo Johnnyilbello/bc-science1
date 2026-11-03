@@ -419,9 +419,9 @@ def stage_two_fact_preview(
         ]
         if entry["other_chapter_mentions"]:
             dossier += [
-                "Altri riferimenti nel capitolo: **da valutare per evitare "
-                "ripetizioni**. Sono corrispondenze di parole, non prove "
-                "di equivalenza concettuale.",
+                ("Altri riferimenti nel capitolo: **da valutare per evitare "
+                 "ripetizioni**. Sono corrispondenze di parole, non prove "
+                 "di equivalenza concettuale."),
                 "",
             ]
             for mention in entry["other_chapter_mentions"]:
