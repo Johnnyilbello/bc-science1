@@ -17,7 +17,7 @@ def test_summary_prompt_forbids_external_clarifications():
     assert "NON aggiungere conoscenza generale" in prompt
     assert "NON correggere scientificamente" in prompt
     assert "non ha mai studiato la materia" in prompt
-    assert "Una frase deve esprimere preferibilmente una sola idea" in prompt
+    assert "Una frase deve esprimere una sola idea" in prompt
 
 
 def test_chapter_normalization_removes_internal_rules_and_obvious_typos():
@@ -337,3 +337,31 @@ La struttura separa introduzione, spiegazione e ripasso finale.
     assert quality_attempts == 2
     assert "scientificamente corretto" not in result
     assert summarizer.stats.quality_repairs == 2
+
+def test_essential_system_uses_review_context_and_keeps_source_constraints():
+    from bc_science.summarizer import _essential_system_prompt
+    prompt = _essential_system_prompt()
+    assert 'ha gia studiato' in prompt
+    assert 'non ha mai studiato' not in prompt
+    assert "l'unica fonte ammessa" in prompt
+    assert 'grado di certezza' in prompt
+    assert 'percentuale di riduzione obbligatoria' in prompt
+
+def test_essential_condensation_rejects_invented_numeric_value():
+    from bc_science.summarizer import Summarizer
+    summary = object.__new__(Summarizer)
+    summary.model = 'test'
+    source = '## Neuroni\n\n' + 'I neuroni sensitivi ricevono stimoli e trasmettono segnali al sistema nervoso centrale. ' * 12
+    replies = iter([source, '## Neuroni\nI neuroni sono 999.'])
+    summary._cached_chat = lambda *args, **kwargs: next(replies)
+    result = summary.build_study_chapter('Neuroni',source)
+    assert '999' not in result
+    assert 'neuroni sensitivi' in result
+
+def test_source_identifiers_do_not_gain_numeric_suffixes():
+    from bc_science.summarizer import align_source_identifiers
+    text, repairs, unresolved = align_source_identifiers('FEV1 e FEV1/FVC; CO2 e XYZ9.', 'FEV, FEV/FVC e CO2.')
+    assert text == 'FEV e FEV/FVC; CO2 e XYZ9.'
+    assert len(repairs) == 2
+    assert unresolved == ['XYZ9']
+    assert align_source_identifiers('CO2','CO2')[0] == 'CO2'

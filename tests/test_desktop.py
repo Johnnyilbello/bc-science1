@@ -68,3 +68,27 @@ def test_both_readers_expose_original_evidence_buttons():
     assert "api.evidence(course,title,mode)" in script
     assert "'review_complete'" in script
     assert "panel.hidden=!['complete','essential'].includes(mode)" in script
+
+def test_source_preview_uses_only_original_course_pdf_and_valid_page(tmp_path: Path):
+    import base64
+    import hashlib
+
+    import pymupdf
+    root=tmp_path/'dispense'
+    subject=root/'ANATOMIA'
+    subject.mkdir(parents=True)
+    pdf=subject/'Originale.pdf'
+    with pymupdf.open() as document:
+        page=document.new_page()
+        page.insert_text((72,72),'Fonte originale')
+        document.save(pdf)
+    before=hashlib.sha256(pdf.read_bytes()).hexdigest()
+    api=DesktopAPI(root)
+    result=api.source_preview('ANATOMIA','Originale.pdf',1)
+    assert result['pages']==1 and result['page']==1
+    assert base64.b64decode(result['image'].split(',',1)[1]).startswith(b'\x89PNG\r\n\x1a\n')
+    assert hashlib.sha256(pdf.read_bytes()).hexdigest()==before
+    with pytest.raises(ValueError,match='Fonte non trovata'):
+        api.source_preview('ANATOMIA','../private.pdf',1)
+    with pytest.raises(ValueError,match='Pagina non presente'):
+        api.source_preview('ANATOMIA','Originale.pdf',2)

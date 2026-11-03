@@ -403,3 +403,158 @@ def test_original_grounding_allows_complete_without_existing_essential(
     )
     assert result["edition"] == "complete"
     assert result["evidence"]
+
+def test_reference_ids_resolve_to_exact_original_passages():
+    import pytest
+
+    from bc_science.evidence_engine import OriginalEvidence
+    from bc_science.targeted_review import _resolve_original_refs
+    passage = OriginalEvidence('dispensa.pdf', 4, None, 'Potenziali meccanismi associati alla funzione neuronale.', 1, 'cached_page')
+    result = _resolve_original_refs({'original_ids':['E1']}, [passage])
+    assert result['original_quotes'][0] == {'source':'dispensa.pdf','page':4,'block':None,'quote':passage.excerpt}
+    with pytest.raises(ValueError,match='non validi'):
+        _resolve_original_refs({'original_ids':['E2']}, [passage])
+
+def test_original_evidence_refreshes_when_extraction_improves_without_pdf_changes(tmp_path: Path):
+    db_path, source = _create_db(tmp_path)
+    with OriginalEvidenceIndex(db_path, {source:'hash-v1'}) as index:
+        assert index.search('deglutizione')
+    db = CacheDB(db_path)
+    try:
+        db.set_extracted_document(source,'hash-v1','extraction-vision',
+            '--- Pagina 2 ---\nLo schema descrive la flessibilità del tratto lombosacrale.',2,1)
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source:'hash-v1'}) as index:
+        hits=index.search('flessibilità lombosacrale')
+        assert hits
+        assert any('lombosacrale' in hit.excerpt for hit in hits)
+        assert not any('deglutizione' in hit.excerpt for hit in hits)
+
+
+def test_fast_audit_warns_when_most_chapters_need_factual_review():
+    """Technical provenance PASS must not conceal pervasive unresolved facts."""
+    titles = ("Cellule", "Muscoli", "Ossa", "Sistema nervoso")
+    first = (
+        "Il tessuto epiteliale comprende cellule vicine che rivestono "
+        "e proteggono le superfici del corpo."
+    )
+    omitted = (
+        "Il tessuto muscolare produce movimento attraverso la "
+        "contrazione delle fibre muscolari specializzate."
+    )
+    def document(edition: str, body: str) -> str:
+        toc = "\n".join(f"- {title}" for title in titles)
+        chapters = "\n\n---\n\n".join(
+            f"## {title}\n\n{body}" for title in titles
+        )
+        return f"# {edition}\n\n## Indice degli argomenti\n{toc}\n\n---\n\n{chapters}\n"
+
+    complete = document("Completa", first + " " + omitted)
+    essential = document("Essenziale", first)
+    result = audit_fast_essential(complete, essential)
+    assert result.chapters_total == 4
+    assert result.chapters_needing_review == 4
+    assert result.missing_exam_number_chapters == ()
+    assert result.status == "WARN"
+    assert result.content_review_status == "NON_VERIFICATO_SCIENTIFICAMENTE"
+
+
+def test_fast_essential_keeps_glossary_definitions_not_just_labels():
+    from bc_science.study_editions import make_fast_essential_chapter
+
+    chapter = (
+        "## Anatomia dei segmenti scheletrici\n\n"
+        "### Classificazione\n"
+        "- **Ossa pneumatiche**: Ossa con numerose cellette aeree interne.\n"
+        "- **Ossa suturali**: Piccole ossa irregolari lungo le suture del cranio.\n"
+        "- **Ossa sesamoidi**: Piccole ossa che si sviluppano nei tendini.\n"
+    )
+    result = make_fast_essential_chapter("Anatomia dei segmenti scheletrici", chapter)
+    for essential_detail in (
+        "cellette aeree interne", "suture del cranio", "sviluppano nei tendini",
+    ):
+        assert essential_detail in result.markdown
+
+
+def test_fast_essential_preserves_named_mechanism_and_negative_condition():
+    from bc_science.study_editions import make_fast_essential_chapter
+
+    chapter = (
+        "## La concentrazione di calcio\n\n"
+        "### Definizioni\n"
+        "Calmodulina — Proteina che lega il calcio per attivare altre proteine cellulari.\n"
+        "Chinasi — Enzima che aggiunge gruppi fosforici a proteine come la miosina.\n\n"
+        "### Meccanismo\n"
+        "La calmodulina attiva una chinasi specifica che fosforila la miosina.\n"
+        "Questo processo avviene senza che si verifichi un cambiamento elettrico "
+        "sulla superficie della cellula.\n"
+    )
+    result = make_fast_essential_chapter("La concentrazione di calcio", chapter)
+    text = result.markdown.casefold()
+    assert "calmodulina" in text
+    assert "chinasi" in text
+    assert "fosforila la miosina" in text
+    assert "senza che si verifichi un cambiamento elettrico" in text
+
+
+def test_indexed_chunk_with_explicit_markers_exposes_real_page(tmp_path: Path):
+    source = str(tmp_path / "La concentrazione di calcio.pdf")
+    db_path = tmp_path / "workspace.db"
+    db = CacheDB(db_path)
+    try:
+        db.replace_document(
+            source, "hash-v2", "Calcio",
+            [
+                ("--- Pagina 1 ---\nI muscoli lisci utilizzano segnali "
+                 "cellulari diversi dai muscoli striati.\n"
+                 "--- Pagina 2 ---\nLa calmodulina attiva una chinasi "
+                 "specifica che fosforila la miosina.")
+            ],
+            [[1.0, 0.0, 0.0]],
+        )
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source: "hash-v2"}) as index:
+        results = index.search("calmodulina chinasi", limit=5)
+        assert results
+        assert results[0].page == 2
+        assert "calmodulina attiva" in results[0].excerpt.casefold()
+        assert results[0].provenance == "indexed_chunk"
+
+
+def test_fallback_chunk_without_page_marker_never_invents_page(tmp_path: Path):
+    source = str(tmp_path / "Documento.pdf")
+    db_path = tmp_path / "workspace.db"
+    db = CacheDB(db_path)
+    try:
+        db.replace_document(
+            source, "hash-v1", "Ossa",
+            ["Le ossa pneumatiche contengono cellette aeree interne."],
+            [[1.0, 0.0, 0.0]],
+        )
+    finally:
+        db.close()
+    with OriginalEvidenceIndex(db_path, {source: "hash-v1"}) as index:
+        results = index.search("ossa pneumatiche", limit=5)
+        assert results and results[0].page is None
+        assert results[0].block == 1
+
+
+def test_glossary_detection_rejects_label_only_as_fact_coverage():
+    from bc_science.quality_signals import assess_chapter
+
+    source = (
+        "## Ossa\n\n"
+        "Ossa pneumatiche: Ossa con numerose cellette aeree interne.\n"
+        "Ossa sesamoidi: Ossa sviluppate all'interno dei tendini.\n"
+    )
+    essential = (
+        "## Ossa\n\n"
+        "Un gruppo comprende le ossa pneumatiche e le ossa sesamoidi."
+    )
+    report = assess_chapter("Ossa", source, essential)
+    missing = [f.quote for f in report.possible_missing]
+    assert any("cellette aeree" in quote for quote in missing)
+    assert any("tendini" in quote for quote in missing)
+    assert report.review_priority != "nessuna"

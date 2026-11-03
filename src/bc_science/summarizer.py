@@ -12,15 +12,16 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from .cache import CacheDB
+from .claim_review import VERDICT_SCHEMA, review_paragraph, rewrite_reviewed_paragraph
 from .clarity import normalize_inline_headings, normalize_novice_layout, novice_audit
 from .config import AppConfig
-from .documents import chunk_text, extract_document_cached
-from .knowledge import classify_domain, system_prompt
+from .documents import chunk_text, extract_document_cached, readable_source
+from .knowledge import classify_domain
 from .ollama_client import OllamaClient
 
-PROMPT_VERSION = "summary-v14-readable"
+PROMPT_VERSION = "summary-v20-complete-learning-contract"
 REFINE_PROMPT_VERSION = "refine-v8.3-integrity"
-STUDY_PROMPT_VERSION = "study-v3-measured-essential"
+STUDY_PROMPT_VERSION = "study-v7-grounded-selection"
 
 
 @dataclass(slots=True)
@@ -52,6 +53,12 @@ class TopicGroup:
 def _key(*parts: str) -> str:
     payload = "\x1f".join(parts).encode("utf-8", errors="replace")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _chat_cache_key(base: str, response_format: dict | None = None, think: bool = False) -> str:
+    if response_format is not None or think:
+        return _key(base, json.dumps(response_format, sort_keys=True), str(think))
+    return base
 
 
 _SEMANTIC_TRAILING_NUMBER_PREFIXES = {
@@ -154,14 +161,28 @@ def group_course_files(files: list[Path]) -> list[TopicGroup]:
 
 def _summary_system_prompt(domain: str) -> str:
     return (
-        system_prompt(domain)
+        f"Sei BC Science. Prepari materiale di studio universitario in italiano. Materia: {domain}.\n"
         + """
 MODALITA RIASSUNTO SOURCE-ONLY:
 - Il lettore target non ha mai studiato la materia: non dare per scontate conoscenze pregresse.
 - Le dispense fornite sono l'unica fonte ammessa.
+- La modalità Completa deve permettere di studiare tutti i contenuti fondamentali,
+  non solo ricordare un argomento già studiato. Non imporre una riduzione percentuale.
+- Elimina ripetizioni e metadati amministrativi, non definizioni, classificazioni,
+  formule, processi, condizioni, eccezioni e collegamenti presenti nelle dispense.
 - NON aggiungere conoscenza generale, neppure in sezioni chiamate "Chiarimento".
 - Non trasformare una possibilità in una regola universale: conserva i limiti della fonte.
+- Mantieni esplicitamente qualificatori come "potenziale", "potrebbe" e "associazione".
+- Un diagramma di possibili meccanismi non dimostra un effetto causale: non sostituire
+  "associato a" con "causa", "previene", "protegge" o "porta a".
+- Non aggiungere motivazioni generali (energia, postura, protezione) se non sono nella fonte.
 - Non dedurre passaggi, cause o esempi non esplicitamente supportati dalla fonte.
+- Conserva gli esempi presenti quando aiutano a comprendere una regola o una distinzione.
+- Una sequenza ordinata non è necessariamente una catena causale. Descrivi il tipo di
+  relazione effettivamente indicato: componente, successione, associazione o causa.
+- Le etichette di uno schema possono elencare componenti o categorie: descrivile come tali.
+  Non trasformarle in effetti o miglioramenti causati da un intervento se la fonte non lo afferma.
+- Conserva le sigle esattamente come fornite; non completare a memoria indici o pedici mancanti.
 - NON correggere scientificamente le dispense usando conoscenze esterne.
 - Puoi correggere solo refusi ortografici evidenti quando il significato e inequivocabile.
 - Usa "Verifica materiale" SOLO quando titolo e contenuto non corrispondono.
@@ -170,11 +191,43 @@ MODALITA RIASSUNTO SOURCE-ONLY:
 - Se titolo e contenuto non corrispondono, segnala soltanto il mismatch e riassumi comunque il
   contenuto realmente presente, senza chiedere conferma all'utente.
 - Non lasciare mai una frase, una lista o una parola incompleta.
-- Una frase deve esprimere preferibilmente una sola idea.
+- Una frase deve esprimere una sola idea: punta a circa 12-20 parole per frase.
+- Se una frase contiene definizione, funzione ed esempio, dividila in piu frasi collegate.
+- Preferisci verbi diretti: "raccolgono" invece di "hanno il compito di raccogliere".
+- Inserisci una riga vuota quando passi a una classe o a un meccanismo diverso.
+- Non accorciare il contenuto per rispettare queste indicazioni: suddividi le frasi conservando tutti i fatti.
 - Definisci i termini tecnici necessari al primo uso usando solo informazioni presenti nelle fonti.
 - Scrivi un unico riassunto scorrevole per capitolo, con paragrafi brevi. Non usare sezioni ripetitive "In parole semplici", "Spiegazione ordinata", "Parole chiave" o "Da ricordare".
 """
     )
+
+
+def _essential_system_prompt() -> str:
+    return """Sei BC Science. Prepari ripassi universitari per chi ha gia studiato.
+Il testo fornito e l'unica fonte ammessa. Non aggiungere conoscenze esterne.
+Seleziona i concetti che permettono di ricordare l'argomento e le loro relazioni.
+Usa terminologia scientifica precisa, frasi scorrevoli e richiami concisi.
+Conserva definizioni indispensabili, distinzioni, classificazioni, formule,
+valori, eccezioni e il grado di certezza della fonte. Non trasformare ipotesi in fatti.
+Accorpa i soggetti ripetuti. Tralascia premesse, esempi secondari e spiegazioni gia studiate.
+Nessuna lunghezza o percentuale di riduzione obbligatoria: decide il contenuto.
+"""
+
+
+def align_source_identifiers(text: str, source: str) -> tuple[str, list[str], list[str]]:
+    """Restore an exact source sigil when the model has added a numeric suffix."""
+    changed, unresolved = [], []
+    def align(match: re.Match) -> str:
+        term, base = match.group(0), match.group(1)
+        exact = lambda value: re.search(r"(?<![A-Za-z0-9_-])" + re.escape(value) + r"(?![A-Za-z0-9_-])", source)
+        if exact(term):
+            return term
+        if exact(base):
+            changed.append(f"{term} -> {base}")
+            return base
+        unresolved.append(term)
+        return term
+    return re.sub(r"\b([A-Z]{2,})(\d+)\b", align, text), changed, unresolved
 
 
 def _clean_obvious_typos(text: str) -> str:
@@ -218,10 +271,11 @@ def _chunk_prompt(text: str, domain: str) -> str:
     return f"""Riassumi questo estratto di {domain} per lo studio universitario.
 
 OBIETTIVO:
-- Scrivi un vero RIASSUNTO, non una lezione né appunti con sezioni ripetitive.
+- Prepara una spiegazione completa per il primo studio, senza sezioni ripetitive.
 - Un'unica narrazione scientifica in italiano semplice e naturale, comprensibile
   senza conoscenze preliminari; definisci i termini tecnici quando necessario.
-- Riduci ripetizioni, passaggi ornamentali e dettagli secondari.
+- Riduci ripetizioni e passaggi ornamentali; conserva le informazioni necessarie a studiare.
+- La lunghezza segue la complessità: nessuna percentuale o numero di parole obbligatorio.
 - Conserva i concetti fondamentali, le definizioni, i processi, le formule,
   le classificazioni e i valori d'esame presenti nella fonte.
 - Preferisci paragrafi brevi con collegamenti logici tra le idee.
@@ -243,10 +297,10 @@ PRIORITA ASSOLUTE:
 1. Deve essere comprensibile a una persona che non ha MAI studiato la materia.
 2. Prima costruisci il quadro mentale di base, poi aggiungi dettagli e terminologia.
 3. Ogni termine tecnico indispensabile va spiegato al primo uso con parole comuni, usando solo la fonte.
-4. Riassumi la fonte in modo sostanziale: conserva i fatti indispensabili alla comprensione e all'esame, non ogni dettaglio secondario.
+4. Conserva tutti i fatti fondamentali alla comprensione e all'esame, con lo spazio necessario alla loro spiegazione. Nessuna riduzione percentuale obbligatoria.
 5. Rimuovi duplicati tra lezioni 1/2/3/4 e ripetizioni dello stesso concetto.
 6. Mantieni terminologia, numeri, classificazioni, definizioni, eccezioni e sequenze.
-7. Per processi fisiologici usa sequenze numerate causa -> effetto.
+7. Per processi fisiologici chiarisci i passaggi nell'ordine della fonte. Usa causa -> effetto solo quando la fonte esprime una causa. Gli elenchi di componenti e le associazioni restano tali.
 8. Preferisci frasi brevi, una idea per frase e paragrafi di massimo 5 frasi quando possibile.
 9. Non aggiungere conoscenze esterne e non correggere silenziosamente le dispense.
 10. Non citare i nomi dei file nel corpo del capitolo.
@@ -261,7 +315,7 @@ PRIORITA ASSOLUTE:
 
 STRUTTURA:
 ## {title}
-Un unico RIASSUNTO COMPLETO in paragrafi continui, senza sottosezioni ripetitive come "In parole semplici", "Spiegazione ordinata", "Concetti chiave", "Parole chiave" o "Da ricordare". Non costruire una lezione estesa: sintetizza, mantieni chiarezza e contenuti importanti.
+Un unico testo COMPLETO in paragrafi collegati, senza sottosezioni ripetitive come "In parole semplici", "Spiegazione ordinata", "Concetti chiave", "Parole chiave" o "Da ricordare". Organizza i concetti dal quadro generale ai dettagli. Usa lo spazio necessario a comprenderli: la brevità non deve sacrificare informazioni o spiegazioni presenti nelle fonti.
 
 DISPENSE DELL'ARGOMENTO:
 {source_text}
@@ -308,6 +362,81 @@ def _dedupe_exact_blocks(text: str) -> str:
         seen.add(normalized)
         cleaned.append(block.strip())
     return "\n\n".join(cleaned)
+
+
+def _source_review_units(chunks: list[str]) -> list[str]:
+    """Separate source statements before review; administrative headers are not facts."""
+    units: list[str] = []
+    metadata = r"(?mi)^\s*(?:Corso di Laurea|Insegnamento|Lezione n[°º.]?|Numero lezione|Titolo|Attivit[aà] n[°º.]?)\s*:[^\n]*$"
+    for chunk in chunks:
+        cleaned = re.sub(r"(?m)^\s*--- (?:DISPENSA:.*|Pagina \d+) ---\s*$", "\n\n", chunk)
+        cleaned = re.sub(metadata, "", cleaned)
+        # PDF readers can insert blank lines inside a sentence or an item list.
+        # Join layout breaks before finding sentence boundaries: otherwise the
+        # final list member (e.g. "e chimici") loses its subject and context.
+        flat = re.sub(r"\s+", " ", cleaned).strip()
+        if flat:
+            units.extend(re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", flat))
+    return units
+
+
+def _integrate_source_additions(draft: str, additions: list[str]) -> str:
+    """Place literal recovered facts beside the related explanation, without another summary."""
+    blocks = re.split(r"\n\s*\n", draft.rstrip())
+    stop = {"della", "delle", "degli", "dello", "quest", "dalla", "nella", "nelle", "sono", "come", "anche"}
+    def terms(text: str) -> set[str]:
+        return {word[:5] for word in re.findall(r"[a-zà-ÿ]{4,}", text.casefold()) if word[:5] not in stop}
+    eligible = [i for i, block in enumerate(blocks) if not block.lstrip().startswith(("#", ">"))]
+    block_terms = {i: terms(blocks[i]) for i in eligible}
+    frequencies = Counter(term for words in block_terms.values() for term in words)
+    placements: dict[int, list[str]] = {}
+    unmatched: list[str] = []
+    normalized = re.sub(r"\s+", " ", draft).casefold()
+    for addition in dict.fromkeys(additions):
+        quote = re.sub(r"\s+", " ", addition).strip()
+        if not quote or quote.casefold() in normalized:
+            continue
+        words = terms(quote)
+        scored = [(sum(1 / frequencies[word] for word in words & existing), i) for i, existing in block_terms.items()]
+        score, best = max(scored, default=(0, -1))
+        if score:
+            placements.setdefault(best, []).append(quote)
+        else:
+            unmatched.append(quote)
+        normalized += " " + quote.casefold()
+    output = []
+    for index, block in enumerate(blocks):
+        output.append(block)
+        output.extend(placements.get(index, []))
+    return "\n\n".join(output + unmatched)
+
+
+def _restore_source_aliases(draft: str, units: list[str]) -> str:
+    """Restore parenthetical names in explicit source definitions, in place."""
+    definition = re.compile(
+        r"(?:^|:\s*)([A-ZÀ-Ý][\wÀ-ÿ]*(?:\s+[a-zà-ÿ][\wÀ-ÿ]*){0,2})"
+        r"\s*\(([A-Za-zÀ-ÿ][\wÀ-ÿ]*(?:\s+[A-Za-zÀ-ÿ][\wÀ-ÿ]*){0,2})\)"
+        r"\s+(?:sono|è|si|hanno|rappresent\w*|risied\w*|invian\w*)\b"
+    )
+    for unit in units:
+        for term, alias in definition.findall(unit):
+            if alias.casefold().split()[0] in {"non", "solo", "eccetto", "tranne", "per", "ad"}:
+                continue
+            if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", draft, re.IGNORECASE):
+                continue
+            blocks = re.split(r"\n\s*\n", draft)
+            for index, block in enumerate(blocks):
+                if block.lstrip().startswith(("#", ">")):
+                    continue
+                restored, count = re.subn(
+                    r"(?<!\w)" + re.escape(term) + r"(?!\w)",
+                    lambda match, alias=alias: match[0] + f" ({alias})", block, count=1, flags=re.IGNORECASE,
+                )
+                if count:
+                    blocks[index] = restored
+                    draft = "\n\n".join(blocks)
+                    break
+    return draft
 
 
 def _extract_summary_chapters(text: str) -> list[tuple[str, str]]:
@@ -915,8 +1044,207 @@ def _extract_exam_points(chapter: str) -> list[str]:
     return [fallback] if fallback else []
 
 
+def _compact_recap_source_sentence(chapter: str) -> str:
+    """Choose one full, short, verbatim source fact; never truncate a claim."""
+    candidates = _extract_exam_points(chapter)
+    if not candidates:
+        candidates = [
+            line.strip().removeprefix("- ").strip()
+            for line in chapter.splitlines()
+            if line.strip() and not line.lstrip().startswith(("#", ">", "---"))
+        ]
+    for entry in candidates:
+        # Keep a complete sentence only. Partial ellipses can invert meaning.
+        chunks = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])", entry.strip())
+        for candidate in chunks:
+            candidate = re.sub(r"\s+", " ", candidate).strip()
+            count = len(re.findall(r"\b[\wÀ-ÿ'+-]+\b", candidate))
+            if 7 <= count <= 30 and candidate[-1:] in {".", "!", "?"}:
+                return candidate
+    return ""
+
+
+def _build_compact_global_recap(refined: list[tuple[str, str]]) -> str:
+    """Navigation-sized study cues, not a second copy of every chapter.
+
+    Everything factual is copied verbatim from a chapter; excluded chapters
+    remain available through the real index and body, not silently deleted.
+    """
+    if not refined:
+        raise ValueError("Ripasso privo di capitoli.")
+    text_words = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    lines = [
+        "## Ripasso globale",
+        "",
+        ("Questa è una traccia di richiamo, non un secondo riassunto. "
+         "Studia ogni capitolo nell'indice; usa questi richiami per verificare "
+         "i collegamenti e torna alle spiegazioni complete quando serve."),
+        "",
+    ]
+    # Distribute selection throughout the entire ordered course, rather
+    # than selecting only the first 20 alphabetical chapters.
+    length = len(refined)
+    stride = max(1, length // 22)
+    slots = list(range(0, length, stride))
+    if slots[-1] != length - 1:
+        slots.append(length - 1)
+    total = sum(len(text_words.findall(line)) for line in lines)
+    selected = 0
+    seen_sentences: set[str] = set()
+    for index in slots:
+        title, chapter = refined[index]
+        sentence = _compact_recap_source_sentence(chapter)
+        normalized = re.sub(r"\s+", " ", sentence).casefold()
+        if not sentence or normalized in seen_sentences:
+            # Avoid echoing the same claim across different chapters.
+            continue
+        entry = f"{selected + 1}. **{title}**: {sentence}"
+        words = len(text_words.findall(entry))
+        if total + words > 475:
+            continue
+        lines.append(entry)
+        seen_sentences.add(normalized)
+        selected += 1
+        total += words
+        if total >= 320:
+            break
+    if not selected:
+        raise ValueError("Nessuna frase scientifica completa per il Ripasso globale.")
+    return "\n".join(lines)
+
+
+def preview_compact_global_recap(study_text: str) -> tuple[str, dict[str, int]]:
+    """Create a read-only candidate, never edit existing summary or recap."""
+    chapters = _extract_summary_chapters(study_text)
+    if not chapters:
+        raise ValueError("Indice/capitoli dell'Essenziale non verificabili.")
+    match = re.search(
+        r"(?ms)^## Ripasso globale\s*$\n.*?(?=^## Indice degli argomenti\s*$)",
+        study_text,
+    )
+    if not match:
+        raise ValueError("Ripasso globale originale assente.")
+    proposed_recap = _build_compact_global_recap(chapters)
+    proposed = study_text[:match.start()] + proposed_recap + "\n\n" + study_text[match.end():]
+    if _extract_summary_chapters(proposed) != chapters:
+        raise ValueError("Il confronto rileva variazioni ai capitoli.")
+    # Strict round trip: every byte outside Ripasso globale must survive.
+    if proposed.replace(proposed_recap + "\n\n", match.group(0), 1) != study_text:
+        raise ValueError("Anteprima non limitata al Ripasso globale.")
+    word = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    old_recap = match.group(0)
+    return proposed, {
+        "old_recap_words": len(word.findall(old_recap)),
+        "new_recap_words": len(word.findall(proposed_recap)),
+        "original_total_words": len(word.findall(study_text)),
+        "preview_total_words": len(word.findall(proposed)),
+        "preserved_chapters": len(chapters),
+    }
+
+
+def _remove_identical_study_sentences(chapter: str) -> tuple[str, tuple[str, ...]]:
+    """Remove only subsequent literally identical *complete* prose sentences.
+
+    Negated/paraphrased statements, headings, bullets and numbers are not
+    rewritten. Never deduplicate incomplete fragments or abbreviations.
+    """
+    seen: set[str] = set()
+    removed: list[str] = []
+    parts = re.split(r"(\n\s*\n)", chapter)
+    result: list[str] = []
+    sentence_re = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+    for part in parts:
+        if not part.strip() or part.lstrip().startswith(("#", "-", "*", ">")):
+            result.append(part)
+            continue
+        # Preserve abbreviation boundaries when extracting complete sentences.
+        protected = re.sub(
+            r"\b(es|ecc)\.(?=\s+[A-ZÀ-ÖØ-Ý])",
+            lambda match: match.group(1) + "\uE000",
+            part,
+            flags=re.IGNORECASE,
+        )
+        sentences = sentence_re.split(protected)
+        keep: list[str] = []
+        for sentence in sentences:
+            restored = sentence.replace("\uE000", ".").strip()
+            tokens = re.findall(r"\b[\wÀ-ÿ'+-]+\b", restored)
+            eligible = len(tokens) >= 8 and restored[-1:] in {".", "!", "?"}
+            key = re.sub(r"\s+", " ", restored).casefold()
+            if eligible and key in seen:
+                removed.append(restored)
+                continue
+            if eligible:
+                seen.add(key)
+            keep.append(restored)
+        result.append(part if len(keep) == len(sentences) else " ".join(keep))
+    candidate = "".join(result)
+    if removed:
+        from .structural_checks import find_structural_issues
+
+        if (
+            not _preserves_exam_numbers(chapter, candidate)
+            or re.findall(r"(?m)^#{1,6}\s+.*$", chapter)
+            != re.findall(r"(?m)^#{1,6}\s+.*$", candidate)
+            or any(sentence not in candidate for sentence in removed)
+        ):
+            raise ValueError("Deduplicazione non verificabile: anteprima bloccata.")
+        scientific = {"scientific_direction_risk", "scientific_mechanism_risk"}
+        old_risks = {
+            (issue.category, issue.quote)
+            for issue in find_structural_issues(chapter, limit=500)
+            if issue.category in scientific
+        }
+        new_risks = {
+            (issue.category, issue.quote)
+            for issue in find_structural_issues(candidate, limit=500)
+            if issue.category in scientific
+        }
+        if new_risks - old_risks:
+            raise ValueError("Nuovo rischio scientifico dopo la deduplicazione.")
+    return candidate, tuple(removed)
+
+
+def preview_compact_study(study_text: str) -> tuple[str, dict]:
+    """An independently reviewable suggestion, NEVER a publication operation."""
+    candidate, metrics = preview_compact_global_recap(study_text)
+    source = _extract_summary_chapters(candidate)
+    edited_titles: list[str] = []
+    removed_quotes: list[str] = []
+    for title, block in source:
+        deduped, removed = _remove_identical_study_sentences(block)
+        if not removed:
+            continue
+        if candidate.count(block) != 1:
+            raise ValueError("Blocco capitolo ambiguo: anteprima non creata.")
+        candidate = candidate.replace(block, deduped, 1)
+        edited_titles.append(title)
+        removed_quotes.extend(removed)
+    new_chapters = _extract_summary_chapters(candidate)
+    if (
+        [title for title, _ in new_chapters]
+        != [title for title, _ in source]
+        or any(
+            original != revised
+            for (title, original), (_, revised) in zip(
+                source, new_chapters, strict=True,
+            )
+            if title not in edited_titles
+        )
+    ):
+        raise ValueError("Capitoli estranei modificati: anteprima rifiutata.")
+    word = re.compile(r"\b[\wÀ-ÿ'+-]+\b")
+    metrics["preview_total_words"] = len(word.findall(candidate))
+    metrics["deduplicated_chapters"] = edited_titles
+    metrics["repeated_sentences_removed"] = len(removed_quotes)
+    metrics["removed_quotes"] = removed_quotes
+    return candidate, metrics
+
+
 def _build_global_recap(refined: list[tuple[str, str]]) -> str:
-    """Build one high-yield recap item per chapter without another model call."""
+    """Build grounded recap; large courses get a bounded navigation recap."""
+    if len(refined) > 8:
+        return _build_compact_global_recap(refined)
     lines = ["## Ripasso globale"]
     for index, (title, chapter) in enumerate(refined, start=1):
         points = _extract_exam_points(chapter)
@@ -1333,7 +1661,10 @@ class Summarizer:
         user: str,
         *,
         num_predict: int | None = None,
+        response_format: dict | None = None,
+        think: bool = False,
     ) -> str:
+        cache_key = _chat_cache_key(cache_key, response_format, think)
         hit = self.db.get_summary(cache_key)
         if hit:
             self.stats.cache_hits += 1
@@ -1367,6 +1698,8 @@ class Summarizer:
                 num_ctx=retry_ctx,
                 num_predict=budget,
                 keep_alive=self.config.keep_alive,
+                **({"response_format": response_format} if response_format is not None else {}),
+                **({"think": True} if think else {}),
             )
             self.stats.generated_calls += 1
             self.stats.generated_tokens += result.eval_count
@@ -1432,7 +1765,8 @@ class Summarizer:
         merged = "\n\n".join(notes)
         final_key = _key(PROMPT_VERSION, self.model, "legacy-final", domain, title, merged)
         prompt = _topic_merge_prompt(title, merged, domain)
-        return self._cached_chat(final_key, system, prompt, num_predict=2200)
+        draft = self._cached_chat(final_key, system, prompt, num_predict=2200)
+        return self._review_source_chunks(title, draft, chunks, system)
 
     def _summarize_topic(
         self,
@@ -1447,9 +1781,10 @@ class Summarizer:
             if not extracted.text.strip():
                 raise ValueError(f"Impossibile estrarre testo da {path}. Verifica il file o configura OCR prima di continuare.")
             if extracted.text:
-                raw_texts.append(extracted.text)
+                source_content = readable_source(extracted.text)
+                raw_texts.append(source_content)
                 source_parts.append(
-                    f"\n--- DISPENSA: {path.stem} ---\n{extracted.text}"
+                    f"\n--- DISPENSA: {path.stem} ---\n{source_content}"
                 )
 
         source_text = "\n".join(source_parts).strip()
@@ -1539,6 +1874,82 @@ class Summarizer:
         )
         return self._review_source_chunks(group.title, draft, chunks, system, progress)
 
+    def _review_source_claims(
+        self, title: str, draft: str, chunks: list[str],
+        progress: Callable[[str], None] | None = None,
+        *, didactic: bool = False,
+        diagnostics: list[dict] | None = None,
+    ) -> str:
+        """Experimental diagnostic; deliberately not used for course publication.
+
+        End-to-end trials still lose diagram content or return noisy OCR. Keep
+        isolated until readable evidence and coverage preservation are verified.
+        Evidence retrieval is bounded, not a proof of semantic entailment.
+        """
+        source = "\n\n".join(chunks)
+        source_normalized = re.sub(r"\s+", " ", source)
+        evidence = chunk_text(source, chunk_chars=9000, overlap=500)
+        output: list[str] = []
+        failures: list[int] = []
+        paragraphs = draft.split("\n\n")
+        for index, paragraph in enumerate(paragraphs, 1):
+            if (not paragraph.strip() or paragraph.lstrip().startswith(("#", ">"))
+                    or re.sub(r"\s+", " ", paragraph).strip() in source_normalized):
+                output.append(paragraph)
+                continue
+            if progress:
+                progress(f"    controllo affermazioni {index}/{len(paragraphs)}: {title}")
+            words = set(re.findall(r"[a-zà-ÿ]{4,}", paragraph.casefold()))
+            ranked = sorted(enumerate(evidence), key=lambda item: (
+                -len(words & set(re.findall(r"[a-zà-ÿ]{4,}", item[1].casefold()))), item[0],
+            ))[:3]
+            context = "\n\n".join(block for _, block in sorted(ranked))
+            last_error = None
+            for attempt in range(2):
+                cache_key = ""
+
+                def chat(prompt: str, *, current_attempt: int = attempt) -> str:
+                    nonlocal cache_key
+                    if current_attempt:
+                        prompt += "\nLa precedente risposta non era verificabile: controlla ID e citazioni letterali."
+                    cache_key = _key(PROMPT_VERSION, "claims-v2-source-ids", self.model, prompt)
+                    return self._cached_chat(
+                        cache_key, "Sei un revisore rigoroso di fedeltà alle fonti. Rispondi in JSON.",
+                        prompt, num_predict=2200, response_format=VERDICT_SCHEMA,
+                    )
+
+                try:
+                    if didactic:
+                        def rewrite(prompt: str) -> str:
+                            return self._cached_chat(
+                                _key("didactic-rewrite-v2", self.model, prompt),
+                                "Trasforma i fatti forniti in prosa semplice. Non aggiungere alcun fatto.",
+                                prompt, num_predict=1800,
+                            )
+                        repaired, corrections = rewrite_reviewed_paragraph(paragraph, context, chat, rewrite)
+                    else:
+                        repaired, corrections = review_paragraph(paragraph, context, chat)
+                    if repaired:
+                        output.append(repaired)
+                    if diagnostics is not None:
+                        diagnostics.append({"paragraph": index, "status": "checked", "corrections": corrections, "candidate": repaired})
+                    if corrections and progress:
+                        progress(f"    {corrections} affermazioni non sostenute sostituite con evidenza originale")
+                    break
+                except ValueError as exc:
+                    last_error = exc
+                    if cache_key:
+                        self.db.delete_summary(_chat_cache_key(cache_key, VERDICT_SCHEMA))
+            else:
+                if diagnostics is not None:
+                    failures.append(index)
+                    diagnostics.append({"paragraph": index, "status": "failed", "reason": str(last_error)})
+                    continue
+                raise ValueError(f"{title}: controllo delle affermazioni incompleto; capitolo non pubblicato.") from last_error
+        if failures:
+            raise ValueError(f"{title}: controllo incompleto nei paragrafi {', '.join(map(str, failures))}; capitolo non pubblicato.")
+        return "\n\n".join(output)
+
     def _review_source_chunks(
         self, title: str, draft: str, chunks: list[str], system: str,
         progress: Callable[[str], None] | None = None,
@@ -1549,9 +1960,16 @@ class Summarizer:
         Such text must never be added as an alleged source quotation, but an invalid
         review response must not discard the already generated chapter either.
         """
+        draft, identifier_repairs, unresolved_identifiers = align_source_identifiers(draft, "\n\n".join(chunks))
+        if identifier_repairs and progress:
+            progress("    Sigle allineate alla fonte: " + "; ".join(identifier_repairs))
+        # Review sentence-sized source units so lists and secondary functions
+        # cannot disappear behind a broad judgement that the topic is covered.
+        chunks = _source_review_units(chunks)
+        draft = _restore_source_aliases(draft, chunks)
         additions: list[str] = []
         seen_chunks: set[str] = set()
-        unverified_blocks = 0
+        unverified_blocks = int(bool(unresolved_identifiers))
         normalized_draft = re.sub(r"\s+", " ", draft).strip().casefold()
 
         for index, chunk in enumerate(chunks, 1):
@@ -1568,12 +1986,31 @@ class Summarizer:
                 progress(f"    confronto con la dispensa {index}/{len(chunks)}: {title}")
 
             covered = draft + "\n\n" + "\n\n".join(additions)
+            # A reviewer can overlook one member of an otherwise covered list.
+            # Preserve literal source evidence whenever an explicit 3+ item list
+            # contains a content word absent from the current explanation.
+            list_spans = re.findall(
+                r"\b[A-Za-zÀ-ÿ]+(?:\s*,\s*[A-Za-zÀ-ÿ]+)+\s+e\s+[A-Za-zÀ-ÿ]+\b",
+                chunk,
+            )
+            covered_words = re.findall(r"[A-Za-zÀ-ÿ]+", covered.casefold())
+            stems = {word[:5] for word in covered_words if len(word) >= 5}
+            missing_list_item = any(
+                any(len(word) >= 5 and word.casefold()[:5] not in stems
+                    for word in re.findall(r"[A-Za-zÀ-ÿ]+", span))
+                for span in list_spans
+            )
+            if missing_list_item and normalized_chunk not in re.sub(r"\s+", " ", covered).casefold():
+                additions.append(re.sub(r"\s+", " ", chunk).strip())
+                covered = draft + "\n\n" + "\n\n".join(additions)
             prompt = (
                 "Confronta FONTE e CAPITOLO. Individua solo fatti sostanziali presenti nella "
                 "fonte che non sono già espressi nel capitolo, anche con parole diverse. "
                 "Rispondi esclusivamente con un array JSON di stringhe: ogni stringa deve essere "
                 "una citazione letterale continua della FONTE che contiene un fatto mancante. "
                 "Non scrivere commenti, confronti, titoli o correzioni di refusi. "
+                "Controlla separatamente ogni elemento di un elenco e ogni funzione: "
+                "una classificazione incompleta o un verbo mancante sono omissioni. "
                 "Se non manca nulla rispondi [].\n\n"
                 f"CAPITOLO:\n{covered}\n\nFONTE:\n{chunk}"
             )
@@ -1593,7 +2030,7 @@ class Summarizer:
                         + prompt
                     )
                 cache_key = _key(
-                    PROMPT_VERSION, "source-review-literal-v2", self.model,
+                    PROMPT_VERSION, "source-review-literal-v3", self.model,
                     title, covered, chunk, str(attempt),
                 )
                 response = self._cached_chat(
@@ -1640,12 +2077,7 @@ class Summarizer:
                 if quote.casefold() not in covered_normalized:
                     additions.append(quote)
 
-        result = draft.rstrip()
-        if additions:
-            result += (
-                "\n\n### Dettagli recuperati dalle dispense\n\n"
-                + "\n\n".join(additions)
-            )
+        result = _integrate_source_additions(draft, additions)
 
         if unverified_blocks:
             stats = getattr(self, "stats", None)
@@ -2297,14 +2729,14 @@ class Summarizer:
                 progress(f"    Riutilizzo capitolo Essenziale validato: {chapter_title}")
             return checked
 
-        system = _summary_system_prompt("Scienze Motorie")
+        system = _essential_system_prompt()
         prompt = (
             f"Crea un ripasso essenziale del capitolo {chapter_title} per chi lo ha gia studiato. "
             "Usa soltanto il capitolo fornito. Mantieni i concetti chiave, le definizioni "
             "indispensabili, formule e significato dei simboli, distinzioni, sequenze, eccezioni "
-            "e valori importanti. Per capitoli sopra 250 parole punta a ridurre il testo del "
-            "25-45% rispetto alla versione completa, ma senza eliminare definizioni, formule "
-            "o fatti fondamentali. Se non possibile, privilegia fedelta e chiarezza. "
+            "e valori importanti. Seleziona i richiami necessari per ricordare il tema: "
+            "non parafrasare ogni frase della Completa. La lunghezza dipende dalla "
+            "complessita e dai concetti indispensabili, senza percentuali obbligatorie. "
             "Non ripetere lo stesso fatto in sezioni diverse; elimina introduzioni, "
             "dettagli secondari ed esempi gia compresi. Non introdurre fatti esterni. "
             "Scrivi un unico riassunto scorrevole in paragrafi brevi, non una lista " 
@@ -2316,6 +2748,29 @@ class Summarizer:
             STUDY_PROMPT_VERSION, "essential-v5-narrative", self.model, chapter_title, chapter,
         )
         candidate = self._cached_chat(key, system, prompt, num_predict=1800)
+        source_words = len(chapter.split())
+        if source_words >= 120 and len(candidate.split()) >= source_words * 0.85:
+            # One bounded revision of a near-copy. No target length is enforced:
+            # retain the first candidate if the revision fails the safety checks.
+            concise_prompt = (
+                "Questo ripasso ripete quasi tutta la spiegazione. Rendi il testo piu "
+                "rapido da rileggere: accorpa i soggetti ripetuti, unisci relazioni "
+                "strettamente collegate ed elimina motivazioni gia spiegate. "
+                "Conserva classificazioni, valori, formule, eccezioni e qualificatori "
+                "come potenziale o associazione. Non aggiungere informazioni. "
+                "Non devi raggiungere un numero di parole. Restituisci il solo ripasso narrativo, "
+                "con una frase per ogni gruppo di concetti collegati quando e leggibile.\n\n"
+                f"COMPLETA:\n{chapter}\n\nRIPASSO DA AFFINARE:\n{candidate}"
+            )
+            concise = self._cached_chat(
+                _key(STUDY_PROMPT_VERSION, "condense-once", self.model, chapter_title, chapter, candidate),
+                system, concise_prompt, num_predict=1800,
+            )
+            numbers = lambda value: set(re.findall(r"(?<!\w)\d+(?:[.,]\d+)?", value))
+            if (concise.strip() and len(concise.split()) < len(candidate.split())
+                and numbers(concise) <= numbers(chapter)
+                and _preserves_exam_numbers(chapter, concise)):
+                candidate = concise
         candidate = _normalize_chapter_heading(candidate, chapter_title)
         candidate, restored = _restore_missing_exam_points(chapter, candidate)
         # Both study editions must read as coherent summaries, not worksheets.
@@ -2370,7 +2825,7 @@ class Summarizer:
         if sum(len(source) for _name, source in chapters) > 4100:
             return None
 
-        system = _summary_system_prompt("Scienze Motorie")
+        system = _essential_system_prompt()
         items = [
             {"title": name, "source": source}
             for name, source in chapters
@@ -2381,7 +2836,7 @@ class Summarizer:
             "Per ciascuno usa un solo titolo Markdown H2 identico al titolo dato, "
             "spiega brevemente i concetti principali, conserva definizioni, "
             "numeri, valori d'esame, formule e passaggi indispensabili. "
-            "Se puoi, riduci le ripetizioni del 25-45% senza perdere informazioni cruciali. "
+            "Scrivi per chi ha gia studiato: seleziona i richiami indispensabili senza obiettivi percentuali. "
             "Rispondi SOLTANTO con un JSON valido: "
             "{\"chapters\":[{\"title\":\"titolo esatto\",\"markdown\":\"## titolo\\\\n- ...\"},"
             "{\"title\":\"titolo esatto\",\"markdown\":\"## titolo\\\\n- ...\"}]}. "
@@ -2500,6 +2955,19 @@ class Summarizer:
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
+
+    def build_source_essential(
+        self, text: str, title: str, *, progress=None, checkpoint_path=None,
+    ) -> str:
+        """Select grounded recall statements; optional AI refinement stays separate."""
+        from .study_editions import make_fast_essential
+        result, records = make_fast_essential(text, title=title)
+        result = result.replace(
+            f"# {title}\n\n", f"# {title}\n\n> Ripasso selezionato dalla versione Completa.\n\n", 1,
+        )
+        if progress:
+            progress(f"Essenziale: selezionati i richiami di {len(records)} capitoli dalla Completa, senza nuove affermazioni.")
+        return result
 
     def build_study_summary(
         self,

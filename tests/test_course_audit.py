@@ -277,3 +277,20 @@ Il valore non è riportato.
     assert "42 unità" in repaired
     assert after.missing_numeric_facts == 0
 
+
+
+def test_legacy_audit_flags_long_study_with_zero_compression():
+    """A high lexical fact score must not conceal an unabridged edition."""
+    sentences = [
+        f"Il sistema {i} rappresenta una componente distinta della fisiologia "
+        "e comprende strutture e processi specifici dell'organismo umano."
+        for i in range(30)
+    ]
+    complete = _document(
+        "### Spiegazione ordinata\n" + "\n".join(sentences)
+    )
+    report = audit_study_pair(complete, complete)
+    assert report.complete_words >= 250
+    assert report.compression_percent == 0.0
+    assert any("Compressione" in warning for warning in report.warnings)
+    assert report.status != "PASS"

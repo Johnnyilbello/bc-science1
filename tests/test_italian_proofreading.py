@@ -132,3 +132,73 @@ def test_qwen_must_not_invent_anatomical_direction_even_with_source_quote():
     ok, why = _validate_proposal("Esofago", source, source, proposal)
     assert not ok
     assert "dispensa originale" in why
+
+
+
+def test_markdown_subheadings_are_not_flagged_as_fragments():
+    # A separator or blank line is not required before a valid heading.
+    chapter = (
+        "## Cellula\n\n"
+        "La cellula contiene membrane e un nucleo organizzato.\n"
+        "### Concetti chiave\n"
+        "### Da ricordare per l'esame\n\n"
+        "Le membrane regolano gli scambi tra interno ed esterno.\n"
+        "### Parole chiave\n"
+        "### Spiegazione ordinata"
+    )
+    findings = grammar_findings(chapter)
+    assert not any(issue.category == "fragment" for issue in findings)
+
+
+def test_real_unfinished_sentence_before_heading_still_flagged():
+    chapter = (
+        "## Calcio\n\n"
+        "La calmodulina attiva una\n"
+        "### Concetti chiave\n"
+    )
+    findings = grammar_findings(chapter)
+    assert any(
+        issue.category == "fragment"
+        and "La calmodulina attiva una" in issue.quote
+        for issue in findings
+    )
+    assert not any("Concetti chiave" in issue.quote for issue in findings)
+
+
+def test_repeated_scientific_sentence_is_still_reported():
+    from bc_science.structural_checks import find_structural_issues
+
+    sentence = (
+        "La cellula è l'unità fondamentale della vita e tutte le "
+        "cellule derivano da altre cellule secondo la teoria cellulare."
+    )
+    chapter = (
+        "## Cellula\n\n" + sentence
+        + "\n\n### Concetti chiave\n\n" + sentence
+    )
+    issues = find_structural_issues(chapter)
+    assert any(issue.category == "repetition" for issue in issues)
+    assert not any(
+        issue.category == "fragment" and issue.quote.startswith("### ")
+        for issue in issues
+    )
+
+
+def test_fast_audit_no_longer_counts_valid_subheadings_as_language_issues():
+    prefix = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        "- Cellula\n\n---\n\n"
+    )
+    complete = prefix + "## Cellula\n\nLa cellula contiene un nucleo."
+    essential = (
+        prefix
+        + "## Cellula\n\nLa cellula contiene un nucleo.\n"
+        + "### Concetti chiave\n"
+        + "### Da ricordare per l'esame"
+    )
+    audit = audit_fast_essential(complete, essential)
+    assert not audit.chapter_signals[0]["language_findings"]
+    assert not any(
+        issue["category"] == "fragment"
+        for issue in audit.chapter_signals[0]["structural_findings"]
+    )

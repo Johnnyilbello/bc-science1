@@ -351,6 +351,159 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("autopilot-preview")
+def courses_autopilot_preview(
+    course: Annotated[
+        Path, typer.Argument(help="Cartella della singola materia con dispense originali"),
+    ],
+    complete: Annotated[
+        Path, typer.Option("--complete", help="Completa esistente (Markdown)"),
+    ],
+    essential: Annotated[
+        Path, typer.Option("--essential", help="Essenziale candidata (Markdown)"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Cartella nuova di anteprima/checkpoint"),
+    ],
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=5),
+    ] = 3,
+    resume: Annotated[
+        bool, typer.Option("--resume", help="Riprende checkpoint nella stessa cartella"),
+    ] = False,
+) -> None:
+    """Tre capitoli con Spark, prove originali e ripresa; NON pubblica PDF."""
+    from .autopilot_runner import run_scientific_pilot
+    from .courses import scan_course
+
+    config = _config()
+    if "spark-x2.5-4b" not in config.generation_model.casefold():
+        console.print(
+            "[red]Il profilo standard non è Spark X2.5 4B: "
+            "verifica config.json prima del test.[/]"
+        )
+        raise typer.Exit(1)
+    client = _require_ollama(config)
+    if config.generation_model not in client.models():
+        console.print("[red]Spark non installato nel server Ollama attivo.[/]")
+        raise typer.Exit(1)
+
+    def show_progress(message: str) -> None:
+        console.print(f"[dim]{message}[/]")
+
+    try:
+        scan = scan_course(course)
+        result = run_scientific_pilot(
+            scan, complete, essential, output_dir, config,
+            max_attempts=max_attempts, resume=resume,
+            progress=show_progress,
+        )
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Autopilot fermato:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads(
+        (result / "autopilot-report.json").read_text(encoding="utf-8")
+    )
+    console.print("[green]Anteprima autonoma conclusa, nessuna pubblicazione.[/]")
+    console.print(f"Report: {result / 'autopilot-report.json'}")
+    for item in report["chapters"]:
+        console.print(
+            f"  {item['title']}: {item['status']}, "
+            f"{len(item['attempts'])} tentativi, "
+            f"{len(item['evidence'])} fonti"
+        )
+    console.print(
+        f"Audit {report['before_status']} → {report['after_status']}; "
+        "[yellow]tutte le proposte richiedono verifica umana.[/]"
+    )
+
+
+@courses_app.command("repair-preview")
+def courses_repair_preview(
+    root: Annotated[
+        Path, typer.Argument(help="Cartella radice delle dispense originali"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Nuova cartella per anteprime e backup"),
+    ],
+) -> None:
+    """Crea un dossier di riparazione senza modificare gli output pubblicati."""
+    from .scientific_repair import stage_mitochondrial_repair
+
+    scans = [
+        scan for scan in scan_courses(root)
+        if scan.name.upper().startswith("FONDAMENTI")
+    ]
+    if len(scans) != 1:
+        console.print("[red]Impossibile identificare una sola materia Fondamenti.[/]")
+        raise typer.Exit(1)
+    try:
+        destination = stage_mitochondrial_repair(scans[0], output_dir)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Anteprima non creata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    console.print("[green]Anteprima e backup pronti, nessun output modificato.[/]")
+    console.print(f"Controlla il dossier: {destination}")
+    import json
+
+    notes = json.loads(
+        (destination / "riparazione-prove.json").read_text(encoding="utf-8")
+    )
+    if notes.get("publication_blocked_by_global_audit"):
+        console.print(
+            "[red]AUDIT GLOBALE IN " + str(notes.get("audit_status")) +
+            ": l'anteprima è consultabile, ma repair-apply "
+            "resta BLOCCATO finché l'audit non è PASS.[/]"
+        )
+        console.print(
+            "[yellow]Il controllo del solo capitolo è PASS; ciò non certifica "
+            "gli altri capitoli.[/]"
+        )
+    console.print(
+        "[yellow]Questo comando NON pubblica la riparazione; "
+        "manifest e PDF esistenti restano invariati.[/]"
+    )
+
+
+@courses_app.command("repair-apply")
+def courses_repair_apply(
+    root: Annotated[
+        Path, typer.Argument(help="Cartella radice delle dispense originali"),
+    ],
+    preview_dir: Annotated[
+        Path, typer.Option("--preview-dir", help="Anteprima verificata con repair-preview"),
+    ],
+    confirm: Annotated[
+        bool, typer.Option(
+            "--confirm", help="Autorizza sostituzione dei file pubblicati con backup e rollback"
+        ),
+    ] = False,
+) -> None:
+    """Pubblica SOLO con conferma esplicita e verifica degli hash."""
+    from .scientific_repair import apply_staged_mitochondrial_repair
+
+    scans = [
+        scan for scan in scan_courses(root)
+        if scan.name.upper().startswith("FONDAMENTI")
+    ]
+    if len(scans) != 1:
+        console.print("[red]Materia Fondamenti non identificata univocamente.[/]")
+        raise typer.Exit(1)
+    try:
+        backups = apply_staged_mitochondrial_repair(
+            scans[0], preview_dir, confirmed=confirm,
+        )
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+        console.print(f"[red]Riparazione non applicata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    console.print("[green]Riparazione applicata e manifest verificato.[/]")
+    console.print(f"Backup integrale: {backups}")
+    console.print(
+        "[yellow]La correttezza scientifica degli altri capitoli "
+        "rimane da verificare sulle dispense originali.[/]"
+    )
+
+
 @courses_app.command("audit")
 def courses_audit(
     root: Annotated[

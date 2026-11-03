@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -300,6 +301,30 @@ class DesktopAPI:
         )
         return report
 
+    def source_preview(self, name: str, source_id: str, page: int = 1):
+        """Render only an approved original source; never a caller-supplied path."""
+        import pymupdf
+        course = self._course(name)
+        source = next((p for p in course.supported_files if source_id in {
+            str(p.resolve()), p.relative_to(course.path).as_posix(),
+        }), None)
+        if source is None:
+            raise ValueError("Fonte non trovata nella materia selezionata.")
+        if source.suffix.casefold() != ".pdf":
+            raise ValueError("L'anteprima è disponibile per le fonti PDF. Apri gli altri documenti dalla biblioteca.")
+        if type(page) is not int:
+            raise ValueError("Indica un numero di pagina intero.")
+        with pymupdf.open(source) as document:
+            if document.needs_pass:
+                raise ValueError("Il PDF è protetto da password.")
+            if not 1 <= page <= len(document):
+                raise ValueError("Pagina non presente nel PDF originale.")
+            original = document[page - 1]
+            scale = min(2.0, 2000 / max(original.rect.width, original.rect.height))
+            png = original.get_pixmap(matrix=pymupdf.Matrix(scale, scale)).tobytes("png")
+            return {"image": "data:image/png;base64," + base64.b64encode(png).decode("ascii"),
+                    "label": source.name, "page": page, "pages": len(document)}
+
     def export(self, name: str, mode: str):
         course = self._course(name)
         if mode == "complete":
@@ -510,7 +535,8 @@ def main():
     api = DesktopAPI(args.folder)
     assets = Path(__file__).parent / "desktop" / "index.html"
     window = webview.create_window("BC Science · The Cognitive Lab", str(assets),
-        js_api=api, width=1480, height=960, min_size=(760, 600), background_color="#f8fafb")
+        js_api=api, width=1280, height=800, maximized=True,
+        min_size=(760, 600), background_color="#f8fafb")
     api._window = window
     def closing():
         if api.progress()["running"]:

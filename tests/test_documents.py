@@ -131,3 +131,53 @@ def test_iter_source_files_excludes_generated_outputs(tmp_path: Path):
         "Contrazione muscolare.pdf",
         "lezione.txt",
     ]
+
+def test_course_metadata_cannot_hide_missing_slide_content():
+    from bc_science.documents import _needs_pdf_recovery
+    header = ('Corso di Laurea: Scienze delle Attività Motorie e Sportive\n'
+              'Insegnamento: Fisiologia Umana e dello Sport\n'
+              'Lezione n°: 72.0\nTitolo: Attività fisica e salute\nAttività n°: S.0\n')
+    assert len(header) > 80
+    assert _needs_pdf_recovery(header + 'Efficienza fisica e salute')
+    assert not _needs_pdf_recovery(header + 'I neuroni sensitivi raccolgono stimoli e trasmettono informazioni al sistema nervoso centrale. Gli interneuroni elaborano informazioni.')
+
+def test_ocr_prefers_installed_italian_and_respects_override(monkeypatch):
+    from types import SimpleNamespace
+
+    from bc_science.documents import _default_ocr_language, _ocr_language
+    _default_ocr_language.cache_clear()
+    monkeypatch.delenv('BC_SCIENCE_OCR_LANG',raising=False)
+    monkeypatch.setattr('bc_science.documents.shutil.which',lambda name:'tesseract')
+    monkeypatch.setattr('bc_science.documents.subprocess.run',lambda *a,**k:SimpleNamespace(returncode=0,stdout='eng\nita\n'))
+    try:
+        assert _ocr_language() == 'ita+eng'
+        monkeypatch.setenv('BC_SCIENCE_OCR_LANG','eng')
+        assert _ocr_language() == 'eng'
+    finally:
+        _default_ocr_language.cache_clear()
+
+
+def test_diagram_recovery_preserves_native_text_and_separates_noisy_ocr(tmp_path, monkeypatch):
+    from bc_science.documents import readable_source
+    pdf = tmp_path / "diagram.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((30, 40), "Titolo nativo: Efficienza fisica e salute")
+    pixels = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 40, 40), False)
+    pixels.clear_with(255)
+    page.insert_image(pymupdf.Rect(50, 100, 500, 550), stream=pixels.tobytes("png"))
+    doc.save(pdf)
+    doc.close()
+    original = pdf.read_bytes()
+    noisy = "Titolo nativo: Efficienza fisica e salute\n" + "OCR spezzato e rumore xyz. " * 10
+    monkeypatch.setattr("bc_science.documents._recover_pdf_pages", lambda *a: {0: noisy})
+    monkeypatch.setattr("bc_science.documents._transcribe_visual_pages", lambda *a: {
+        0: "Efficienza fisica associata alla salute\n\nFlessibilità degli arti inferiori",
+    })
+    result = extract_document(pdf)
+    assert "Titolo nativo: Efficienza fisica e salute" in result.text
+    assert "Efficienza fisica associata alla salute" in result.text
+    assert noisy.strip() in result.text  # retain the alternative; never erase source recovery
+    assert result.text.index("Trascrizione visiva automatica") < result.text.index("Inizio OCR supplementare")
+    assert "non un secondo fatto" in readable_source(result.text)
+    assert pdf.read_bytes() == original

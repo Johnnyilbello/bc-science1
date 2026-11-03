@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from rich.console import Console
@@ -9,6 +10,7 @@ from .config import AppConfig
 from .documents import (
     chunk_text,
     extract_document_cached,
+    extraction_signature,
     file_sha256,
     is_generated_artifact,
     iter_source_files,
@@ -42,6 +44,8 @@ def ingest_files(
         if not is_generated_artifact(path)
     ]
     db = CacheDB(db_path)
+    db.conn.execute("CREATE TABLE IF NOT EXISTS index_versions (source_path TEXT PRIMARY KEY, signature TEXT NOT NULL)")
+    db.conn.commit()
     indexed = 0
     skipped = 0
     chunks_total = 0
@@ -61,7 +65,12 @@ def ingest_files(
         for path in resolved_files:
             digest = file_sha256(path)
             key = str(path)
-            if not force and db.document_hash(key) == digest:
+            index_digest = hashlib.sha256("\x1f".join((
+                digest, extraction_signature(path), config.embedding_model,
+                str(config.chunk_chars), str(config.chunk_overlap), DOCUMENT_INSTRUCTION,
+            )).encode("utf-8")).hexdigest()
+            version = db.conn.execute("SELECT signature FROM index_versions WHERE source_path=?", (key,)).fetchone()
+            if not force and db.document_hash(key) == digest and version and version[0] == index_digest:
                 skipped += 1
                 continue
 
@@ -85,6 +94,8 @@ def ingest_files(
                 embeddings.extend(client.embed(config.embedding_model, batch))
 
             db.replace_document(key, digest, path.stem, chunks, embeddings)
+            with db.conn:
+                db.conn.execute("INSERT OR REPLACE INTO index_versions VALUES (?,?)", (key, index_digest))
             indexed += 1
             chunks_total += len(chunks)
     finally:
