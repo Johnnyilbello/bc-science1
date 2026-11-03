@@ -20,7 +20,6 @@ from .courses import (
     _load_manifest,
     _snapshot,
 )
-from .documents import file_sha256
 from .evidence_engine import OriginalEvidence
 from .fast_audit import _ordered_title_match, _title_spelling_key, audit_fast_essential
 from .scientific_autopilot import (
@@ -315,8 +314,8 @@ def run_scientific_pilot(
             "",
             f"- Modello: {config.generation_model}",
             f"- Audit: {before.status} → {after.status}",
-            f"- Compressione: {before.compression_percent:.1f}% → "
-            f"{after.compression_percent:.1f}%",
+            (f"- Compressione: {before.compression_percent:.1f}% → "
+             f"{after.compression_percent:.1f}%"),
             "",
             "## Capitoli prioritari",
         ]
