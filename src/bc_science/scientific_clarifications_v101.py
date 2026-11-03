@@ -297,9 +297,9 @@ def run_scientific_clarifications(
     dossier = [
         "# BC Science — Spark V10.1 · Revisione scientifica mirata", "",
         "**CANDIDATA NON PUBBLICATA. VIETATO MERGE SENZA VERIFICA UMANA.**", "",
-        "Questi interventi distinguono esplicitamente il contenuto della Completa "
-        "dalle precisazioni scientifiche esterne. I PDF originali non sono stati "
-        "confrontati pagina per pagina per ogni modifica: nessun fatto è certificato.",
+        ("Questi interventi distinguono esplicitamente il contenuto della Completa "
+         "dalle precisazioni scientifiche esterne. I PDF originali non sono stati "
+         "confrontati pagina per pagina per ogni modifica: nessun fatto è certificato."),
         "",
         f"Audit: {before.status} → {after.status}",
         f"Capitoli esterni invariati: {result['unchanged_other_chapters']}", "",
@@ -333,10 +333,10 @@ def run_scientific_clarifications(
     dossier += [
         "## Blocchi di pubblicazione", "",
         "- Esaminare ogni nuova formulazione con i PDF originali della materia.",
-        "- Krebs: verificare la convenzione ATP effettivamente richiesta dal docente "
-        "e non confondere resa storica e moderna.",
-        "- Gli aggiornamenti da fonti esterne non devono diventare correzioni "
-        "silenziose delle dispense eCampus.",
+        ("- Krebs: verificare la convenzione ATP effettivamente richiesta dal docente "
+         "e non confondere resa storica e moderna."),
+        ("- Gli aggiornamenti da fonti esterne non devono diventare correzioni "
+         "silenziose delle dispense eCampus."),
         "- Confrontare il diff, approvare ogni modifica oppure rifiutarla.",
         "- Nessuna verifica automatica di equivalenza semantica.", "",
     ]
