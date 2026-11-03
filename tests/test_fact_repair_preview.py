@@ -28,8 +28,10 @@ def _documents(tmp_path):
         f"## {item.title}\n\n{item.old}" for item in repair.CASES
     )
     study += "\n\n---\n\n## Capitolo immutato\n\nConcetto non modificabile.\n"
-    complete_file = tmp_path / "complete.md"
-    study_file = tmp_path / "study.md"
+    input_dir = tmp_path / "inputs"
+    input_dir.mkdir()
+    complete_file = input_dir / "complete.md"
+    study_file = input_dir / "study.md"
     complete_file.write_text(complete, encoding="utf-8")
     study_file.write_text(study, encoding="utf-8")
     return scan, complete_file, study_file, complete, study
