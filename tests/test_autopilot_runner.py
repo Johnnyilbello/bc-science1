@@ -76,6 +76,13 @@ def test_three_chapters_without_original_pages_are_blocked_without_model(
     ] * 3
     assert not report["scientifically_verified"]
     assert report["publication"] == "NOT_PERFORMED"
+    assert report["status"] == "NO_CANDIDATE_REQUIRES_REVIEW"
+    assert len(report["chapters"]) == 3
+    assert all("diagnostics" in item for item in report["chapters"])
+    assert (output / "autopilot-diagnostics.md").exists()
+    dossier = (output / "autopilot-diagnostics.md").read_text(encoding="utf-8")
+    assert "NON PUBBLICATO" in dossier
+    assert "Possibili lacune" in dossier
     assert (output / "essenziale-autopilot-CANDIDATA.md").read_text(
         encoding="utf-8",
     ) == text
