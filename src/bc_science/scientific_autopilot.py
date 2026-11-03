@@ -165,6 +165,7 @@ def review_with_agents(
                 summarizer=summarizer,
                 original_evidence=original_evidence,
                 retry_context=feedback,
+                autopilot_mode=True,
             )
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
             history.append(AgentAttempt(number, "BLOCKED", str(exc)[:250]))
