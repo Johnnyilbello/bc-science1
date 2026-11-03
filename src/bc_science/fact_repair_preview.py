@@ -16,9 +16,10 @@ from pathlib import Path
 from .autopilot_runner import _validated_manifest
 from .courses import CourseScan, _fingerprint, _snapshot
 from .fast_audit import _ordered_title_match, audit_fast_essential
+from .quality_signals import _lines
 from .summarizer import _extract_summary_chapters
 
-PILOT_VERSION = "two-fact-preview-v8-source-context-review-only"
+PILOT_VERSION = "two-fact-preview-v8-markdown-source-matching"
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,80 @@ def _normalize(text: str) -> str:
     return " ".join(text.casefold().replace("’", "'").split())
 
 
+def _canonical_with_offsets(text: str) -> tuple[str, list[int]]:
+    """A view removing Markdown decorations while retaining original offsets.
+
+    Only formatting whitespace, list prefixes, ** emphasis and code ticks
+    are removed. Never drop punctuation, numbers, negation or content words.
+    This is not fuzzy or semantic matching.
+    """
+    bullet_spans = [
+        (match.start(), match.end())
+        for match in re.finditer(r"(?m)^[ \t]*(?:[-*]|\d+[.)])[ \t]+", text)
+    ]
+    excluded = {
+        position for start, stop in bullet_spans
+        for position in range(start, stop)
+    }
+    chars: list[str] = []
+    offsets: list[int] = []
+    for index, char in enumerate(text):
+        if index in excluded or char in "*\x60_":
+            continue
+        if char.isspace():
+            if not chars or chars[-1] == " ":
+                continue
+            chars.append(" ")
+            offsets.append(index)
+            continue
+        for normalized in char.casefold().replace("’", "'"):
+            chars.append(normalized)
+            offsets.append(index)
+    return "".join(chars), offsets
+
+
+def _exact_statement_exists(chapter: str, statement: str) -> bool:
+    """Require exactly one full statement, as parsed by the V7 diagnostics."""
+    expected = _canonical_with_offsets(statement)[0].strip()
+    if not expected:
+        return False
+    return sum(
+        _canonical_with_offsets(line)[0].strip() == expected
+        for line in _lines(chapter)
+    ) == 1
+
+
+def _unique_study_span(
+    study: str, chapter: str, statement: str,
+) -> tuple[int, int] | None:
+    """Locate the original byte range of one Markdown-decorated sentence.
+
+    Both the chapter statement and entire document occurrence must be unique.
+    A different word, qualifier, number, or punctuation blocks the edit.
+    """
+    if not _exact_statement_exists(chapter, statement):
+        return None
+    normalized, offsets = _canonical_with_offsets(study)
+    needle = _canonical_with_offsets(statement)[0].strip()
+    location = normalized.find(needle)
+    if location < 0 or normalized.find(needle, location + 1) >= 0:
+        return None
+    start, stop = offsets[location], offsets[location + len(needle) - 1] + 1
+    if not study[start:stop].strip():
+        return None
+    return start, stop
+
+
+def _preserve_inline_label(original: str, case: FactCase) -> str:
+    """Keep the label's bold styling where it existed in the original line."""
+    label = case.old.split(":", 1)[0] + ":"
+    if original.startswith("**" + label + "**"):
+        return "**" + label + "**" + case.revised[len(label):]
+    if original.startswith("**" + label[:-1] + "**:"):
+        return "**" + label[:-1] + "**:" + case.revised[len(label):]
+    return case.revised
+
+
 def _source_fact_evidence(
     scan: CourseScan, mapping: dict[str, str], case: FactCase,
 ) -> dict | None:
@@ -157,16 +232,20 @@ def _validated_scoped_edit(
         return study, "BLOCKED_CHAPTER_NOT_FOUND"
     source_body = full[case.title]
     study_body = old[case.title]
-    if case.complete_anchor not in source_body:
+    if not _exact_statement_exists(source_body, case.complete_anchor):
         return study, "BLOCKED_COMPLETE_ANCHOR_MISSING"
     if all(term in _normalize(study_body) for term in case.already_present):
         return study, "SKIPPED_DETAIL_ALREADY_PRESENT"
-    if study_body.count(case.old) != 1 or study.count(case.old) != 1:
+    span = _unique_study_span(study, study_body, case.old)
+    if span is None:
         return study, "BLOCKED_ESSENTIAL_ANCHOR_NOT_UNIQUE"
     if evidence is None:
         return study, "BLOCKED_ORIGINAL_SOURCE_CONTEXT_MISSING"
-    proposed = study.replace(case.old, case.revised, 1)
-    if proposed.replace(case.revised, case.old, 1) != study:
+    start, stop = span
+    old_segment = study[start:stop]
+    replacement = _preserve_inline_label(old_segment, case)
+    proposed = study[:start] + replacement + study[stop:]
+    if proposed[:start] != study[:start] or proposed[start + len(replacement):] != study[stop:]:
         raise ValueError("Modifica fuori dalla frase bersaglio.")
     updated_chapters = _extract_summary_chapters(proposed)
     if (
