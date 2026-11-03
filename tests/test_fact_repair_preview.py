@@ -111,8 +111,12 @@ def test_missing_original_source_blocks_candidate_without_changing_input(
 
 def test_repair_refuses_unfamiliar_text_and_unrelated_number_changes():
     case = repair.CASES[0]
-    study = "## Il ciclo di Krebs\n\n" + case.old
-    complete = "## Il ciclo di Krebs\n\n" + case.complete_anchor
+    header = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        "- Il ciclo di Krebs\n\n---\n\n"
+    )
+    study = header + "## Il ciclo di Krebs\n\n" + case.old
+    complete = header + "## Il ciclo di Krebs\n\n" + case.complete_anchor
     evidence = {"source_path": "actual.pdf", "page": 8}
     modified = study.replace("rientrano", "ritornano")
     proposed, reason = repair._validated_scoped_edit(
