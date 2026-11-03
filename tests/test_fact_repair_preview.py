@@ -183,3 +183,74 @@ def test_source_retrieval_refuses_path_outside_course(tmp_path):
         repair._source_fact_evidence(
             scan, {"../../outside.pdf": case.title}, case,
         )
+
+
+
+@pytest.mark.parametrize("case", repair.CASES)
+def test_v8_accepts_exact_diagnostic_statement_in_markdown_list(case):
+    """The V7 dossier strips markdown; original source text often does not."""
+    label = case.old.split(":", 1)[0] + ":"
+    full_label = case.complete_anchor.split(":", 1)[0] + ":"
+    head = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        + "- " + case.title + "\n\n---\n\n"
+        + "## " + case.title + "\n\n"
+    )
+    complete = (
+        head + "- **" + full_label + "** "
+        + case.complete_anchor[len(full_label):].lstrip()
+    )
+    study = (
+        head + "- **" + label + "** "
+        + case.old[len(label):].lstrip()
+    )
+    evidence = {"source_path": "actual.pdf", "page": 8}
+    proposed, status = repair._validated_scoped_edit(
+        study, complete, case, evidence,
+    )
+    assert status == "CANDIDATE_UNVERIFIED"
+    assert proposed != study
+    assert "- **" + label + "** " in proposed
+    assert case.revised.split(":", 1)[1].strip() in proposed
+    assert proposed[:len(head)] == head
+    assert proposed.startswith(head + "- **" + label + "** ")
+
+
+def test_v8_does_not_match_different_scientific_content():
+    case = repair.CASES[0]
+    head = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        "- Il ciclo di Krebs\n\n---\n\n## Il ciclo di Krebs\n\n"
+    )
+    study = head + case.old
+    evidence = {"source_path": "actual.pdf", "page": 8}
+    # A missing qualifier, a changed word, or a second occurrence MUST block.
+    source = head + case.complete_anchor.replace("rientrare", "non rientrare")
+    unchanged, reason = repair._validated_scoped_edit(
+        study, source, case, evidence,
+    )
+    assert unchanged == study
+    assert reason == "BLOCKED_COMPLETE_ANCHOR_MISSING"
+    doubled = head + case.complete_anchor + "\n\n" + case.complete_anchor
+    unchanged, reason = repair._validated_scoped_edit(
+        study, doubled, case, evidence,
+    )
+    assert unchanged == study
+    assert reason == "BLOCKED_COMPLETE_ANCHOR_MISSING"
+
+
+def test_v8_does_not_match_altered_essential_even_when_complete_matches():
+    case = repair.CASES[1]
+    head = (
+        "# Biologia\n\n## Indice degli argomenti\n"
+        "- La struttura terziaria e quaternaria delle proteine ed i lipidi\n"
+        "\n---\n\n"
+        "## La struttura terziaria e quaternaria delle proteine ed i lipidi\n\n"
+    )
+    complete = head + case.complete_anchor
+    changed = head + case.old.replace("anfipatici", "esclusivamente polari")
+    unchanged, reason = repair._validated_scoped_edit(
+        changed, complete, case, {"source_path": "actual.pdf", "page": 7},
+    )
+    assert unchanged == changed
+    assert reason == "BLOCKED_ESSENTIAL_ANCHOR_NOT_UNIQUE"
