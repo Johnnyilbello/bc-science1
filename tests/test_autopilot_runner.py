@@ -1,13 +1,12 @@
 """Checkpointed, read-only three-chapter Spark pilot regression tests."""
 import json
-from pathlib import Path
 
 import pytest
 
 import bc_science.autopilot_runner as runner
 from bc_science.config import AppConfig
 from bc_science.courses import CourseScan
-from bc_science.scientific_autopilot import AgentResult, PRIORITY_CHAPTERS
+from bc_science.scientific_autopilot import PRIORITY_CHAPTERS, AgentResult
 
 
 def _files(tmp_path):
@@ -140,7 +139,7 @@ def test_checkpoint_resumes_only_remaining_chapters_without_rewriting_input(
         scan, complete, study, output, AppConfig(), resume=True,
     )
     assert len(calls) == 4
-    assert calls[0] == calls[2 - 2]
+    assert calls[:2] == list(PRIORITY_CHAPTERS[:2])
     assert calls[2:] == list(PRIORITY_CHAPTERS[1:])
     assert study.read_text(encoding="utf-8") == text
 
