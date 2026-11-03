@@ -28,7 +28,7 @@ from .summarizer import (
 )
 from .targeted_review import review_chapter
 
-AGENT_VERSION = "scientific-autopilot-v2-segmented-windows"
+AGENT_VERSION = "scientific-autopilot-v3-actionable-windows"
 PRIORITY_CHAPTERS = (
     "la cellula e il nucleo",
     "Il ciclo di Krebs",
@@ -41,6 +41,7 @@ class AgentAttempt:
     number: int
     status: str
     reason: str
+    focus: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +205,34 @@ def _grounded_windows(
     return windows
 
 
+def _window_quality(title: str, source: str, window: str) -> tuple[int, int, int, int]:
+    """Count deterministic, local editing needs; not scientific truth.
+
+    A generic overlap with a source page is NOT evidence that a paragraph
+    needs rewriting. Scientific meaning warnings remain for manual review.
+    """
+    language = sum(
+        item.category in {"grammar", "spelling", "fragment"}
+        for item in grammar_findings(window)
+    )
+    structure = sum(
+        item.category in {"repetition", "fragment", "dangling_heading"}
+        for item in find_structural_issues(window)
+    )
+    readability = assess_chapter(title, source, f"## {title}\n\n{window}")
+    return (
+        language, structure,
+        readability.difficult_sentences, readability.long_paragraphs,
+    )
+
+
+def _quality_label(quality: tuple[int, int, int, int]) -> str:
+    return (
+        f"lingua={quality[0]}, struttura={quality[1]}, "
+        f"periodi_lunghi={quality[2]}, paragrafi_lunghi={quality[3]}"
+    )
+
+
 def _review_long_chapter(
     title: str,
     complete: str,
@@ -226,14 +255,46 @@ def _review_long_chapter(
             ),),
             len(original_evidence),
         )
+    # A source-backed paragraph alone is not a reason to send it to Spark.
+    # Prioritize only windows with a reproducible, local quality concern.
+    actionable = [
+        (window, source, proofs, quality)
+        for window, source, proofs in windows
+        if any(quality := _window_quality(title, source, window))
+    ]
+    actionable.sort(
+        key=lambda item: (-sum(item[3]), -len(item[0].split()), item[0])
+    )
+    if not actionable:
+        unresolved = any(_issues(title, complete, essential)) or bool(
+            find_structural_issues(essential)
+        )
+        status = (
+            "BLOCKED_NO_ACTIONABLE_WINDOW" if unresolved
+            else "SKIPPED_NO_ACTIONABLE_ISSUE"
+        )
+        return AgentResult(
+            title, status, essential,
+            (AgentAttempt(
+                0, "BLOCKED" if unresolved else "SKIPPED",
+                "Possibili criticita globali senza porzione correggibile con "
+                "prove locali: necessaria revisione umana."
+                if unresolved else
+                "Nessuna criticita locale riproducibile: nessuna chiamata a Spark.",
+            ),),
+            len(original_evidence),
+        )
     baseline = _issues(title, complete, essential)
     existing_missing = set(_missing_exam_points(complete, essential))
     attempts: list[AgentAttempt] = []
-    for number, (window, source, proofs) in enumerate(windows[:max_attempts], 1):
+    for number, (window, source, proofs, quality) in enumerate(
+        actionable[:max_attempts], 1,
+    ):
+        focus = _quality_label(quality)
         if progress:
             progress(
-                f"Redattore: porzione {number}/{min(max_attempts, len(windows))} "
-                f"per {title} ({len(window.split())} parole)"
+                f"Redattore: porzione {number}/{min(max_attempts, len(actionable))} "
+                f"per {title} ({len(window.split())} parole); {focus}"
             )
         # A local window becomes a tiny *independent* edit. Neither the
         # rest of the chapter nor exam bullets are transmitted for rewriting.
@@ -243,32 +304,33 @@ def _review_long_chapter(
                 title, source, before, config,
                 summarizer=summarizer,
                 original_evidence=proofs,
+                retry_context="Correggi solo la criticita locale: " + focus,
                 autopilot_mode=True,
             )
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
-            attempts.append(AgentAttempt(number, "BLOCKED", str(exc)[:250]))
+            attempts.append(AgentAttempt(number, "BLOCKED", str(exc)[:250], focus))
             break
         if not written.applied:
             attempts.append(AgentAttempt(
                 number, "REJECTED",
-                f"Porzione {number}: {written.reason[:220]}",
+                f"Porzione {number}: {written.reason[:220]}", focus,
             ))
             continue
         result = written.text.strip()
         prefix = f"## {title}"
         if not result.startswith(prefix + "\n"):
             attempts.append(AgentAttempt(
-                number, "REJECTED", "Titolo della porzione alterato",
+                number, "REJECTED", "Titolo della porzione alterato", focus,
             ))
             continue
         revised_window = result[len(prefix):].strip()
         if (
             not revised_window or "##" in revised_window
-            or len(revised_window.split()) >= len(window.split())
+            or len(revised_window.split()) > len(window.split())
         ):
             attempts.append(AgentAttempt(
                 number, "REJECTED",
-                "Porzione non accorciata o struttura non valida",
+                "Porzione allungata o struttura non valida", focus,
             ))
             continue
         if essential.count(window) != 1:
@@ -292,7 +354,21 @@ def _review_long_chapter(
         ):
             attempts.append(AgentAttempt(
                 number, "REJECTED",
-                "Numeri o copertura scientifica peggiorati",
+                "Numeri o copertura scientifica peggiorati", focus,
+            ))
+            continue
+        after_quality = _window_quality(title, source, revised_window)
+        if (
+            any(after > before for after, before in zip(
+                after_quality, quality, strict=True,
+            ))
+            or not any(after < before for after, before in zip(
+                after_quality, quality, strict=True,
+            ))
+        ):
+            attempts.append(AgentAttempt(
+                number, "REJECTED",
+                "Criticita locale non ridotta in modo misurabile", focus,
             ))
             continue
         passed, reason = _critic_verdict(
@@ -302,14 +378,14 @@ def _review_long_chapter(
         if not passed:
             attempts.append(AgentAttempt(
                 number, "REJECTED",
-                f"Revisore della porzione: {reason[:210]}",
+                f"Revisore della porzione: {reason[:210]}", focus,
             ))
             continue
         if (
             revised_chapter.replace(revised_window, window, 1) != essential
         ):
             raise ValueError("La proposta modifica testo fuori dalla porzione.")
-        attempts.append(AgentAttempt(number, "CANDIDATE", reason))
+        attempts.append(AgentAttempt(number, "CANDIDATE", reason, focus))
         return AgentResult(
             title, "CANDIDATE_UNVERIFIED", revised_chapter,
             tuple(attempts), len(original_evidence),
@@ -371,7 +447,11 @@ def review_with_agents(
             history.append(AgentAttempt(number, "REJECTED", reason))
             feedback = reason
             if reason == "Nessuna criticita rilevata":
-                break
+                history[-1] = AgentAttempt(number, "SKIPPED", reason)
+                return AgentResult(
+                    title, "SKIPPED_NO_ACTIONABLE_ISSUE", essential,
+                    tuple(history), len(original_evidence),
+                )
             continue
         candidate = written.text
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
