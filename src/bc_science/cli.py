@@ -351,6 +351,52 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("chapter-context-preview")
+def courses_chapter_context_preview(
+    course: Annotated[
+        Path, typer.Argument(help="Cartella della materia con le dispense originali"),
+    ],
+    complete: Annotated[
+        Path, typer.Option("--complete", help="Completa esistente, letta senza modifiche"),
+    ],
+    essential: Annotated[
+        Path, typer.Option("--essential", help="Essenziale esistente, letta senza modifiche"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Cartella nuova per anteprima V9"),
+    ],
+) -> None:
+    """Revisione completa dei capitoli, duplicazioni e sola grammatica mirata."""
+    from .chapter_context_review import run_whole_chapter_review
+    from .courses import scan_course
+
+    try:
+        destination = run_whole_chapter_review(
+            scan_course(course), complete, essential, output_dir,
+        )
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        console.print(f"[red]V9 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads(
+        (destination / "v9-report.json").read_text(encoding="utf-8")
+    )
+    console.print("[green]Revisione V9 completata; nessuna pubblicazione.[/]")
+    console.print(
+        f"Capitoli: {report['chapters_checked']} · "
+        f"Gruppi di ripetizioni esatte: {report['exact_duplicate_groups_total']}"
+    )
+    for item in report["targeted_concepts"]:
+        console.print(f"  {item['title']}: {item['status']}")
+    console.print(
+        f"Grammatica: {report['grammar_proposal']['status']}"
+    )
+    console.print(
+        f"Audit: {report['before_audit']} → {report['after_audit']}"
+    )
+    console.print(f"Dossier: {destination / 'v9-dossier.md'}")
+    console.print(f"Report: {destination / 'v9-report.json'}")
+
+
 @courses_app.command("fact-repair-preview")
 def courses_fact_repair_preview(
     course: Annotated[
