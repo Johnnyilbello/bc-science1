@@ -19,7 +19,7 @@ from .fast_audit import _ordered_title_match, audit_fast_essential
 from .quality_signals import _lines
 from .summarizer import _extract_summary_chapters
 
-PILOT_VERSION = "two-fact-preview-v8-markdown-source-matching"
+PILOT_VERSION = "two-fact-preview-v8-local-detail-check"
 
 
 @dataclass(frozen=True)
@@ -238,14 +238,19 @@ def _validated_scoped_edit(
     study_body = old[case.title]
     if not _exact_statement_exists(source_body, case.complete_anchor):
         return study, "BLOCKED_COMPLETE_ANCHOR_MISSING"
-    if all(term in _normalize(study_body) for term in case.already_present):
-        return study, "SKIPPED_DETAIL_ALREADY_PRESENT"
     span = _unique_study_span(study, study_body, case.old)
     if span is None:
+        # The precise old sentence cannot be located. This can mean it was
+        # already edited, but NEVER infer that from unrelated chapter terms.
         return study, "BLOCKED_ESSENTIAL_ANCHOR_NOT_UNIQUE"
+    start, stop = span
+    if all(
+        term in _normalize(study[start:stop])
+        for term in case.already_present
+    ):
+        return study, "SKIPPED_DETAIL_ALREADY_PRESENT"
     if evidence is None:
         return study, "BLOCKED_ORIGINAL_SOURCE_CONTEXT_MISSING"
-    start, stop = span
     old_segment = study[start:stop]
     replacement = _preserve_inline_label(old_segment, case)
     proposed = study[:start] + replacement + study[stop:]
@@ -267,6 +272,32 @@ def _validated_scoped_edit(
     if len(case.revised.split()) > len(case.old.split()) + 45:
         raise ValueError("Ampliamento eccessivo della correzione.")
     return proposed, "CANDIDATE_UNVERIFIED"
+
+
+def _elsewhere_term_mentions(
+    chapter: str, case: FactCase,
+    *, limit: int = 4,
+) -> list[dict]:
+    """Provide literal other sentences for duplicate review, never skip on them."""
+    anchor = _canonical_with_offsets(case.old)[0].strip()
+    result: list[dict] = []
+    for sentence in _lines(chapter):
+        text = _canonical_with_offsets(sentence)[0].strip()
+        if anchor in text:
+            continue
+        matched = [
+            term for term in case.already_present if _normalize(term) in text
+        ]
+        if not matched:
+            continue
+        result.append({
+            "text": sentence[:500],
+            "terms": matched,
+            "status": "CONTEXT_ONLY_NOT_SEMANTICALLY_VERIFIED",
+        })
+        if len(result) >= limit:
+            break
+    return result
 
 
 def stage_two_fact_preview(
@@ -310,12 +341,18 @@ def stage_two_fact_preview(
         candidate_next, status = _validated_scoped_edit(
             candidate, complete, case, evidence,
         )
+        source_chapters = dict(_extract_summary_chapters(candidate))
+        elsewhere = _elsewhere_term_mentions(
+            source_chapters.get(case.title, ""), case,
+        )
         findings.append({
             "title": case.title,
             "status": status,
             "before": case.old,
             "after": case.revised if status == "CANDIDATE_UNVERIFIED" else None,
             "evidence": evidence,
+            "other_chapter_mentions": elsewhere,
+            "requires_duplicate_review": bool(elsewhere),
             "requires_human_review": True,
         })
         candidate = candidate_next
@@ -380,6 +417,19 @@ def stage_two_fact_preview(
             f"Dopo: {entry['after'] or '(nessuna modifica)'}",
             "",
         ]
+        if entry["other_chapter_mentions"]:
+            dossier += [
+                "Altri riferimenti nel capitolo: **da valutare per evitare "
+                "ripetizioni**. Sono corrispondenze di parole, non prove "
+                "di equivalenza concettuale.",
+                "",
+            ]
+            for mention in entry["other_chapter_mentions"]:
+                dossier.append(
+                    "- " + mention["text"] + " "
+                    + "(termini: " + ", ".join(mention["terms"]) + ")"
+                )
+            dossier.append("")
         source = entry["evidence"]
         if source:
             dossier += [
