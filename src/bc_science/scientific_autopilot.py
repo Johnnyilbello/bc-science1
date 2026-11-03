@@ -157,14 +157,17 @@ def _grounded_windows(
             or "\n#" in raw or "\n-" in raw
         ):
             continue
-        statements = [line.strip() for line in split.split(raw) if line.strip()]
-        if not statements:
-            continue
-        # Bounded, disjoint pieces: a huge paragraph must not become one
-        # giant prompt and one giant scientific diff.
-        for position in range(0, len(statements), 4):
-            group = statements[position:position + 4]
-            text = " ".join(group)
+        spans: list[tuple[int, int]] = []
+        start = 0
+        for boundary in split.finditer(raw):
+            spans.append((start, boundary.start()))
+            start = boundary.end()
+        spans.append((start, len(raw)))
+        # Use exact spans, not whitespace-normalized reconstruction: otherwise
+        # a paragraph with hard line wraps cannot be replaced byte-for-byte.
+        for position in range(0, len(spans), 4):
+            group = spans[position:position + 4]
+            text = raw[group[0][0]:group[-1][1]].strip()
             words = len(text.split())
             if not 35 <= words <= 160 or essential.count(text) != 1:
                 continue
