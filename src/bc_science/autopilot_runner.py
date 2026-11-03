@@ -25,6 +25,7 @@ from .fast_audit import _ordered_title_match, _title_spelling_key, audit_fast_es
 from .scientific_autopilot import (
     AGENT_VERSION,
     PRIORITY_CHAPTERS,
+    diagnose_content_gaps,
     review_with_agents,
 )
 from .scientific_repair import _replace_single_study_chapter
@@ -246,9 +247,13 @@ def run_scientific_pilot(
                 outcome = AgentResult(
                     title, "BLOCKED_NO_ORIGINAL_EVIDENCE", original, (), 0,
                 )
+            diagnostic = diagnose_content_gaps(
+                title, source, original, hits,
+            )
             completed.append({
                 "title": title,
                 "status": outcome.status,
+                "diagnostics": diagnostic,
                 "candidate": outcome.candidate,
                 "attempts": [asdict(item) for item in outcome.attempts],
                 "requires_human_review": True,
@@ -288,7 +293,10 @@ def run_scientific_pilot(
             raise ValueError("Fonti cambiate durante l'esecuzione.")
         report = {
             "schema": RUNNER_SCHEMA,
-            "status": "CANDIDATE_REQUIRES_HUMAN_REVIEW",
+            "status": (
+                "CANDIDATE_REQUIRES_HUMAN_REVIEW" if authorized
+                else "NO_CANDIDATE_REQUIRES_REVIEW"
+            ),
             "publication": "NOT_PERFORMED",
             "scientifically_verified": False,
             "model": config.generation_model,
@@ -325,9 +333,64 @@ def run_scientific_pilot(
                 f"- Stato: {item['status']}",
                 f"- Estratti originali: {len(item['evidence'])}",
                 f"- Tentativi: {len(item['attempts'])}",
+                ("- Possibili lacune (euristica): "
+                 f"{item['diagnostics']['possible_missing_total']}"),
+                ("- Con riscontro lessicale negli estratti campionati: "
+                 f"{item['diagnostics']['source_matched_in_report']}"),
             ]
         (root / "autopilot-report.md").write_text(
             "\n".join(lines) + "\n", encoding="utf-8",
+        )
+        diagnostic_lines = [
+            "# BC Science · Dossier di possibili lacune",
+            "",
+            "**NON PUBBLICATO — SEGNALAZIONI EURISTICHE, NON VERIFICATE**",
+            "",
+            ("Il campione di estratti originali non copre necessariamente "
+             "tutta la dispensa. Un riscontro lessicale non certifica "
+             "il significato scientifico; un riscontro mancante non "
+             "dimostra che la fonte non contenga l'informazione."),
+            "",
+        ]
+        for item in completed:
+            diagnosis = item["diagnostics"]
+            diagnostic_lines += [
+                f"## {item['title']}",
+                "",
+                f"- Stato revisione: {item['status']}",
+                f"- Possibili lacune totali: {diagnosis['possible_missing_total']}",
+                ("- Estratti originali con riscontro per i candidati mostrati: "
+                 f"{diagnosis['source_matched_in_report']}"),
+                "- Nessuna prova scientifica automatica.",
+                "",
+            ]
+            for index, entry in enumerate(diagnosis["candidates"], 1):
+                diagnostic_lines += [
+                    f"### Segnalazione {index}: {entry['category']}",
+                    "",
+                    f"- Completa: {entry['complete_quote']}",
+                    f"- Essenziale più vicina: {entry['nearest_essential_quote']}",
+                    ("- Somiglianza lessicale: "
+                     f"{entry['nearest_essential_recall']:.3f}"),
+                ]
+                original = entry["original_excerpt_match"]
+                if original is None:
+                    diagnostic_lines.append(
+                        "- Dispense: nessuna corrispondenza negli estratti disponibili; "
+                        "verifica sul PDF originale necessaria."
+                    )
+                else:
+                    diagnostic_lines += [
+                        ("- Estratto di dispensa: "
+                         f"{original['evidence_id']} — "
+                         f"{original['source_path']}, "
+                         f"pagina {original['page']}, "
+                         f"blocco {original['block']}"),
+                        f"- Testo estratto: {original['original_quote']}",
+                    ]
+                diagnostic_lines.append("")
+        (root / "autopilot-diagnostics.md").write_text(
+            "\n".join(diagnostic_lines) + "\n", encoding="utf-8",
         )
         return root
     finally:
