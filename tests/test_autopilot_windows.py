@@ -150,3 +150,33 @@ def test_grounded_windows_do_not_select_exam_bullets():
     assert windows
     assert all(not span.startswith("- ") for span, _source, _hits in windows)
     assert all(span in chapter for span, _source, _hits in windows)
+
+
+
+def test_preexisting_missing_exam_fact_does_not_block_unrelated_safe_window(
+    monkeypatch,
+):
+    import bc_science.scientific_autopilot as agents
+
+    complete = (
+        CHAPTER
+        + "\n\n### Da ricordare per l'esame\n"
+        + "- La cellula contiene 7 compartimenti descritti nella dispensa."
+    )
+    monkeypatch.setattr(
+        agents, "review_chapter",
+        lambda title, _source, _previous, _config, **_kwargs: (
+            ReviewOutcome(title, True, "## Cellula\n\n" + SHORTER, "proposta")
+        ),
+    )
+    monkeypatch.setattr(agents, "_critic_verdict", lambda *_args: (True, "review"))
+    monkeypatch.setattr(agents, "_issues", lambda *_args: (0, 0, 0, 0))
+    result = review_with_agents(
+        "Cellula", complete, CHAPTER, AppConfig(),
+        summarizer=NoModel(), original_evidence=EVIDENCE,
+        max_attempts=1,
+    )
+    assert result.status == "CANDIDATE_UNVERIFIED"
+    assert result.candidate == CHAPTER.replace(MAIN, SHORTER, 1)
+    assert "7 compartimenti" not in result.candidate
+    # The old omission remains a warning for manual reconciliation.
