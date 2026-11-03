@@ -112,6 +112,17 @@ def test_duplicate_exact_claim_rejected():
         v102.apply_v102(bad)
 
 
+def test_independent_shortened_target_still_blocks_duplicate():
+    original = _document()
+    patch = v102.REVISIONS[-1]
+    assert patch.after in patch.before
+    unsafe = original.replace(
+        patch.before, patch.before + "\n\n" + patch.after, 1
+    )
+    with pytest.raises(ValueError, match="Ancoraggio"):
+        v102.apply_v102(unsafe)
+
+
 def test_real_exam_number_convention_is_still_present():
     from bc_science.summarizer import _preserves_exam_numbers
 
