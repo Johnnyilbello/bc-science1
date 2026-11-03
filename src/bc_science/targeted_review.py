@@ -236,11 +236,37 @@ def _ground_pilot_rewrite(
         # happened, e.g. combining duplicate sentences without new claims.
         changed = claims
     evidence_candidates: list[tuple[float, OriginalEvidence]] = []
+    strong = {
+        "responsabile", "responsabili", "provoca", "provocano",
+        "garantisce", "garantiscono", "sempre", "necessariamente",
+        "impedisce", "impediscono", "dimostra", "dimostrano",
+    }
+    def markers(statement: str) -> tuple[bool, bool, set[str]]:
+        words = set(re.findall(r"[a-zà-ÿ]+", statement.casefold()))
+        return (
+            bool(words & {"non", "mai", "senza"}),
+            bool(words & {
+                "può", "possono", "potrebbe", "potrebbero",
+                "possibile", "possibili", "probabile", "probabili",
+            }),
+            words & strong,
+        )
+
     for claim in claims:
         matching = max(source_clauses, key=lambda q: _overlap(claim, q))
         if _overlap(claim, matching) < 0.60:
             raise ValueError(
                 "Affermazione della proposta senza appoggio nella Completa"
+            )
+        negated, hedged, categorical = markers(claim)
+        source_negated, source_hedged, source_categorical = markers(matching)
+        if (
+            negated != source_negated
+            or hedged != source_hedged
+            or categorical - source_categorical
+        ):
+            raise ValueError(
+                "Qualificatore o negazione alterati rispetto alla Completa"
             )
         if matching not in chosen:
             chosen.append(matching)
