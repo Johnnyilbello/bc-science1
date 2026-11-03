@@ -23,6 +23,7 @@ from .summarizer import (
     Summarizer,
     _extract_summary_chapters,
     _key,
+    _missing_exam_points,
     _preserves_exam_numbers,
 )
 from .targeted_review import review_chapter
@@ -223,6 +224,7 @@ def _review_long_chapter(
             len(original_evidence),
         )
     baseline = _issues(title, complete, essential)
+    existing_missing = set(_missing_exam_points(complete, essential))
     attempts: list[AgentAttempt] = []
     for number, (window, source, proofs) in enumerate(windows[:max_attempts], 1):
         if progress:
@@ -275,7 +277,8 @@ def _review_long_chapter(
         if (
             not set(numeric.findall(window))
             <= set(numeric.findall(revised_window))
-            or not _preserves_exam_numbers(complete, revised_chapter)
+            or not set(_missing_exam_points(complete, revised_chapter))
+            <= existing_missing
             or any(
                 current > previous
                 for current, previous in zip(
