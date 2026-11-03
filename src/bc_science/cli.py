@@ -351,6 +351,73 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("autopilot-preview")
+def courses_autopilot_preview(
+    course: Annotated[
+        Path, typer.Argument(help="Cartella della singola materia con dispense originali"),
+    ],
+    complete: Annotated[
+        Path, typer.Option("--complete", help="Completa esistente (Markdown)"),
+    ],
+    essential: Annotated[
+        Path, typer.Option("--essential", help="Essenziale candidata (Markdown)"),
+    ],
+    output_dir: Annotated[
+        Path, typer.Option("--output-dir", help="Cartella nuova di anteprima/checkpoint"),
+    ],
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=5),
+    ] = 3,
+    resume: Annotated[
+        bool, typer.Option("--resume", help="Riprende checkpoint nella stessa cartella"),
+    ] = False,
+) -> None:
+    """Tre capitoli con Spark, prove originali e ripresa; NON pubblica PDF."""
+    from .autopilot_runner import run_scientific_pilot
+    from .courses import scan_course
+
+    config = _config()
+    if "spark-x2.5-4b" not in config.generation_model.casefold():
+        console.print(
+            "[red]Il profilo standard non è Spark X2.5 4B: "
+            "verifica config.json prima del test.[/]"
+        )
+        raise typer.Exit(1)
+    client = _require_ollama(config)
+    if config.generation_model not in client.models():
+        console.print("[red]Spark non installato nel server Ollama attivo.[/]")
+        raise typer.Exit(1)
+
+    def show_progress(message: str) -> None:
+        console.print(f"[dim]{message}[/]")
+
+    try:
+        scan = scan_course(course)
+        result = run_scientific_pilot(
+            scan, complete, essential, output_dir, config,
+            max_attempts=max_attempts, resume=resume,
+            progress=show_progress,
+        )
+    except (ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
+        console.print(f"[red]Autopilot fermato:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads(
+        (result / "autopilot-report.json").read_text(encoding="utf-8")
+    )
+    console.print("[green]Anteprima autonoma conclusa, nessuna pubblicazione.[/]")
+    console.print(f"Report: {result / 'autopilot-report.json'}")
+    for item in report["chapters"]:
+        console.print(
+            f"  {item['title']}: {item['status']}, "
+            f"{len(item['attempts'])} tentativi, "
+            f"{len(item['evidence'])} fonti"
+        )
+    console.print(
+        f"Audit {report['before_status']} → {report['after_status']}; "
+        "[yellow]tutte le proposte richiedono verifica umana.[/]"
+    )
+
+
 @courses_app.command("repair-preview")
 def courses_repair_preview(
     root: Annotated[
