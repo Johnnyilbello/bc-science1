@@ -140,7 +140,8 @@ def apply_v102(v101_text: str) -> tuple[str, list[dict]]:
         old_chapter = v101_text[slice(*spans[title])]
         changed_chapter = old_chapter
         for patch in (item for item in REVISIONS if item.title == title):
-            if changed_chapter.count(patch.before) != 1 or patch.after in changed_chapter:
+            remaining = changed_chapter.replace(patch.before, "", 1)
+            if changed_chapter.count(patch.before) != 1 or patch.after in remaining:
                 raise ValueError(f"Ancoraggio V10.2 assente o ambiguo: {patch.ident}")
             changed_chapter = changed_chapter.replace(patch.before, patch.after, 1)
             before_nums = _number_tokens(patch.before)
