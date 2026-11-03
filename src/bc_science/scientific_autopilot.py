@@ -17,7 +17,7 @@ from .config import AppConfig
 from .evidence_engine import OriginalEvidence
 from .fast_audit import _title_spelling_key, audit_fast_essential
 from .italian_proofreading import grammar_findings
-from .quality_signals import assess_chapter
+from .quality_signals import _lines, _overlap, assess_chapter
 from .structural_checks import find_structural_issues
 from .summarizer import (
     Summarizer,
@@ -27,7 +27,7 @@ from .summarizer import (
 )
 from .targeted_review import review_chapter
 
-AGENT_VERSION = "scientific-autopilot-v1-bounded-review"
+AGENT_VERSION = "scientific-autopilot-v2-segmented-windows"
 PRIORITY_CHAPTERS = (
     "la cellula e il nucleo",
     "Il ciclo di Krebs",
@@ -133,6 +133,187 @@ def _critic_verdict(
         return False, "Revisore non disponibile oppure JSON non valido"
 
 
+def _grounded_windows(
+    title: str,
+    complete: str,
+    essential: str,
+    evidence: list[OriginalEvidence],
+) -> list[tuple[str, str, list[OriginalEvidence]]]:
+    """Choose small, uniquely replaceable prose windows with real-source support.
+
+    Never select study headings, exam bullet lists, or a window whose claims
+    cannot be located in the Complete and at least one original page.
+    """
+    original_statements = _lines(complete)
+    windows: list[tuple[str, str, list[OriginalEvidence]]] = []
+    if not original_statements:
+        return windows
+    split = re.compile(r"(?<=[.!?])\s+(?=[A-ZÀ-ÖØ-Ý])")
+    for paragraph in re.split(r"\n\s*\n", essential):
+        raw = paragraph.strip()
+        if (
+            not raw or raw.startswith(("#", "-", "*", ">", "---"))
+            or "\n#" in raw or "\n-" in raw
+        ):
+            continue
+        statements = [line.strip() for line in split.split(raw) if line.strip()]
+        if not statements:
+            continue
+        # Bounded, disjoint pieces: a huge paragraph must not become one
+        # giant prompt and one giant scientific diff.
+        for position in range(0, len(statements), 4):
+            group = statements[position:position + 4]
+            text = " ".join(group)
+            words = len(text.split())
+            if not 35 <= words <= 160 or essential.count(text) != 1:
+                continue
+            claims = _lines(text)
+            if not claims or len(claims) > 8:
+                continue
+            selected: list[str] = []
+            unsupported = False
+            for claim in claims:
+                exact = max(
+                    original_statements,
+                    key=lambda statement: _overlap(claim, statement),
+                )
+                if _overlap(claim, exact) < 0.65:
+                    unsupported = True
+                    break
+                if exact not in selected:
+                    selected.append(exact)
+            if unsupported or not selected or len(selected) > 8:
+                continue
+            matching_evidence = [
+                source for source in evidence
+                if any(
+                    _overlap(claim, source.excerpt) >= 0.65
+                    for claim in claims
+                )
+            ]
+            if not matching_evidence:
+                continue
+            fragment = f"## {title}\n\n" + "\n".join(selected)
+            windows.append((text, fragment, matching_evidence[:4]))
+    # Select longer windows that have relevant original-source excerpts first.
+    windows.sort(key=lambda item: (-len(item[0].split()), item[0]))
+    return windows
+
+
+def _review_long_chapter(
+    title: str,
+    complete: str,
+    essential: str,
+    config: AppConfig,
+    *,
+    summarizer: Summarizer,
+    original_evidence: list[OriginalEvidence],
+    max_attempts: int,
+    progress: Callable[[str], None] | None,
+) -> AgentResult:
+    """One independent, small-window proposal per attempt, never full rewrite."""
+    windows = _grounded_windows(title, complete, essential, original_evidence)
+    if not windows:
+        return AgentResult(
+            title, "BLOCKED_NO_GROUNDED_WINDOWS", essential,
+            (AgentAttempt(
+                0, "BLOCKED",
+                "Nessuna porzione breve con prove sufficienti nelle dispense.",
+            ),),
+            len(original_evidence),
+        )
+    baseline = _issues(title, complete, essential)
+    attempts: list[AgentAttempt] = []
+    for number, (window, source, proofs) in enumerate(windows[:max_attempts], 1):
+        if progress:
+            progress(
+                f"Redattore: porzione {number}/{min(max_attempts, len(windows))} "
+                f"per {title} ({len(window.split())} parole)"
+            )
+        # A local window becomes a tiny *independent* edit. Neither the
+        # rest of the chapter nor exam bullets are transmitted for rewriting.
+        before = f"## {title}\n\n{window}"
+        try:
+            written = review_chapter(
+                title, source, before, config,
+                summarizer=summarizer,
+                original_evidence=proofs,
+                autopilot_mode=True,
+            )
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            attempts.append(AgentAttempt(number, "BLOCKED", str(exc)[:250]))
+            break
+        if not written.applied:
+            attempts.append(AgentAttempt(
+                number, "REJECTED",
+                f"Porzione {number}: {written.reason[:220]}",
+            ))
+            continue
+        result = written.text.strip()
+        prefix = f"## {title}"
+        if not result.startswith(prefix + "\n"):
+            attempts.append(AgentAttempt(
+                number, "REJECTED", "Titolo della porzione alterato",
+            ))
+            continue
+        revised_window = result[len(prefix):].strip()
+        if (
+            not revised_window or "##" in revised_window
+            or len(revised_window.split()) >= len(window.split())
+        ):
+            attempts.append(AgentAttempt(
+                number, "REJECTED",
+                "Porzione non accorciata o struttura non valida",
+            ))
+            continue
+        if essential.count(window) != 1:
+            raise ValueError("Ambiguità della porzione: anteprima bloccata")
+        revised_chapter = essential.replace(window, revised_window, 1)
+        # Preserve every source number in the changed window, not just
+        # numbers in the "Da ricordare" bullets.
+        numeric = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
+        if (
+            not set(numeric.findall(window))
+            <= set(numeric.findall(revised_window))
+            or not _preserves_exam_numbers(complete, revised_chapter)
+            or any(
+                current > previous
+                for current, previous in zip(
+                    _issues(title, complete, revised_chapter),
+                    baseline, strict=True,
+                )
+            )
+        ):
+            attempts.append(AgentAttempt(
+                number, "REJECTED",
+                "Numeri o copertura scientifica peggiorati",
+            ))
+            continue
+        passed, reason = _critic_verdict(
+            title, source, before, written.text,
+            proofs, summarizer,
+        )
+        if not passed:
+            attempts.append(AgentAttempt(
+                number, "REJECTED",
+                f"Revisore della porzione: {reason[:210]}",
+            ))
+            continue
+        if (
+            revised_chapter.replace(revised_window, window, 1) != essential
+        ):
+            raise ValueError("La proposta modifica testo fuori dalla porzione.")
+        attempts.append(AgentAttempt(number, "CANDIDATE", reason))
+        return AgentResult(
+            title, "CANDIDATE_UNVERIFIED", revised_chapter,
+            tuple(attempts), len(original_evidence),
+        )
+    return AgentResult(
+        title, "BLOCKED_FOR_MANUAL_REVIEW", essential,
+        tuple(attempts), len(original_evidence),
+    )
+
+
 def review_with_agents(
     title: str,
     complete: str,
@@ -149,6 +330,15 @@ def review_with_agents(
         raise ValueError("Numero di tentativi ammesso: da 1 a 5.")
     if not original_evidence:
         return AgentResult(title, "BLOCKED_NO_ORIGINAL_EVIDENCE", essential, (), 0)
+    # Whole-chapter rewriting caused systematic "unsupported claim" and
+    # ">12 citations" failures. Long chapters use isolated evidence-backed
+    # windows; a rejected window is never retried unchanged three times.
+    if len(essential.split()) >= 320:
+        return _review_long_chapter(
+            title, complete, essential, config,
+            summarizer=summarizer, original_evidence=original_evidence,
+            max_attempts=max_attempts, progress=progress,
+        )
 
     history: list[AgentAttempt] = []
     seen: set[str] = set()
