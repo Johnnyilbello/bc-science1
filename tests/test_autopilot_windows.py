@@ -13,7 +13,9 @@ MAIN = (
     "Le proteine di membrana contribuiscono al trasporto delle sostanze "
     "e permettono alcune comunicazioni tra cellule differenti. "
     "Questi processi sono importanti per mantenere l'omeostasi e "
-    "permettere gli scambi necessari al metabolismo cellulare."
+    "permettere gli scambi necessari al metabolismo cellulare. "
+    "La membrana cellulare è composta da un doppio strato fosfolipidico "
+    "che separa l'ambiente interno da quello esterno."
 )
 SHORTER = (
     "La membrana cellulare è composta da un doppio strato fosfolipidico "
@@ -59,6 +61,7 @@ def test_long_chapter_only_rewrites_window_leaving_everything_else(monkeypatch):
         assert MAIN in previous
         assert OTHER not in previous
         assert kwargs["autopilot_mode"]
+        assert "struttura=1" in kwargs["retry_context"]
         return ReviewOutcome(
             title, True, "## Cellula\n\n" + SHORTER,
             "proposta solo per la porzione",
@@ -191,3 +194,91 @@ def test_hard_wrapped_paragraph_window_is_preserved_verbatim():
     assert windows[0][0] == wrapped
     assert chapter.count(windows[0][0]) == 1
     assert all(line in windows[0][1] for line in wrapped.splitlines())
+
+
+
+def test_clean_source_backed_windows_are_skipped_without_model_call(monkeypatch):
+    import bc_science.scientific_autopilot as agents
+
+    duplicate = (
+        " La membrana cellulare è composta da un doppio strato fosfolipidico "
+        "che separa l'ambiente interno da quello esterno."
+    )
+    clean = MAIN.replace(duplicate, "")
+    chapter = CHAPTER.replace(MAIN, clean)
+    evidence = [OriginalEvidence(
+        source_path="dispensa.pdf", page=3, block=None, excerpt=clean,
+        rank=1, provenance="original_pdf_page",
+    )]
+    monkeypatch.setattr(
+        agents, "review_chapter",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("A clean window must not call the writer")
+        ),
+    )
+    result = review_with_agents(
+        "Cellula", chapter, chapter, AppConfig(),
+        summarizer=NoModel(), original_evidence=evidence, max_attempts=2,
+    )
+    assert result.status == "SKIPPED_NO_ACTIONABLE_ISSUE"
+    assert result.candidate == chapter
+    assert len(result.attempts) == 1
+    assert result.attempts[0].status == "SKIPPED"
+
+
+def test_grammar_correction_same_word_count_is_allowed_when_measurable(monkeypatch):
+    import bc_science.scientific_autopilot as agents
+
+    clean = MAIN.rsplit(
+        " La membrana cellulare è composta", 1,
+    )[0]
+    broken = clean.replace(
+        "La membrana cellulare", "Il scheletro cellulare", 1,
+    )
+    corrected = broken.replace("Il scheletro", "Lo scheletro", 1)
+    complete = CHAPTER.replace(MAIN, corrected)
+    study = CHAPTER.replace(MAIN, broken)
+    evidence = [OriginalEvidence(
+        source_path="dispensa.pdf", page=3, block=None, excerpt=corrected,
+        rank=1, provenance="original_pdf_page",
+    )]
+    calls = []
+
+    def writer(title, _source, previous, _config, **kwargs):
+        calls.append(kwargs["retry_context"])
+        assert broken in previous
+        return ReviewOutcome(title, True, "## Cellula\n\n" + corrected, "grammar")
+
+    monkeypatch.setattr(agents, "review_chapter", writer)
+    monkeypatch.setattr(agents, "_critic_verdict", lambda *_args: (True, "review"))
+    result = review_with_agents(
+        "Cellula", complete, study, AppConfig(),
+        summarizer=NoModel(), original_evidence=evidence, max_attempts=1,
+    )
+    assert len(broken.split()) == len(corrected.split())
+    assert result.status == "CANDIDATE_UNVERIFIED"
+    assert result.candidate == study.replace(broken, corrected, 1)
+    assert len(calls) == 1
+    assert "lingua=1" in calls[0]
+    assert result.attempts[0].focus.startswith("lingua=1")
+
+
+def test_unsupported_writer_claim_remains_rejected_without_publication(monkeypatch):
+    import bc_science.scientific_autopilot as agents
+
+    monkeypatch.setattr(
+        agents, "review_chapter",
+        lambda title, _source, previous, _config, **_kwargs: ReviewOutcome(
+            title, False, previous,
+            "Affermazione della proposta senza appoggio nella Completa",
+        ),
+    )
+    result = review_with_agents(
+        "Cellula", CHAPTER, CHAPTER, AppConfig(),
+        summarizer=NoModel(), original_evidence=EVIDENCE,
+        max_attempts=1,
+    )
+    assert result.status == "BLOCKED_FOR_MANUAL_REVIEW"
+    assert result.candidate == CHAPTER
+    assert result.attempts[0].status == "REJECTED"
+    assert "senza appoggio" in result.attempts[0].reason
