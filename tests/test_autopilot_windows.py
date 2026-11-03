@@ -180,3 +180,14 @@ def test_preexisting_missing_exam_fact_does_not_block_unrelated_safe_window(
     assert result.candidate == CHAPTER.replace(MAIN, SHORTER, 1)
     assert "7 compartimenti" not in result.candidate
     # The old omission remains a warning for manual reconciliation.
+
+
+
+def test_hard_wrapped_paragraph_window_is_preserved_verbatim():
+    wrapped = MAIN.replace(". ", ".\n")
+    chapter = "## Cellula\n\n" + wrapped + "\n\n" + OTHER
+    windows = _grounded_windows("Cellula", chapter, chapter, EVIDENCE)
+    assert windows
+    assert windows[0][0] == wrapped
+    assert chapter.count(windows[0][0]) == 1
+    assert all(line in windows[0][1] for line in wrapped.splitlines())
