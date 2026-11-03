@@ -107,7 +107,7 @@ AMENDMENTS = (
          "(Fonte p.2); nella formulazione della Completa esistono solo se "
          "il carbonio è legato a 4 gruppi diversi."),
         ("Gli enantiomeri sono immagini speculari non sovrapponibili (Fonte p.2). "
-         "Un carbonio legato a quattro gruppi diversi è un caso comune di centro "
+         "Un carbonio legato a 4 gruppi diversi è un caso comune di centro "
          "chirale, ma la chiralità può essere anche assiale."),
         ("La presenza di un carbonio tetraedrico stereogenico è un caso comune, "
          "ma non una condizione universale di chiralità."),
@@ -252,7 +252,17 @@ def run_scientific_clarifications(
     before = audit_fast_essential(full, prior)
     after = audit_fast_essential(full, candidate)
     if after.status == "FAIL" and before.status != "FAIL":
-        raise ValueError("Un nuovo FAIL dell'audit blocca la candidata.")
+        new_missing = sorted(
+            set(getattr(after, "missing_exam_number_chapters", ()))
+            - set(getattr(before, "missing_exam_number_chapters", ()))
+        )
+        detail = (
+            " Numeri d'esame non preservati: " + ", ".join(new_missing) + "."
+            if new_missing else ""
+        )
+        raise ValueError(
+            "Un nuovo FAIL dell'audit blocca la candidata." + detail
+        )
     if _fingerprint(_snapshot(scan)) != manifest["fingerprint"] or any(
         p.read_bytes() != original for p, original in zip(paths, originals, strict=True)
     ):
