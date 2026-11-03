@@ -351,6 +351,40 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("scientific-polish-preview")
+def courses_scientific_polish_preview(
+    course: Annotated[Path, typer.Argument(help="Dispense PDF originali della materia")],
+    complete: Annotated[Path, typer.Option("--complete")],
+    v101_candidate: Annotated[Path, typer.Option("--v101-candidate")],
+    v101_report: Annotated[Path, typer.Option("--v101-report")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """Anteprima V10.2 a cinque modifiche, senza pubblicazione o approvazione."""
+    from .courses import scan_course
+    from .scientific_clarifications_v102 import run_v102
+
+    try:
+        output = run_v102(
+            scan_course(course), complete, v101_candidate, v101_report, output_dir,
+        )
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        console.print(f"[red]V10.2 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+    report = json.loads((output / "v10.2-report.json").read_text(encoding="utf-8"))
+    console.print("[green]V10.2 generata: CANDIDATA NON PUBBLICATA.[/]")
+    console.print(f"Modifiche tracciate: {len(report['changes'])}")
+    for item in report["chapters"]:
+        console.print(
+            f"{item['title']}: riduzione {item['reduction_percent']}% "
+            f"· obiettivo: {item['target_met']}"
+        )
+    console.print(f"Audit: {report['before_audit']} → {report['after_audit']}")
+    console.print(f"Dossier: {output / 'v10.2-dossier.md'}")
+    console.print(
+        "[yellow]Revisione scientifica dei PDF e convenzione ATP ancora necessarie.[/]"
+    )
+
+
 @courses_app.command("scientific-clarifications-preview")
 def courses_scientific_clarifications_preview(
     course: Annotated[Path, typer.Argument(help="Cartella delle dispense originali")],
