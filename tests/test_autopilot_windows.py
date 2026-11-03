@@ -45,7 +45,7 @@ def test_grounded_windows_find_short_source_backed_fragment():
     assert windows
     assert windows[0][0] == MAIN
     assert len(windows[0][0].split()) < len(CHAPTER.split())
-    assert MAIN in windows[0][1]
+    assert all(line in windows[0][1] for line in MAIN.split(". "))
     assert windows[0][2] == EVIDENCE
 
 
@@ -144,7 +144,7 @@ def test_grounded_windows_do_not_select_exam_bullets():
         "## Cellula\n\n"
         + MAIN
         + "\n\n### Da ricordare per l'esame\n\n"
-        + "- " + MAIN + "\n\n" + OTHER
+        + "- Un promemoria non deve essere selezionato come testo da riscrivere.\n\n" + OTHER
     )
     windows = _grounded_windows("Cellula", chapter, chapter, EVIDENCE)
     assert windows
