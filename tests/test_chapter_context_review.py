@@ -107,7 +107,7 @@ def test_contextual_review_finds_coverage_but_does_not_add_science(tmp_path, mon
     ]
     dossier = (folder / "v9-dossier.md").read_text(encoding="utf-8")
     assert "Reazioni anaplerotiche" in dossier
-    assert "Grammatica" in dossier
+    assert "Correzione grammaticale proposta" in dossier
     assert "2× " + KREBS_OTHER in dossier
     assert hashlib.sha256(complete_file.read_bytes()).hexdigest() == initial_complete_hash
     assert hashlib.sha256(study_file.read_bytes()).hexdigest() == initial_study_hash
