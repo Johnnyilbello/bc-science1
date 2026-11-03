@@ -1,0 +1,262 @@
+[
+  {
+    "title": "Il ciclo di Krebs",
+    "source_sha256": "3ec698d5dfa58a0c08145de1a97497ee38c76dfa178e597870e7ab1a01ac89e6",
+    "groups": [
+      {
+        "source_ids": [
+          "F001",
+          "F002",
+          "F003",
+          "F004",
+          "F006",
+          "F010",
+          "F035"
+        ],
+        "text": "Il ciclo di Krebs è un processo chimico che avviene nella matrice mitocondriale delle cellule eucariotiche. Il mitocondrio è un organulo formato da due membrane, interna ed esterna, che ospita la respirazione cellulare; lo spazio interno è la matrice. La respirazione cellulare comprende tutti i processi molecolari in cui la cellula consuma ossigeno (O2) e produce CO2 per ottenere energia. La funzione principale del ciclo è ossidare completamente i nutrienti, come glucosio, grassi e amminoacidi, fino a CO2 e H2O. L'energia viene rilasciata sotto forma di trasportatori di elettroni NADH e FADH2 e di ATP/GTP. Il catabolismo è l'insieme delle reazioni di demolizione dei nutrienti per liberare energia. Il ciclo è anche una via anfibolica: può svolgere sia catabolismo, cioè demolizione, sia anabolismo, cioè costruzione. La maggior parte delle cellule eucariotiche preferisce il metabolismo aerobico. La glicolisi è solo la prima fase: il suo prodotto finale, il piruvato, non viene ridotto come nelle condizioni anaerobiche di fermentazione, ma viene trasportato nei mitocondri per essere ossidato nel ciclo. Serve come punto di convergenza finale per tutti i catabolismi ossidativi.",
+        "coverage_rationale": "Integra introduzione e definizioni; conserva localizzazione eucariotica, preferenza aerobica e confronto con fermentazione."
+      },
+      {
+        "source_ids": [
+          "F005",
+          "F011",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F023",
+          "F024",
+          "F025",
+          "F044"
+        ],
+        "text": "La respirazione ha tre fasi: formazione del gruppo acetilico dell'acetil-CoA dai nutrienti; ossidazione enzimatica dell'acetil-CoA a CO2 nel ciclo, con riduzione di NAD+ a NADH e FAD a FADH2; trasferimento degli elettroni da NADH/FADH2 alla catena respiratoria e all'ossigeno, formando acqua e ATP mediante fosforilazione ossidativa. L'acetil-CoA, con due atomi di carbonio, converge dai catabolismi ossidativi di grassi, carboidrati e alcuni amminoacidi: deriva direttamente dalla β-ossidazione degli acidi grassi, dai corpi chetonici e da leucina/isoleucina; glucosio e altri carboidrati passano prima per il piruvato.",
+        "coverage_rationale": "Conserva ordine delle tre fasi, coppie redox, origini dirette e passaggio obbligato dei carboidrati. La resa di F025 è conservata nel ripasso."
+      },
+      {
+        "source_ids": [
+          "F007",
+          "F017",
+          "F018",
+          "F019",
+          "F036",
+          "F039"
+        ],
+        "text": "Nella matrice, il complesso della piruvato deidrogenasi ossida il piruvato formando una molecola di CO2 e una di acetil-CoA. La conversione è irreversibile: non esiste una via per trasformare acetil-CoA in piruvato; irreversibile significa che la reazione non può procedere in senso inverso.",
+        "coverage_rationale": "Unifica conversione, localizzazione e definizione di irreversibilità; nessuna conversione inversa introdotta."
+      },
+      {
+        "source_ids": [
+          "F016",
+          "F020",
+          "F021",
+          "F022",
+          "F026",
+          "F040",
+          "F041"
+        ],
+        "text": "Otto reazioni enzimatiche, con enzimi specifici per ogni tappa, iniziano e terminano con ossalacetato (4 carboni). La citrato sintasi catalizza la condensazione irreversibile con acetil-CoA, formando citrato (6 carboni) e rilasciando CoA-SH riutilizzabile. Deidrogenazioni e decarbossilazioni eliminano due carboni come CO2 e rigenerano ossalacetato. La fumarato idratasi agisce solo sul doppio legame trans del fumarato, non sull'isomero cis, maleato. L'ossalacetato è a concentrazione cellulare molto bassa perché continuamente rimosso dalla citrato sintasi: ciò spinge l'equilibrio della malato deidrogenasi verso la sua produzione.",
+        "coverage_rationale": "Preserva sequenza, conteggi del carbonio, specificità trans/non cis e relazione causale sulla concentrazione."
+      },
+      {
+        "source_ids": [
+          "F008",
+          "F009",
+          "F027",
+          "F028",
+          "F029",
+          "F042",
+          "F043",
+          "F047",
+          "F048"
+        ],
+        "text": "Il ciclo è aperto, non chiuso: gli intermedi possono uscire per la biosintesi o rientrare tramite reazioni anaplerotiche, che riforniscono il ciclo senza fermarlo quando sono sottratti. Se mancano intermedi il ciclo può rallentare; l'acetil-CoA attiva la piruvato carbossilasi, che converte piruvato in ossalacetato. Nelle immagini didattiche le reazioni anaplerotiche sono indicate da frecce nere.",
+        "coverage_rationale": "Conserva apertura, condizioni di carenza, attivatore, reazione e indicazione grafica; non elimina il qualificatore può."
+      },
+      {
+        "source_ids": [
+          "F030",
+          "F031",
+          "F032",
+          "F033",
+          "F034",
+          "F046"
+        ],
+        "text": "Durante il digiuno, l'ossalacetato diventa malato o aspartato, trasportati per sintetizzare glucosio nel fegato. Nel fegato α-chetoglutarato e ossalacetato forniscono amminoacidi; nel cervello α-chetoglutarato diventa glutammato e poi GABA. Il ciclo non produce solo energia: fornisce anche precursori biosintetici, distinguendo fegato e cervello.",
+        "coverage_rationale": "Conserva digiuno, organi, intermedi e ordine glutammato poi GABA."
+      },
+      {
+        "source_ids": [
+          "F025",
+          "F037",
+          "F038",
+          "F045"
+        ],
+        "text": "### Ripasso essenziale\nPer acetil-CoA: 3 NADH, 1 FADH2 e 1 GTP (o ATP). La Completa riporta circa 12 ATP totali, con la ripartizione «3 da NADH, 2 da FADH2, 1 diretto + 6 derivati dalla fosforilazione ossidativa»; nel ripasso indica circa 3 ATP per NADH e 2 per FADH2, e 12 ATP totali per acetil-CoA.",
+        "coverage_rationale": "Conserva entrambe le formulazioni energetiche della Completa senza correggere né conciliare la discrepanza; da verificare sulle dispense."
+      }
+    ]
+  },
+  {
+    "title": "La struttura terziaria e quaternaria delle proteine ed i lipidi",
+    "source_sha256": "5d1cc73652ac4aced3d90d4beef926e141cc08f02c63c8542b4e83031b712602",
+    "editorial_ids": [
+      "F035"
+    ],
+    "groups": [
+      {
+        "source_ids": [
+          "F001",
+          "F002",
+          "F008",
+          "F009",
+          "F010",
+          "F017",
+          "F023",
+          "F024",
+          "F025",
+          "F032",
+          "F034"
+        ],
+        "text": "Le proteine sono lunghe catene di aminoacidi che non rimangono diritte, ma si ripiegano in forme complesse per funzionare. La struttura terziaria è il ripiegamento tridimensionale di una singola catena polipeptidica. Dipende dalle interazioni tra i gruppi R, le catene laterali degli aminoacidi, non dalla struttura secondaria. I gruppi R determinano le forze di attrazione o repulsione durante il ripiegamento; le interazioni possono coinvolgere anche aminoacidi della stessa catena molto lontani. Esistono quattro tipi di forze: legami ionici tra cariche opposte, legami idrogeno tra aminoacidi polari, forze di van der Waals tra catene apolari che si nascondono dall'acqua e legami disolfuro. Il legame disolfuro è un legame covalente forte formato da due atomi di zolfo provenienti da due aminoacidi cisteina: è simboleggiato da S-S e stabilizza la struttura terziaria.",
+        "coverage_rationale": "Unifica definizioni e spiegazione; preserva quattro forze, contesti, due cisteine e negazione sulla struttura secondaria."
+      },
+      {
+        "source_ids": [
+          "F002",
+          "F003",
+          "F004",
+          "F011",
+          "F012",
+          "F018",
+          "F019",
+          "F020",
+          "F021",
+          "F026",
+          "F027",
+          "F031",
+          "F033"
+        ],
+        "text": "Quando più catene polipeptidiche interagiscono e si uniscono tra loro, si forma la struttura quaternaria, come nell'emoglobina o negli anticorpi. Non confondere le catene Alfa/Beta dell'emoglobina con la struttura secondaria ad alfa-elica: la struttura quaternaria richiede più catene. Se il ripiegamento è sbagliato, la proteina perde la sua funzione biologica. Per evitare questi errori esistono i chaperoni molecolari, proteine ausiliarie che aiutano altre proteine e mediano il corretto ripiegamento. All'interno della proteina si trovano i domini: regioni compatte e funzionali, piccoli blocchi con funzioni specifiche. I domini possono essere uguali o simili in proteine con ruoli convergenti.",
+        "coverage_rationale": "Conserva esempi, distinzione Alfa/Beta, funzione dei chaperoni e qualificatore possono per i domini."
+      },
+      {
+        "source_ids": [
+          "F005",
+          "F006",
+          "F007",
+          "F013",
+          "F014",
+          "F015",
+          "F016",
+          "F022",
+          "F028",
+          "F029",
+          "F030"
+        ],
+        "text": "I lipidi sono composti diversi, insolubili in acqua per le catene idrocarburiche apolari. Gli acidi grassi si classificano in base alla presenza di doppi legami. Quelli saturi non hanno doppi legami fra carboni: sono dritti e solidi a temperatura ambiente. Gli insaturi hanno uno o più doppi legami che piegano la catena, rendendoli liquidi. L'idrogenazione converte insaturi in saturi (es. margarina). I trigliceridi sono riserve energetiche formate da un glicerolo e tre acidi grassi uniti da legami esterei. Fosfolipidi e sfingolipidi sono anfipatici: testa polare idrofila, amante dell'acqua, e code apolari idrofobiche, che respingono l'acqua; questa natura permette membrane cellulari stabili in doppio strato.",
+        "coverage_rationale": "Integra composizione del trigliceride e definizioni lipidiche; non aggiunge orientamento delle teste/code assente nella Completa."
+      },
+      {
+        "source_ids": [
+          "F023",
+          "F025",
+          "F033"
+        ],
+        "text": "### Ripasso essenziale\nDistinguere struttura terziaria, quaternaria e secondaria; ricordare il legame covalente S-S e la distinzione fra catene Alfa/Beta e alfa-elica.",
+        "coverage_rationale": "Promemoria senza nuova affermazione: i dettagli e la negazione sono conservati nei paragrafi precedenti."
+      }
+    ]
+  },
+  {
+    "title": "CHIMICA ORGANICA e carboidrati",
+    "source_sha256": "c75d463941f378f58f092f9e8a5c41f11e8bcbd56c7ce71aa8ebc1992df330a7",
+    "groups": [
+      {
+        "source_ids": [
+          "F001",
+          "F002",
+          "F003",
+          "F004",
+          "F005",
+          "F006",
+          "F013",
+          "F014",
+          "F015",
+          "F028",
+          "F030"
+        ],
+        "text": "La chimica organica studia i composti del carbonio legati da legami covalenti, fondamentali per la vita (Fonte p.1). Fra le biomolecole figurano zuccheri, proteine e DNA. Il carbonio ha la capacità di legare contemporaneamente fino a 4 atomi. Può formare legami singoli, doppi o tripli con altri atomi di carbonio: questo permette di creare catene lunghe e ramificate, chiamate scheletro carbonioso, che costituiscono la base strutturale delle molecole organiche (Fonte p.1). La forma delle molecole dipende dalla disposizione degli atomi nello spazio e dai gruppi specifici che contengono; questi gruppi ne determinano anche le proprietà chimiche.",
+        "coverage_rationale": "Conserva legami covalenti, contemporaneità, limite quattro/4, ramificazione, esempi e riferimenti p.1; F028 coperto anche nei gruppi successivi."
+      },
+      {
+        "source_ids": [
+          "F010",
+          "F016",
+          "F017",
+          "F018",
+          "F019",
+          "F020",
+          "F028",
+          "F031"
+        ],
+        "text": "Se una molecola organica contiene solo carbonio e idrogeno, cioè C e H, si chiama idrocarburo. Se il legame tra i carboni è sempre singolo, è un alcano; se c'è almeno un doppio legame è un alchene; se c'è un triplo legame è un alchino. Gli idrocarburi sono generalmente idrofobici e insolubili in acqua perché i loro legami sono apolari e non interagiscono con l'acqua (Fonte p.3).",
+        "coverage_rationale": "Mantiene solo, sempre, almeno, generalmente e negazione; nessuna restrizione più forte introdotta."
+      },
+      {
+        "source_ids": [
+          "F009",
+          "F021",
+          "F022",
+          "F028",
+          "F032",
+          "F039",
+          "F040"
+        ],
+        "text": "Sostituire un idrogeno con un gruppo funzionale, insieme di atomi, cambia drasticamente le proprietà: i gruppi determinano polarità e solubilità e possono rendere il composto spesso polare o idrofilo (Fonte p.3). Ossidrilico: alcoli, polari; carbonilico: aldeidi/chetoni, polari; carbossilico: acidi deboli, ionico quando dissociato; amminico: basico debole. Non confondere aldeide, con carbonile su carbonio terminale, e chetone, con carbonile interno alla catena.",
+        "coverage_rationale": "Conserva possibilità, spesso, condizione dissociato, acidità/basicità debole e posizione del carbonile."
+      },
+      {
+        "source_ids": [
+          "F007",
+          "F008",
+          "F028",
+          "F033",
+          "F037",
+          "F038"
+        ],
+        "text": "Gli isomeri hanno stessa formula chimica e diversa struttura (Fonte p.2): quelli strutturali differiscono nell'ordine degli atomi, quelli geometrici nella disposizione spaziale, cis/trans. Gli enantiomeri sono coppie di immagini speculari non sovrapponibili (Fonte p.2); nella formulazione della Completa esistono solo se il carbonio è legato a 4 gruppi diversi.",
+        "coverage_rationale": "Preserva distinzione strutturale/geometrica e condizione solo se della Completa senza generalizzazioni scientifiche."
+      },
+      {
+        "source_ids": [
+          "F011",
+          "F012",
+          "F023",
+          "F024",
+          "F025",
+          "F026",
+          "F027",
+          "F029",
+          "F034",
+          "F035",
+          "F036",
+          "F041",
+          "F042",
+          "F043"
+        ],
+        "text": "Le macromolecole o polimeri si costruiscono da monomeri uniti da legami covalenti: per esempio proteine da aminoacidi. La Completa indica solo proteine, acidi nucleici e carboidrati come polimeri; i lipidi non lo sono. La condensazione unisce due monomeri liberando una molecola d'acqua; l'idrolisi rompe il legame fra monomeri consumando acqua (Fonte p.6). Nel promemoria: condensazione «unisce + acqua», idrolisi «rompe - acqua». I carboidrati hanno formula generale $(CH_2O)_n$ e si classificano in monosaccaridi, disaccaridi e polisaccaridi.",
+        "coverage_rationale": "Conserva quantità acqua, legami covalenti, esempi, negazione sui lipidi, formula esatta e classi; nessuna correzione della generalizzazione sui polimeri."
+      },
+      {
+        "source_ids": [
+          "F011",
+          "F012",
+          "F037",
+          "F040"
+        ],
+        "text": "### Ripasso essenziale\nDistinguere condensazione e idrolisi, isomeri strutturali e geometrici, aldeidi e chetoni.",
+        "coverage_rationale": "Domanda di ripasso espressa come promemoria; tutti i contrasti sono spiegati prima."
+      }
+    ]
+  }
+]
