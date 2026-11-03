@@ -216,3 +216,60 @@ def test_ambiguous_title_collision_fails_before_model_or_retrieval():
         )
     assert not calls
     assert not model.calls
+
+
+
+def test_gap_dossier_matches_only_original_source_statements():
+    from bc_science.scientific_autopilot import diagnose_content_gaps
+
+    fact = (
+        "La membrana plasmatica è composta da un doppio strato fosfolipidico "
+        "e controlla il passaggio selettivo delle molecole."
+    )
+    complete = "## Cellula\n\n" + fact
+    essential = (
+        "## Cellula\n\nLe cellule possiedono un nucleo che contiene "
+        "informazioni genetiche."
+    )
+    evidence = [
+        OriginalEvidence(
+            source_path="lezione.pdf", page=4, block=None, excerpt=fact,
+            rank=1, provenance="original_pdf_page",
+        ),
+    ]
+    diagnosis = diagnose_content_gaps("Cellula", complete, essential, evidence)
+    assert diagnosis["possible_missing_total"] == 1
+    assert diagnosis["reported_missing_count"] == 1
+    assert diagnosis["source_matched_in_report"] == 1
+    assert not diagnosis["scientifically_verified"]
+    finding = diagnosis["candidates"][0]
+    assert finding["complete_quote"] == fact
+    assert finding["original_excerpt_match"]["source_path"] == "lezione.pdf"
+    assert finding["original_excerpt_match"]["page"] == 4
+    assert finding["original_excerpt_match"]["original_quote"] == fact
+
+
+def test_gap_dossier_does_not_invent_pdf_support_for_unrelated_excerpt():
+    from bc_science.scientific_autopilot import diagnose_content_gaps
+
+    fact = (
+        "La membrana plasmatica è composta da un doppio strato fosfolipidico "
+        "e controlla il passaggio selettivo delle molecole."
+    )
+    complete = "## Cellula\n\n" + fact
+    essential = (
+        "## Cellula\n\nLe cellule possiedono un nucleo che contiene "
+        "informazioni genetiche."
+    )
+    unrelated = [
+        OriginalEvidence(
+            source_path="altro.pdf", page=12, block=None,
+            excerpt="Una relazione tra strutture anatomiche distinte.",
+            rank=1, provenance="original_pdf_page",
+        ),
+    ]
+    diagnosis = diagnose_content_gaps("Cellula", complete, essential, unrelated)
+    assert diagnosis["possible_missing_total"] == 1
+    assert diagnosis["source_matched_in_report"] == 0
+    assert diagnosis["candidates"][0]["original_excerpt_match"] is None
+    assert not diagnosis["scientifically_verified"]
