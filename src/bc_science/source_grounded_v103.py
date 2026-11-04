@@ -464,26 +464,26 @@ def run_v103(
     dossier = [
         "# BC Science V10.3 — Matrice atomica ancorata ai PDF eCampus", "",
         "**PILOT NON PUBBLICATO; NON CERTIFICATO SCIENTIFICAMENTE.**", "",
-        "Verificati gli hash di sette PDF originali. Ogni riga della matrice indica "
-        "una pagina fisica e almeno un termine controllato in quel PDF. "
-        "La verifica automatica è testuale, non garantisce equivalenza semantica.", "",
-        f"Audit: {pre.status} → {post.status}. "
-        f"Fatti obbligatori: {len(FACTS)}. "
-        f"Capitoli esterni invariati: {len(original_spans) - len(TITLES)}.",
+        ("Verificati gli hash di sette PDF originali. Ogni riga della matrice indica "
+         "una pagina fisica e almeno un termine controllato in quel PDF. "
+         "La verifica automatica è testuale, non garantisce equivalenza semantica."), "",
+        (f"Audit: {pre.status} → {post.status}. "
+         f"Fatti obbligatori: {len(FACTS)}. "
+         f"Capitoli esterni invariati: {len(original_spans) - len(TITLES)}."),
         "",
         "## Compressione (nessun tetto obbligatorio)", "",
     ]
     for entry in metrics:
         dossier += [
-            f"- {entry['title']}: {entry['candidate_words']}/"
-            f"{entry['complete_words']} parole, riduzione {entry['reduction_percent']}%.",
+            (f"- {entry['title']}: {entry['candidate_words']}/"
+             f"{entry['complete_words']} parole, riduzione {entry['reduction_percent']}%."),
         ]
     dossier += ["", "## Matrice PDF → pagina → fatto atomico → testo", ""]
     for fact in evidence:
         dossier += [
-            f"- **{fact['ident']}** | {fact['pdf']} p. {fact['page']} | "
-            f"fatto nel testo: \`{fact['witness']}\` | "
-            f"fonte: {fact['provenance']} | revisione umana ancora necessaria.",
+            (f"- **{fact['ident']}** | {fact['pdf']} p. {fact['page']} | "
+             f"fatto nel testo: `{fact['witness']}` | "
+             f"fonte: {fact['provenance']} | revisione umana ancora necessaria."),
         ]
     dossier += ["", "## Modifiche esatte", ""]
     for change in changes:
@@ -496,9 +496,9 @@ def run_v103(
     dossier += ["## Divergenze della fonte / riferimenti esterni", ""]
     for issue in report["source_discrepancies"]:
         dossier += [
-            f"- {issue['source']}: {issue['source_claim']}. "
-            f"Stato: {issue['status']}. "
-            f"Chiarimento: {issue['scientific_clarification']}.",
+            (f"- {issue['source']}: {issue['source_claim']}. "
+             f"Stato: {issue['status']}. "
+             f"Chiarimento: {issue['scientific_clarification']}."),
         ]
     dossier += [
         "", "## Limiti e blocchi", "",
