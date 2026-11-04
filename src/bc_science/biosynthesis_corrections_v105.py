@@ -14,8 +14,8 @@ from pathlib import Path
 
 from .fast_audit import audit_fast_essential
 from .scientific_clarifications_v101 import _decode
-from .source_grounded_v103 import FACTS, validate_fact_coverage
-from .structural_compression import TITLES, _spans
+from .source_grounded_v103 import validate_fact_coverage
+from .structural_compression import _spans
 from .study_polish_v104 import ADDITIONAL_SOURCE_CHECKS
 
 VERSION = "spark-v10.5-biosynthesis-source-corrections-review-only"
@@ -125,12 +125,11 @@ def _replace_single_chapter(
     if len(before_spans) != 65 or list(before_spans) != list(after_spans):
         raise ValueError("Indice o numero dei 65 capitoli modificato.")
     for title in before_spans:
-        if title != TITLE:
-            if (
-                before_text[slice(*before_spans[title])]
-                != after_text[slice(*after_spans[title])]
-            ):
-                raise ValueError(f"Capitolo esterno modificato: {title}")
+        if title != TITLE and (
+            before_text[slice(*before_spans[title])]
+            != after_text[slice(*after_spans[title])]
+        ):
+            raise ValueError(f"Capitolo esterno modificato: {title}")
     return payload, applied
 
 
@@ -264,8 +263,8 @@ def run_v105(
         "# BC Science V10.5 — Correzione scientifica biosintesi", "",
         "**NON PUBBLICATA, NON CERTIFICATA SCIENTIFICAMENTE.**", "",
         f"Fonti: 8 PDF pinned SHA256; audit {before.status} → {after.status}.", "",
-        "Solo Biosintesi degli acidi grassi cambia, sia nella Completa che "
-        "nell'Essenziale V10.4. Gli altri 64 capitoli sono identici.", "",
+        ("Solo Biosintesi degli acidi grassi cambia, sia nella Completa che "
+         "nell'Essenziale V10.4. Gli altri 64 capitoli sono identici."), "",
         "## Correzioni e pagine", "",
     ]
     for item in report["corrections"]:
@@ -275,13 +274,13 @@ def run_v105(
         )
     dossier += [
         "", "## Caveat per l'esame", "",
-        "La diapositiva eCampus sul palmitato mostra 8 acetil-CoA totali, "
-        "7 ATP e 14 NADPH; 7 acetil-CoA diventano 7 malonil-CoA. "
-        "Alcune frasi del testo narrativo delle dispense confondono NADH "
-        "e NADPH; la proposta segue il meccanismo illustrato e non "
-        "nasconde questa incongruenza.", "",
-        "Queste sono quattro correzioni motivate, non la certificazione "
-        "scientifica integrale dei 65 capitoli.", "",
+        ("La diapositiva eCampus sul palmitato mostra 8 acetil-CoA totali, "
+         "7 ATP e 14 NADPH; 7 acetil-CoA diventano 7 malonil-CoA. "
+         "Alcune frasi del testo narrativo delle dispense confondono NADH "
+         "e NADPH; la proposta segue il meccanismo illustrato e non "
+         "nasconde questa incongruenza."), "",
+        ("Queste sono quattro correzioni motivate, non la certificazione "
+         "scientifica integrale dei 65 capitoli."), "",
     ]
     outputs["v10.5-dossier.md"] = "\n".join(dossier).encode("utf-8")
     output.mkdir(parents=True, exist_ok=False)
