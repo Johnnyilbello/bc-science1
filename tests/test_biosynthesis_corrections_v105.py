@@ -36,8 +36,13 @@ def _document(plan: dict, *, multiline: bool = False) -> bytes:
         else:
             body = f"Materiale invariato {name}."
         chapter_texts.append(f"## {name}\n\n{body}")
+    recap = (
+        "## Ripasso globale\n\n1. **BIOSINTESI DEGLI ACIDI GRASSI**: "
+        + plan["global_recap_fix"]["old"] + "\n\n"
+        if multiline else ""
+    )
     content = (
-        "# Ecampus test\n\n## Indice degli argomenti\n"
+        "# Ecampus test\n\n" + recap + "## Indice degli argomenti\n"
         + index + "\n\n---\n\n"
         + "\n\n---\n\n".join(chapter_texts)
         + "\n"
@@ -135,6 +140,11 @@ def test_edits_apply_exactly_four_times_in_each_document(tmp_path, monkeypatch):
         )
         assert changes == list(v105.EXPECTED_FIX_IDS)
         text = result.decode("utf-8")
+        if kind == "essential":
+            assert plan["global_recap_fix"]["old"] not in text
+            assert text.count(plan["global_recap_fix"]["replacement"]) == 1
+        else:
+            assert plan["global_recap_fix"]["replacement"] not in text
         assert "**8 acetil-CoA**" in text
         assert "**7 ATP**" in text
         assert "**14 NADPH**" in text
@@ -169,6 +179,13 @@ def test_preview_creates_two_nonpublished_docs_and_checksums(
     assert report["scientifically_certified"] is False
     assert report["corrected_chapters_per_document"] == 1
     assert report["unchanged_chapters_per_document"] == 64
+    assert report["global_recap_updates"] == 1
+    assert report["global_recap_sync"]["id"] == "B05_RECAP_SYNC"
+    essential = (
+        result / "essenziale-v10.5-BIOSINTESI-CANDIDATA-NON-PUBBLICATA.md"
+    ).read_text("utf-8")
+    assert plan["global_recap_fix"]["old"] not in essential
+    assert essential.count(plan["global_recap_fix"]["replacement"]) == 1
     assert report["v104_three_pilot_chapters_unchanged"] is True
     assert report["before_audit"] == report["after_audit"] == "WARN"
     assert [row["id"] for row in report["corrections"]] == [
@@ -248,3 +265,14 @@ def test_cli_completes_for_four_edits_and_reports_paths(tmp_path, monkeypatch):
     assert result.exit_code == 0, f"{result.stdout}\n{result.exception}"
     assert "V10.5: DUE candidate NON pubblicate" in result.stdout
     assert "64 capitoli" in result.stdout
+
+
+
+def test_missing_global_recap_claim_blocks_without_editing(tmp_path, monkeypatch):
+    plan, args = _fixture(tmp_path, monkeypatch)
+    old = plan["global_recap_fix"]["old"].encode()
+    altered = args[1].read_bytes().replace(old, b"Frase assente", 1)
+    assert old not in altered
+    with pytest.raises(ValueError, match="richiamo globale obsoleto"):
+        v105._replace_single_chapter(altered, plan, "essential")
+    assert not args[-1].exists()
