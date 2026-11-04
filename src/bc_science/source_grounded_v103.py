@@ -274,7 +274,7 @@ def _archive_sources(archive_path: Path) -> dict[str, bytes]:
             records = {}
             for record in manifest:
                 if not isinstance(record, dict):
-                    raise ValueError("Voce manifest non valida.")
+                    raise TypeError("Voce manifest non valida.")
                 filename = record.get("File")
                 if filename not in SOURCE_HASHES or filename in records:
                     raise ValueError(f"Voce manifest duplicata o ignota: {filename}")
