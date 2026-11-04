@@ -170,7 +170,7 @@ def test_edits_apply_exactly_four_times_in_each_document(tmp_path, monkeypatch):
 def test_preview_creates_two_nonpublished_docs_and_checksums(
     tmp_path, monkeypatch,
 ):
-    _, args = _fixture(tmp_path, monkeypatch)
+    plan, args = _fixture(tmp_path, monkeypatch)
     previous = [p.read_bytes() for p in args[:4]]
     result = v105.run_v105(*args)
     assert result == args[-1]
