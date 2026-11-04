@@ -2,7 +2,7 @@
 
 ### Dal carbonio alle molecole biologiche
 
-La **chimica organica** studia soprattutto i composti del **carbonio**. Il carbonio può formare **quattro legami covalenti** e dare origine a catene lineari, ramificate o cicliche. Negli **idrocarburi** ci sono solo carbonio e idrogeno: gli **alcani** hanno legami semplici C–C, gli **alcheni** almeno un doppio C=C e gli **alchini** almeno un triplo C≡C. Queste molecole sono generalmente apolari e poco solubili in acqua (dispensa pp. 1–3).
+La **chimica organica** studia soprattutto i composti del **carbonio**. Il carbonio può formare **quattro legami covalenti** e legarsi fino a **4 atomi** distinti se tutti i legami sono semplici; può anche usare legami doppi o tripli e formare catene lineari, ramificate o cicliche. Negli **idrocarburi** ci sono solo carbonio e idrogeno: gli **alcani** hanno legami semplici C–C, gli **alcheni** almeno un doppio C=C e gli **alchini** almeno un triplo C≡C. Queste molecole sono generalmente apolari e poco solubili in acqua (dispensa pp. 1–3).
 
 I **gruppi funzionali** cambiano le proprietà dello scheletro carbonioso: **ossidrilico** (–OH, tipico degli alcoli), **carbonilico** (C=O: **aldeide** se terminale, **chetone** se interno), **carbossilico** (–COOH, acido) e **amminico** (–NH2, basico debole). Altri gruppi sono importanti nelle biomolecole:
 
@@ -68,7 +68,7 @@ Il Krebs è una via **anfibolica**: oltre a fornire energia, mette a disposizion
 
 ### Bilancio ed esame
 
-**Resa secondo la dispensa eCampus: circa 12 ATP equivalenti** per ogni acetil-CoA, secondo la **convenzione storica**: 3 NADH × 3 = 9, 1 FADH2 × 2 = 2, 1 GTP = 1; totale **9 + 2 + 1 = 12**. **Nota scientifica esterna:** con coefficienti moderni (2,5 ATP/NADH e 1,5 ATP/FADH2), la stima diventa **circa 10 ATP equivalenti**. Per il conteggio della lezione eCampus usa 12.
+**Resa secondo la dispensa eCampus: circa 12 ATP equivalenti** per ogni acetil-CoA, secondo la **convenzione storica**: **3 ATP** per ciascun NADH e **2 ATP** per ciascun FADH2; 3 NADH × 3 = 9, 1 FADH2 × 2 = 2, 1 GTP = 1; totale **9 + 2 + 1 = 12**. **Nota scientifica esterna:** con coefficienti moderni (2,5 ATP/NADH e 1,5 ATP/FADH2), la stima diventa **circa 10 ATP equivalenti**. Per il conteggio della lezione eCampus usa 12.
 
 ### Ripasso attivo (prova a rispondere senza rileggere)
 
