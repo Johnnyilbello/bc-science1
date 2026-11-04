@@ -339,7 +339,7 @@ def validate_original_pdfs(
                     f"{p}: {sha(p.read_bytes())}" for p in matches
                 )
                 raise ValueError(
-                    f"Hash PDF del corso non coincidente: {filename}. "
+                    f"PDF originale con hash del corso non coincidente: {filename}. "
                     f"Copie trovate: {observed}. "
                     "Usare --source-archive con lo ZIP originale verificato."
                 )
