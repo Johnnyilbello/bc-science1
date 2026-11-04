@@ -238,3 +238,26 @@ def test_supplemental_facts_source_page_mapping_is_unique():
     assert len(set(names)) == len(names)
     assert all(item.page > 0 for item in v104.ADDITIONAL_SOURCE_CHECKS)
     assert all(item.terms and item.witness for item in v104.ADDITIONAL_SOURCE_CHECKS)
+
+
+def test_preview_may_be_sibling_to_original_zip_in_shared_base(
+    tmp_path, monkeypatch,
+):
+    """Windows layout: BCSciencePreviews/ZiP and a fresh child preview folder."""
+    args = _inputs(tmp_path, monkeypatch)
+    archive = args[4]
+    output = archive.parent / "spark-v104-final-fresh"
+    originals = {path: path.read_bytes() for path in args[1:5]}
+    result = v104.run_v104(*args[:5], output)
+    assert result == output
+    assert (result / "v10.4-report.json").is_file()
+    assert (result / "essenziale-v10.4-CANDIDATA-NON-PUBBLICATA.md").is_file()
+    assert all(path.read_bytes() == data for path, data in originals.items())
+
+
+def test_preview_inside_course_folder_stays_blocked(tmp_path, monkeypatch):
+    args = _inputs(tmp_path, monkeypatch)
+    unsafe_output = args[0].path / "spark-v104-unsafe"
+    with pytest.raises(ValueError, match="output non validi"):
+        v104.run_v104(*args[:5], unsafe_output)
+    assert not unsafe_output.exists()
