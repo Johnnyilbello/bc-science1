@@ -39,6 +39,15 @@ def _plan() -> dict:
     ids = tuple(item["id"] for item in plan["fixes"])
     if ids != EXPECTED_FIX_IDS or len(plan["pdf_sources"]) != 8:
         raise ValueError("Piano V10.5 non conforme: 4 correzioni e 8 PDF richiesti.")
+    recap = plan.get("global_recap_fix", {})
+    if (
+        recap.get("id") != "B05_RECAP_SYNC"
+        or recap.get("document") != "essential"
+        or not recap.get("old")
+        or not recap.get("replacement")
+        or recap.get("source_pdf") not in plan["pdf_sources"]
+    ):
+        raise ValueError("Piano V10.5 privo del richiamo globale revisionato.")
     if any(
         not item["old"] or not item["replacement"]
         or item["source_pdf"] not in plan["pdf_sources"]
@@ -109,12 +118,19 @@ def _replace_single_chapter(
         raise ValueError(f"V10.5 {label}: capitolo diverso dalla proposta revisionata.")
     # The original chapter owns the final divider and blank space.
     whitespace = old_segment[len(old_segment.rstrip()):]
-    revised = text[:match.start()] + updated + whitespace + text[match.end():]
-    if (
-        revised[:match.start()] != text[:match.start()]
-        or revised[match.start() + len(updated + whitespace):] != text[match.end():]
-    ):
-        raise ValueError("Sezioni esterne a Biosintesi modificate.")
+    original_prefix = text[:match.start()]
+    prefix = original_prefix
+    if label == "essential":
+        # One allowed non-chapter change: align the global recap with B04.
+        recap = plan["global_recap_fix"]
+        if prefix.count(recap["old"]) != 1 or recap["replacement"] in prefix:
+            raise ValueError("V10.5: richiamo globale obsoleto assente o duplicato.")
+        prefix = prefix.replace(recap["old"], recap["replacement"], 1)
+        if prefix.replace(recap["replacement"], recap["old"], 1) != original_prefix:
+            raise ValueError("Aggiornamento del ripasso globale non reversibile.")
+    revised = prefix + updated + whitespace + text[match.end():]
+    if revised[len(prefix + updated + whitespace):] != text[match.end():]:
+        raise ValueError("Sezioni successive a Biosintesi modificate.")
     payload = bom + revised.encode("utf-8")
     if payload == original:
         raise ValueError("Correzioni non applicate.")
@@ -223,6 +239,15 @@ def run_v105(
         "essential_candidate_sha256": _sha(new_essential),
         "corrected_chapters_per_document": 1,
         "unchanged_chapters_per_document": 64,
+        "global_recap_updates": 1,
+        "global_recap_sync": {
+            "id": plan["global_recap_fix"]["id"],
+            "document": "essential",
+            "source_pdf": plan["pdf_sources"][
+                plan["global_recap_fix"]["source_pdf"]
+            ]["name"],
+            "source_pages": plan["global_recap_fix"]["source_pages"],
+        },
         "v104_three_pilot_chapters_unchanged": True,
         "corrections": [
             {
@@ -263,8 +288,9 @@ def run_v105(
         "# BC Science V10.5 — Correzione scientifica biosintesi", "",
         "**NON PUBBLICATA, NON CERTIFICATA SCIENTIFICAMENTE.**", "",
         f"Fonti: 8 PDF pinned SHA256; audit {before.status} → {after.status}.", "",
-        ("Solo Biosintesi degli acidi grassi cambia, sia nella Completa che "
-         "nell'Essenziale V10.4. Gli altri 64 capitoli sono identici."), "",
+        ("Solo il capitolo Biosintesi cambia in entrambe le versioni; "
+         "nell'Essenziale viene inoltre aggiornato un richiamo del Ripasso "
+         "globale. Gli altri 64 capitoli sono identici."), "",
         "## Correzioni e pagine", "",
     ]
     for item in report["corrections"]:
@@ -273,6 +299,11 @@ def run_v105(
             f"({item['source_pdf']}, p. {item['page']})"
         )
     dossier += [
+        "", "## Ripasso globale sincronizzato", "",
+        ("B05: corretto esattamente un richiamo nell'Essenziale: "
+         "la sintesi de novo del palmitato è citosolica, mentre "
+         "l'allungamento può proseguire nel reticolo endoplasmatico "
+         "e nei mitocondri. La Completa non conteneva questa frase."),
         "", "## Caveat per l'esame", "",
         ("La diapositiva eCampus sul palmitato mostra 8 acetil-CoA totali, "
          "7 ATP e 14 NADPH; 7 acetil-CoA diventano 7 malonil-CoA. "
