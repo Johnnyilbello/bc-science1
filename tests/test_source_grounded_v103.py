@@ -311,3 +311,15 @@ def test_missing_pdf_file_has_actionable_diagnostic(tmp_path, monkeypatch):
     (args[0].path / v103.CHEM_PDF).unlink()
     with pytest.raises(ValueError, match="--source-archive"):
         v103.validate_original_pdfs(args[0].path)
+
+
+def test_locked_manifest_hashes_are_valid_and_chemistry_matches_original():
+    """Protect the independently verified seven-PDF manifest from typos."""
+    assert len(v103.SOURCE_HASHES) == 7
+    assert all(
+        len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
+        for digest in v103.SOURCE_HASHES.values()
+    )
+    assert v103.SOURCE_HASHES["CHIMICA ORGANICA e carboidrati 2.pdf"] == (
+        "43343aeb466dcd7dc16634cf27b1d0bcc153aa35f6df362f2ce9e0f33bec7efd"
+    )
