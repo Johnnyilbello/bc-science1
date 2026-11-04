@@ -149,6 +149,15 @@ def test_no_publication_and_source_integrity_with_bom_crlf(tmp_path, monkeypatch
     assert report["pdf_page_anchors_verified"] is True
     assert report["unchanged_other_chapters"] == 1
     assert report["mandatory_fact_count"] == len(v103.FACTS)
+    assert len(report["chapters"]) == len(TITLES)
+    assert [item["title"] for item in report["chapters"]] == list(TITLES)
+    for chapter in report["chapters"]:
+        assert chapter["complete_words"] > 0
+        assert chapter["candidate_words"] > 0
+        assert chapter["reduction_percent"] == round(
+            100 * (1 - chapter["candidate_words"] / chapter["complete_words"]), 2
+        )
+        assert chapter["hard_compression_cap"] is False
     assert len(report["changes"]) == 5
     assert report["candidate_sha256"] == v103.sha(candidate)
     assert "BLOCKED_" in report["manual_review_gate"]
@@ -323,3 +332,36 @@ def test_locked_manifest_hashes_are_valid_and_chemistry_matches_original():
     assert v103.SOURCE_HASHES["CHIMICA ORGANICA e carboidrati 2.pdf"] == (
         "43343aeb466dcd7dc16634cf27b1d0bcc153aa35f6df362f2ce9e0f33bec7efd"
     )
+
+
+def test_source_grounded_cli_displays_all_three_chapters(tmp_path, monkeypatch):
+    """End-to-end contract: CLI must consume the freshly written V10.3 report."""
+    from typer.testing import CliRunner
+
+    from bc_science import cli
+    from bc_science import courses
+
+    args = _bundle(tmp_path, monkeypatch)
+    monkeypatch.setattr(courses, "scan_course", lambda _: args[0])
+
+    invoked = CliRunner().invoke(cli.app, [
+        "courses",
+        "source-grounded-preview",
+        str(args[0].path),
+        "--complete", str(args[1]),
+        "--v102-candidate", str(args[2]),
+        "--v102-report", str(args[3]),
+        "--output-dir", str(args[4]),
+    ])
+    assert invoked.exit_code == 0, (
+        f"{invoked.stdout}\n{type(invoked.exception).__name__}: "
+        f"{invoked.exception}"
+    )
+    assert "V10.3: candidata non pubblicata" in invoked.stdout
+    assert "Fatti da fonti verificati:" in invoked.stdout
+    assert "Origine PDF: course_folder" in invoked.stdout
+    assert "Altri capitoli invariati: 1" in invoked.stdout
+    assert "Audit: WARN → WARN" in invoked.stdout
+    for title in TITLES:
+        assert title in invoked.stdout
+    assert (args[4] / "v10.3-report.json").is_file()
