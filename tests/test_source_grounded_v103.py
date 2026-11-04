@@ -338,8 +338,7 @@ def test_source_grounded_cli_displays_all_three_chapters(tmp_path, monkeypatch):
     """End-to-end contract: CLI must consume the freshly written V10.3 report."""
     from typer.testing import CliRunner
 
-    from bc_science import cli
-    from bc_science import courses
+    from bc_science import cli, courses
 
     args = _bundle(tmp_path, monkeypatch)
     monkeypatch.setattr(courses, "scan_course", lambda _: args[0])
