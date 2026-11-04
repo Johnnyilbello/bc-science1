@@ -84,6 +84,14 @@ def _inputs(tmp_path, monkeypatch):
         ],
     )
     monkeypatch.setattr(
+        v104, "_check_additional_pdf_evidence",
+        lambda *_: [
+            {"ident": fact.ident, "pdf": fact.pdf, "page": fact.page,
+             "witness": fact.witness, "source_page_terms_verified": True}
+            for fact in v104.ADDITIONAL_SOURCE_CHECKS
+        ],
+    )
+    monkeypatch.setattr(
         v104,
         "audit_fast_essential",
         lambda *_: SimpleNamespace(status="WARN"),
@@ -151,6 +159,9 @@ def test_local_preview_has_report_diff_hashes_and_no_publication(
     assert data["scientifically_certified"] is False
     assert data["full_semantic_equivalence_verified"] is False
     assert data["mandatory_fact_count"] == 30
+    assert data["additional_source_fact_count"] == 5
+    assert data["total_guarded_fact_count"] == 35
+    assert len(data["additional_source_matrix"]) == 5
     assert len(data["atomic_fact_matrix"]) == 30
     assert all(f["candidate_witness_occurrences"] == 1 for f in data["atomic_fact_matrix"])
     assert data["unchanged_other_chapters"] == 62
@@ -206,3 +217,24 @@ def test_modified_input_hash_blocks_before_output(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="Hash"):
         v104.run_v104(*args)
     assert not args[-1].exists()
+
+
+@pytest.mark.parametrize(
+    "fact", v104.ADDITIONAL_SOURCE_CHECKS,
+    ids=lambda fact: fact.ident,
+)
+def test_supplemental_source_fact_cannot_be_removed(fact):
+    """Human-reviewed source-page facts receive a deterministic omission gate."""
+    template = v104.TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert template.count(fact.witness) == 1
+    damaged = template.replace(fact.witness, "[OMESSO]", 1)
+    with pytest.raises(ValueError, match=fact.ident):
+        v104.apply_v104(_document(), damaged)
+
+
+def test_supplemental_facts_source_page_mapping_is_unique():
+    assert len(v104.ADDITIONAL_SOURCE_CHECKS) == 5
+    names = [item.ident for item in v104.ADDITIONAL_SOURCE_CHECKS]
+    assert len(set(names)) == len(names)
+    assert all(item.page > 0 for item in v104.ADDITIONAL_SOURCE_CHECKS)
+    assert all(item.terms and item.witness for item in v104.ADDITIONAL_SOURCE_CHECKS)
