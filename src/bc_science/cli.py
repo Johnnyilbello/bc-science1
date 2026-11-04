@@ -358,6 +358,7 @@ def courses_source_grounded_preview(
     v102_candidate: Annotated[Path, typer.Option("--v102-candidate")],
     v102_report: Annotated[Path, typer.Option("--v102-report")],
     output_dir: Annotated[Path, typer.Option("--output-dir")],
+    source_archive: Annotated[Path | None, typer.Option("--source-archive")] = None,
 ) -> None:
     """Pilot V10.3: 7 PDF con hash vincolati e fatti atomici non pubblicabili."""
     from .courses import scan_course
@@ -366,7 +367,7 @@ def courses_source_grounded_preview(
     try:
         folder = run_v103(
             scan_course(course),
-            complete, v102_candidate, v102_report, output_dir,
+            complete, v102_candidate, v102_report, output_dir, source_archive,
         )
     except (ValueError, OSError, KeyError, TypeError) as exc:
         console.print(f"[red]V10.3 bloccata:[/] {exc}")
@@ -375,6 +376,7 @@ def courses_source_grounded_preview(
     report = json.loads((folder / "v10.3-report.json").read_text(encoding="utf-8"))
     console.print("[green]V10.3: candidata non pubblicata[/]")
     console.print(f"Fatti da fonti verificati: {report['mandatory_fact_count']}")
+    console.print(f"Origine PDF: {report['source_validation_mode']}")
     console.print(f"Altri capitoli invariati: {report['unchanged_other_chapters']}")
     for item in report["chapters"]:
         console.print(
