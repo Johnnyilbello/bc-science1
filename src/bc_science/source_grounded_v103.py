@@ -528,6 +528,7 @@ def run_v103(
         "v102_report_sha256": sha(raw_inputs[2]),
         "candidate_sha256": sha(new_bytes),
         "source_fingerprint": manifest["fingerprint"],
+        "chapters": metrics,
         "unchanged_other_chapters": len(original_spans) - len(TITLES),
         "before_audit": pre.status,
         "after_audit": post.status,
