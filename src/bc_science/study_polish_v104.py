@@ -191,7 +191,9 @@ def run_v104(
     if (
         len(set(paths)) != 4 or any(not p.is_file() for p in paths)
         or output.exists() or output == root or root in output.parents
-        or any(output == p.parent or p.parent in output.parents for p in paths)
+        # Refuse output locations that could contain existing input files;
+        # fresh sibling folders beneath BCSciencePreviews are permitted.
+        or any(output == p.parent or output in p.parents for p in paths)
     ):
         raise ValueError("Input o cartella di output non validi per V10.4.")
     original_bytes = [p.read_bytes() for p in paths]
