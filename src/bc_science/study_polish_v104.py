@@ -19,10 +19,10 @@ from .courses import CourseScan, _fingerprint, _snapshot
 from .fast_audit import _ordered_title_match, audit_fast_essential
 from .scientific_clarifications_v101 import _decode, _encode
 from .source_grounded_v103 import (
+    CHEM_PDF,
     FACTS,
     KREBS_PDF,
     PROTEIN_PDF,
-    CHEM_PDF,
     SOURCE_ARCHIVE_SHA256,
     _archive_sources,
     _clean,
