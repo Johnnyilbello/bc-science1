@@ -18,9 +18,9 @@ Gli **isomeri** hanno la stessa formula molecolare, ma possono differire per con
 
 **Proteine**, **acidi nucleici** e **polisaccaridi** sono polimeri formati da unità ripetute; la maggior parte dei **lipidi** non è un polimero. La **condensazione** forma un legame liberando acqua, mentre l'**idrolisi** lo rompe consumando acqua (dispensa p. 6). I **carboidrati** comprendono monosaccaridi, disaccaridi e polisaccaridi; la formula empirica frequente dei monosaccaridi è (CH2O)n, con eccezioni come il desossiribosio.
 
-**Monosaccaridi (dispensa pp. 6–7):** generalmente **3–7 carboni** nella classificazione proposta; esempi sono i pentosi **ribosio** e **desossiribosio**, e gli esosi **glucosio**, **fruttosio** e **galattosio**. Il glucosio è un aldoso, il fruttosio un chetoso. **Precisazione esterna rispetto alla dispensa p. 7:** il lattosio non è un esoso, ma un disaccaride; glucosio e galattosio sono epimeri al C4, non isomeri strutturali.
+**Monosaccaridi (dispensa pp. 6–7):** generalmente **3–7 carboni** nella classificazione proposta; esempi sono i pentosi **ribosio** e **desossiribosio**, e gli esosi **glucosio**, **fruttosio** e **galattosio**. Il glucosio è un aldoso, il fruttosio un chetoso. Glucosio, fruttosio e galattosio hanno formula **C6H12O6**. **Precisazione esterna rispetto alla dispensa p. 7:** il lattosio non è un esoso, ma un disaccaride; glucosio e galattosio sono epimeri al C4, non isomeri strutturali.
 
-**Ciclizzazione (dispensa p. 8):** nel glucosio il gruppo aldeidico del **C1** reagisce con l'ossidrile del **C5**, formando un **emiacetale ciclico**. Il C1 diventa **carbonio anomerico**; le forme **α-glucosio** e **β-glucosio** differiscono per l'orientamento dell'OH anomerico.
+**Ciclizzazione (dispensa p. 8):** nel glucosio il gruppo aldeidico del **C1** reagisce con l'ossidrile del **C5**, formando un **emiacetale ciclico**. Il C1 diventa **carbonio anomerico**; le forme **α-glucosio** e **β-glucosio** differiscono per l'orientamento dell'OH anomerico: nel D-glucosio in forma ciclica, l'OH al C1 è dal lato **opposto rispetto a CH2OH** nella forma α e dallo **stesso lato di CH2OH** nella forma β (dispensa p. 8). Anche il **fruttosio** può formare un anello a cinque membri: nella forma furanosica, il gruppo carbonilico al **C2** reagisce con l'OH del **C5** (dispensa p. 8).
 
 **Disaccaridi e legami (dispensa p. 9):** **maltosio** = glucosio + glucosio, legame **α(1→4)**; **saccarosio** = glucosio + fruttosio, legame **α(1→2)β** (C1 del glucosio e C2 del fruttosio); **lattosio** = galattosio + glucosio, legame **β(1→4)**.
 
@@ -41,7 +41,7 @@ Il **ciclo di Krebs** (o ciclo dell'acido citrico) usa il gruppo acetilico dell'
 
 ### Prima del ciclo: come arriva il carburante
 
-I carboidrati vengono degradati con la **glicolisi**, che produce **piruvato**. In condizioni aerobiche, il piruvato entra nel mitocondrio: il complesso della **piruvato deidrogenasi** lo trasforma **irreversibilmente** in **acetil-CoA**, producendo CO2 e NADH. Questo avviene tramite la piruvato deidrogenasi **prima** del ciclo: non è una delle sue otto tappe. L'acetil-CoA può derivare anche dalla **β-ossidazione degli acidi grassi** e dal catabolismo di alcuni amminoacidi.
+I carboidrati vengono degradati con la **glicolisi**, che produce **piruvato**. In condizioni aerobiche, il piruvato entra nel mitocondrio: il complesso della **piruvato deidrogenasi** lo trasforma **irreversibilmente** in **acetil-CoA**, producendo CO2 e NADH. Questo avviene tramite la piruvato deidrogenasi **prima** del ciclo: non è una delle sue otto tappe. L'acetil-CoA può derivare anche dalla **β-ossidazione degli acidi grassi**, dalla degradazione dei **corpi chetonici** (come acetoacetato e β-idrossibutirrato) e dal catabolismo di alcuni amminoacidi, fra cui **leucina e isoleucina** (dispensa p. 7).
 
 ### Le otto tappe: segui i carboni
 
@@ -98,7 +98,7 @@ I **lipidi** sono sostanze molto diverse tra loro ma generalmente poco solubili 
 
 **Fosfolipidi (dispensa p. 4):** nella struttura a base di glicerolo si trovano **2 acidi grassi** e un **gruppo fosfato**, spesso legato a un gruppo polare come la **colina**; sono anfipatici e formano doppi strati.
 
-**Altre classi (dispensa p. 5):** gli **sfingolipidi** comprendono **sfingosina**, un acido grasso e un gruppo polare, importante anche per il riconoscimento cellulare. I **terpeni** derivano da unità di **isoprene (5 C)**; tra gli esempi vi sono i **carotenoidi**, precursori della **vitamina A**. Gli **steroidi** hanno **4 anelli** condensati (3 esagonali e 1 pentagonale); il **colesterolo** è uno steroide presente nelle membrane cellulari.
+**Altre classi (dispensa p. 5):** gli **sfingolipidi** comprendono **sfingosina**, un acido grasso e un gruppo polare; alcune teste esposte sulla membrana contribuiscono al **riconoscimento cellulare**, collegato nella dispensa anche ai **gruppi sanguigni** (p. 5). **Precisazione esterna:** gli antigeni ABO si trovano sia su glicolipidi sia su glicoproteine. I **terpeni** derivano da unità di **isoprene (5 C)**; tra gli esempi vi sono i **carotenoidi**, precursori della **vitamina A**. Gli **steroidi** hanno **4 anelli** condensati (3 esagonali e 1 pentagonale); il **colesterolo** è uno steroide presente nelle membrane cellulari.
 
 Per orientarsi, collega struttura e funzione: **triacilgliceroli** = riserva energetica; **fosfolipidi** e diversi **sfingolipidi** = membrane, con parti polari e apolari; **steroidi** = struttura ad anelli, fra cui il colesterolo. La differenza fra *glicerolo + tre acidi grassi* e *glicerolo + due acidi grassi + fosfato* spiega perché un trigliceride è una riserva mentre un glicerofosfolipide forma doppi strati.
 
