@@ -20,11 +20,7 @@ Gli **isomeri** hanno la stessa formula molecolare, ma possono differire per con
 
 **Monosaccaridi (dispensa pp. 6–7):** generalmente **3–7 carboni** nella classificazione proposta; esempi sono i pentosi **ribosio** e **desossiribosio**, e gli esosi **glucosio**, **fruttosio** e **galattosio**. Il glucosio è un aldoso, il fruttosio un chetoso. **Precisazione esterna rispetto alla dispensa p. 7:** il lattosio non è un esoso, ma un disaccaride; glucosio e galattosio sono epimeri al C4, non isomeri strutturali.
 
-
-
 **Ciclizzazione (dispensa p. 8):** nel glucosio il gruppo aldeidico del **C1** reagisce con l'ossidrile del **C5**, formando un **emiacetale ciclico**. Il C1 diventa **carbonio anomerico**; le forme **α-glucosio** e **β-glucosio** differiscono per l'orientamento dell'OH anomerico.
-
-
 
 **Disaccaridi e legami (dispensa p. 9):** **maltosio** = glucosio + glucosio, legame **α(1→4)**; **saccarosio** = glucosio + fruttosio, legame **α(1→2)β** (C1 del glucosio e C2 del fruttosio); **lattosio** = galattosio + glucosio, legame **β(1→4)**.
 
@@ -54,19 +50,12 @@ L'**ossalacetato (4 C)** si combina con il gruppo acetilico (2 C) e forma un com
 **Otto tappe del ciclo (dispensa pp. 4–6):**
 
 1. Ossalacetato (4 C) + acetil-CoA (2 C) → citrato (6 C) — **citrato sintasi**; libera CoA-SH.
-
 2. Citrato → isocitrato — **aconitasi**; isomerizzazione reversibile.
-
 3. Isocitrato → α-chetoglutarato + CO2 + NADH — **isocitrato deidrogenasi**.
-
 4. α-chetoglutarato → succinil-CoA + CO2 + NADH — **complesso α-chetoglutarato deidrogenasi**.
-
 5. Succinil-CoA → succinato + GTP (o ATP) — **succinil-CoA sintetasi**; fosforilazione a livello del substrato.
-
 6. Succinato → fumarato + FADH2 — **succinato deidrogenasi**.
-
 7. Fumarato + H2O → malato — **fumarasi** (fumarato idratasi).
-
 8. Malato → ossalacetato + NADH — **malato deidrogenasi**.
 
 **Bilancio per giro:** 2 CO2, 3 NADH, 1 FADH2, 1 GTP (o ATP).
@@ -105,15 +94,9 @@ I **lipidi** sono sostanze molto diverse tra loro ma generalmente poco solubili 
 
 **Acidi grassi (dispensa p. 3):** in questa lezione sono descritti generalmente con **4–24 atomi di carbonio**, spesso in numero pari. Sono **monoinsaturi** se hanno un doppio legame, **polinsaturi** se ne hanno almeno due. La scrittura **18:1 Δ9** per l'**acido oleico** indica 18 carboni, un doppio legame con inizio al carbonio 9 (C9–C10).
 
-
-
 **Triacilgliceroli (dispensa p. 4):** glicerolo + **3 acidi grassi** formano **3 legami esterei**, liberando **3 molecole di H2O**; la sequenza progressiva comprende **monoacilglicerolo**, **diacilglicerolo** e **triacilglicerolo**.
 
-
-
 **Fosfolipidi (dispensa p. 4):** nella struttura a base di glicerolo si trovano **2 acidi grassi** e un **gruppo fosfato**, spesso legato a un gruppo polare come la **colina**; sono anfipatici e formano doppi strati.
-
-
 
 **Altre classi (dispensa p. 5):** gli **sfingolipidi** comprendono **sfingosina**, un acido grasso e un gruppo polare, importante anche per il riconoscimento cellulare. I **terpeni** derivano da unità di **isoprene (5 C)**; tra gli esempi vi sono i **carotenoidi**, precursori della **vitamina A**. Gli **steroidi** hanno **4 anelli** condensati (3 esagonali e 1 pentagonale); il **colesterolo** è uno steroide presente nelle membrane cellulari.
 
