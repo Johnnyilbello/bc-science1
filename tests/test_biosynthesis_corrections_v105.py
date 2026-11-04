@@ -272,7 +272,7 @@ def test_missing_global_recap_claim_blocks_without_editing(tmp_path, monkeypatch
     plan, args = _fixture(tmp_path, monkeypatch)
     old = plan["global_recap_fix"]["old"].encode()
     altered = args[1].read_bytes().replace(old, b"Frase assente", 1)
-    assert old not in altered
+    assert b"Frase assente" in altered.split(b"## Indice degli argomenti", 1)[0]
     with pytest.raises(ValueError, match="richiamo globale obsoleto"):
         v105._replace_single_chapter(altered, plan, "essential")
     assert not args[-1].exists()
