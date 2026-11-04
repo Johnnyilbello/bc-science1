@@ -351,6 +351,53 @@ def courses_status(
     console.print(table)
 
 
+@courses_app.command("study-polish-preview")
+def courses_study_polish_preview(
+    course: Annotated[Path, typer.Argument(help="Cartella originale delle dispense")],
+    complete: Annotated[Path, typer.Option("--complete")],
+    v103_candidate: Annotated[Path, typer.Option("--v103-candidate")],
+    v103_report: Annotated[Path, typer.Option("--v103-report")],
+    source_archive: Annotated[Path, typer.Option("--source-archive")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """Anteprima V10.4: 3 capitoli didattici, 30 fatti, nessuna pubblicazione."""
+    from .courses import scan_course
+    from .study_polish_v104 import run_v104
+
+    try:
+        folder = run_v104(
+            scan_course(course),
+            complete, v103_candidate, v103_report, source_archive, output_dir,
+        )
+        report = json.loads(
+            (folder / "v10.4-report.json").read_text(encoding="utf-8")
+        )
+        if (
+            report["publication_allowed"] is not False
+            or report["scientifically_certified"] is not False
+            or len(report["chapters"]) != 3
+            or report["mandatory_fact_count"] != 30
+        ):
+            raise ValueError("Il report V10.4 non supera il controllo di stato.")
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        console.print(f"[red]V10.4 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print("[green]V10.4: candidata NON pubblicata.[/]")
+    console.print(
+        f"Fatti preservati: {report['mandatory_fact_count']} · "
+        f"Capitoli invariati: {report['unchanged_other_chapters']}"
+    )
+    for entry in report["chapters"]:
+        console.print(
+            f"{entry['title']}: riduzione {entry['reduction_percent']}% "
+            "(nessuna soglia obbligatoria)"
+        )
+    console.print(f"Audit: {report['before_audit']} → {report['after_audit']}")
+    console.print(f"Dossier: {folder / 'v10.4-dossier.md'}")
+    console.print("[yellow]Richiesta revisione scientifica e didattica umana.[/]")
+
+
 @courses_app.command("source-grounded-preview")
 def courses_source_grounded_preview(
     course: Annotated[Path, typer.Argument(help="Cartella dei PDF originali eCampus")],
