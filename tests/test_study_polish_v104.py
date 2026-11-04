@@ -8,8 +8,8 @@ from typer.testing import CliRunner
 import bc_science.study_polish_v104 as v104
 from bc_science import cli, courses
 from bc_science.courses import CourseScan
-from bc_science.summarizer import _preserves_exam_numbers
 from bc_science.structural_compression import TITLES, _spans
+from bc_science.summarizer import _preserves_exam_numbers
 
 
 def _document() -> str:
