@@ -19,7 +19,9 @@ def _document() -> str:
     for title in TITLES:
         paragraphs = [p.before for p in v103.PATCHES if p.chapter == title]
         sections.append(
-            f"## {title}\n\n### Sintesi progressiva\n\n" + "\n\n".join(paragraphs)
+            f"## {title}\n\n### Sintesi progressiva\n\n"
+            + "\n\n".join(paragraphs)
+            + "\nRichiamo conclusivo della lezione, da preservare.\n"
         )
     sections.append(
         "## Capitolo non autorizzato\n\nQuesta frase e 4 atomi devono rimanere invariati."
