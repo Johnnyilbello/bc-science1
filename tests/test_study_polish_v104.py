@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 import bc_science.study_polish_v104 as v104
 from bc_science import cli, courses
 from bc_science.courses import CourseScan
+from bc_science.summarizer import _preserves_exam_numbers
 from bc_science.structural_compression import TITLES, _spans
 
 
@@ -261,3 +262,37 @@ def test_preview_inside_course_folder_stays_blocked(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="output non validi"):
         v104.run_v104(*args[:5], unsafe_output)
     assert not unsafe_output.exists()
+
+
+def test_real_exam_recap_numeric_expressions_survive_study_polish():
+    """Course recap number tokens, not only the 35 curated PDF witnesses."""
+    sections = v104._chapters_from_template(
+        v104.TEMPLATE_PATH.read_text(encoding="utf-8")
+    )
+    recap_points = {
+        TITLES[0]: (
+            "La fosforilazione ossidativa genera circa 3 ATP per NADH "
+            "e 2 ATP per FADH2, portando a un totale di 12 ATP per acetil-CoA."
+        ),
+        TITLES[2]: (
+            "Il carbonio lega fino a 4 atomi; "
+            "può formare legami singoli, doppi o tripli."
+        ),
+    }
+    for title, source_point in recap_points.items():
+        source = (
+            f"## {title}\n\n### Da ricordare per l'esame\n"
+            f"- {source_point}\n"
+        )
+        assert _preserves_exam_numbers(source, sections[title]), title
+    # A missing expression must still produce a negative result.
+    krebs = sections[TITLES[0]].replace("**3 ATP**", "**3 equivalenti**")
+    chemistry = sections[TITLES[2]].replace("**4 atomi**", "**quattro atomi**")
+    assert not _preserves_exam_numbers(
+        f"## {TITLES[0]}\n\n### Da ricordare per l'esame\n"
+        f"- {recap_points[TITLES[0]]}\n", krebs,
+    )
+    assert not _preserves_exam_numbers(
+        f"## {TITLES[2]}\n\n### Da ricordare per l'esame\n"
+        f"- {recap_points[TITLES[2]]}\n", chemistry,
+    )
