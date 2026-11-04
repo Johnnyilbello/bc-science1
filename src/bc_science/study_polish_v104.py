@@ -51,9 +51,11 @@ def _chapters_from_template(text: str) -> dict[str, str]:
             headings[index + 1].start() if index + 1 < len(headings)
             else len(normalized)
         )
-        body = normalized[found.start():stop].strip() + "\n"
-        if not body.endswith("\n---\n"):
+        block = normalized[found.start():stop].strip()
+        if not block.endswith("\n---"):
             raise ValueError(f"Template V10.4 privo di separatore: {found.group(1)}")
+        # _spans covers chapter content only: original document owns dividers.
+        body = block[:-len("\n---")].rstrip()
         if "### Ripasso attivo" not in body:
             raise ValueError(f"Ripasso attivo mancante: {found.group(1)}")
         sections[found.group(1)] = body
