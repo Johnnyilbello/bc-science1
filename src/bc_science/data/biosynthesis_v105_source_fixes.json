@@ -79,5 +79,17 @@
       "old": "La lipogenesi avviene solo nel citoplasma; l'acetil-CoA mitocondriale deve essere convertito in citrato per entrare nel citoplasma.",
       "replacement": "La **sintesi de novo del palmitato** avviene nel **citosol**: i gruppi acetile di origine mitocondriale raggiungono il citosol sotto forma di **citrato**. L'**allungamento** degli acidi grassi può proseguire anche nel reticolo endoplasmatico e nei mitocondri (*BIOSINTESI DEGLI ACIDI GRASSI 2.pdf*, pp. 1 e 5)."
     }
-  ]
+  ],
+  "global_recap_fix": {
+    "id": "B05_RECAP_SYNC",
+    "document": "essential",
+    "old": "La lipogenesi avviene solo nel citoplasma; l'acetil-CoA mitocondriale deve essere convertito in citrato per entrare nel citoplasma.",
+    "replacement": "La **sintesi de novo del palmitato** avviene nel **citosol**, utilizzando gruppi acetile trasportati dal mitocondrio come citrato; l'**allungamento** degli acidi grassi può avvenire anche nel reticolo endoplasmatico e nei mitocondri.",
+    "source_pdf": "PDF-01.pdf",
+    "source_pages": [
+      1,
+      5
+    ],
+    "rationale": "Il Ripasso globale V10.4 ripete una formula troppo assoluta nonostante la correzione B04 del capitolo."
+  }
 }
