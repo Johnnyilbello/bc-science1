@@ -9,7 +9,10 @@ from __future__ import annotations
 import difflib
 import json
 import re
+from dataclasses import asdict, dataclass
 from pathlib import Path
+
+import pymupdf as fitz
 
 from .autopilot_runner import _validated_manifest
 from .courses import CourseScan, _fingerprint, _snapshot
@@ -17,7 +20,12 @@ from .fast_audit import _ordered_title_match, audit_fast_essential
 from .scientific_clarifications_v101 import _decode, _encode
 from .source_grounded_v103 import (
     FACTS,
+    KREBS_PDF,
+    PROTEIN_PDF,
+    CHEM_PDF,
     SOURCE_ARCHIVE_SHA256,
+    _archive_sources,
+    _clean,
     validate_fact_coverage,
     validate_original_pdfs,
 )
@@ -36,6 +44,73 @@ COMPLETE_SHA256 = (
 TEMPLATE_PATH = (
     Path(__file__).resolve().parent / "data" / "spark_v104_didactic_chapters.md"
 )
+
+
+@dataclass(frozen=True)
+class DidacticSourceCheck:
+    ident: str
+    chapter: str
+    pdf: str
+    page: int
+    terms: tuple[str, ...]
+    witness: str
+
+
+# Additional evidence surfaced during the manual seven-PDF review.
+# The 30 original source facts remain unchanged and independently guarded.
+ADDITIONAL_SOURCE_CHECKS = (
+    DidacticSourceCheck(
+        "D01_KREBS_KETONES_AMINOACIDS", TITLES[0], KREBS_PDF, 7,
+        ("corpi chetonici", "Leucina e isoleucina"),
+        "**corpi chetonici**",
+    ),
+    DidacticSourceCheck(
+        "D02_GLYCOSPHINGOLIPID_RECOGNITION", TITLES[1], PROTEIN_PDF, 5,
+        ("sfingolipidi", "gruppi sanguigni"),
+        "**gruppi sanguigni**",
+    ),
+    DidacticSourceCheck(
+        "D03_GLUCOSE_ANOMER_DIRECTION", TITLES[2], CHEM_PDF, 8,
+        ("ossidrile", "Beta", "alfa"),
+        "**opposto rispetto a CH2OH**",
+    ),
+    DidacticSourceCheck(
+        "D04_FRUCTOSE_FURANOSE", TITLES[2], CHEM_PDF, 8,
+        ("fruttosio", "carbonio in posizione 2", "C5"),
+        "**fruttosio** può formare un anello a cinque membri",
+    ),
+    DidacticSourceCheck(
+        "D05_HEXOSE_FORMULA", TITLES[2], CHEM_PDF, 7,
+        ("C6H12O6", "glucosio", "fruttosio"),
+        "**C6H12O6**",
+    ),
+)
+
+
+def _check_additional_pdf_evidence(source_archive: Path) -> list[dict]:
+    """Require each new concept to exist on the stated physical PDF page."""
+    sources = _archive_sources(source_archive)
+    rows = []
+    for fact in ADDITIONAL_SOURCE_CHECKS:
+        with fitz.open(stream=sources[fact.pdf], filetype="pdf") as pdf:
+            if len(pdf) < fact.page:
+                raise ValueError(f"Pagina mancante per {fact.ident}.")
+            source_text = _clean(pdf[fact.page - 1].get_text("text"))
+        missing = [
+            term for term in fact.terms
+            if _clean(term) not in source_text
+        ]
+        if missing:
+            raise ValueError(
+                f"Termini sorgente mancanti per {fact.ident}: "
+                + ", ".join(missing)
+            )
+        rows.append({
+            **asdict(fact),
+            "source_page_terms_verified": True,
+            "scientific_interpretation_requires_human_review": True,
+        })
+    return rows
 
 
 def _chapters_from_template(text: str) -> dict[str, str]:
@@ -68,7 +143,7 @@ def apply_v104(v103_text: str, template_text: str) -> tuple[str, list[dict]]:
     if len(spans) != 65 or not set(TITLES).issubset(spans):
         raise ValueError("Documento V10.3 con capitoli inattesi.")
     replacements = _chapters_from_template(template_text)
-    for fact in FACTS:
+    for fact in (*FACTS, *ADDITIONAL_SOURCE_CHECKS):
         section = replacements[fact.chapter]
         if section.count(fact.witness) != 1:
             raise ValueError(f"Fatto atomico perso o duplicato: {fact.ident}")
@@ -146,7 +221,8 @@ def run_v104(
     if manifest["fingerprint"] != previous_report.get("source_fingerprint"):
         raise ValueError("Fingerprint dispense differente dalla V10.3.")
     evidence = validate_original_pdfs(root, paths[3])
-    if len(evidence) != len(FACTS):
+    additional_evidence = _check_additional_pdf_evidence(paths[3])
+    if len(evidence) != len(FACTS) or len(additional_evidence) != len(ADDITIONAL_SOURCE_CHECKS):
         raise ValueError("Matrice PDF incompleta.")
     template_bytes = TEMPLATE_PATH.read_bytes()
     template = template_bytes.decode("utf-8-sig")
@@ -175,6 +251,7 @@ def run_v104(
     ):
         raise ValueError("Input, template o dispense modificati durante la generazione.")
     validate_original_pdfs(root, paths[3])
+    _check_additional_pdf_evidence(paths[3])
 
     per_chapter = []
     for item in changes:
@@ -211,6 +288,9 @@ def run_v104(
         "after_audit": after.status,
         "chapters": per_chapter,
         "mandatory_fact_count": len(FACTS),
+        "additional_source_fact_count": len(ADDITIONAL_SOURCE_CHECKS),
+        "total_guarded_fact_count": len(FACTS) + len(ADDITIONAL_SOURCE_CHECKS),
+        "additional_source_matrix": additional_evidence,
         "atomic_fact_matrix": [
             {
                 **fact,
@@ -246,6 +326,12 @@ def run_v104(
             f"presenza nel capitolo: {item['candidate_witness_occurrences']}"
         )
     dossier += [
+        "", "## Altri cinque fatti recuperati dalla revisione PDF", "",
+        *[
+            f"- {item['ident']} | {item['pdf']} p.{item['page']} | "
+            f"{item['witness']}"
+            for item in additional_evidence
+        ],
         "", "## Limitazioni", "",
         "- Riordino didattico da controllare manualmente sui PDF originali.",
         ("- Riferimenti esterni e discrepanze presenti nelle dispense "
