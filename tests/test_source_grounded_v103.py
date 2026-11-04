@@ -1,10 +1,11 @@
 """Spark V10.3: regression of per-page evidence and 30 atomic fact blockers."""
 import json
+import zipfile
 from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 import bc_science.source_grounded_v103 as v103
@@ -224,3 +225,89 @@ def test_pdf_fingerprint_change_in_flight_blocks(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="cambiati"):
         v103.run_v103(*args)
     assert not args[4].exists()
+
+
+def _make_archive(args, tmp_path, monkeypatch):
+    """Fixture ZIP with a manifest equivalent to the original Windows export."""
+    archive = tmp_path / "pinned-sources.zip"
+    records = []
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        for index, (filename, digest) in enumerate(
+            v103.SOURCE_HASHES.items(), start=1
+        ):
+            data = (args[0].path / filename).read_bytes()
+            assert v103.sha(data) == digest
+            records.append({
+                "Capitolo": "Source",
+                "File": filename,
+                "SHA256": digest.upper(),
+                "DimensioneBytes": len(data),
+            })
+            z.writestr(f"Source\\{index:02d}-{filename}", data)
+        z.writestr("manifest.json", json.dumps(records))
+    monkeypatch.setattr(
+        v103, "SOURCE_ARCHIVE_SHA256", v103.sha(archive.read_bytes())
+    )
+    return archive
+
+
+def test_exact_zip_mode_with_duplicate_course_pdf(tmp_path, monkeypatch):
+    args = _bundle(tmp_path, monkeypatch)
+    archive = _make_archive(args, tmp_path, monkeypatch)
+    # The course contains two identical file names on separate paths. Folder
+    # mode fails closed, whereas the pinned archive identifies one source.
+    extra = args[0].path / "archive-shadow"
+    extra.mkdir()
+    filename = v103.CHEM_PDF
+    (extra / filename).write_bytes((args[0].path / filename).read_bytes())
+    with pytest.raises(ValueError, match="Più copie identiche"):
+        v103.validate_original_pdfs(args[0].path)
+    evidence = v103.validate_original_pdfs(args[0].path, archive)
+    assert len(evidence) == len(v103.FACTS)
+    result_dir = v103.run_v103(*args, source_archive=archive)
+    report = json.loads(
+        (result_dir / "v10.3-report.json").read_text(encoding="utf-8")
+    )
+    assert report["source_validation_mode"] == "sha256_pinned_zip"
+    assert report["source_archive_sha256"] == v103.sha(archive.read_bytes())
+    assert report["original_pdfs_sha256_verified"]
+    assert report["pdf_page_anchors_verified"]
+    assert report["publication_allowed"] is False
+    assert report["scientifically_certified"] is False
+
+
+def test_archive_bit_tamper_is_blocked_without_output(tmp_path, monkeypatch):
+    args = _bundle(tmp_path, monkeypatch)
+    archive = _make_archive(args, tmp_path, monkeypatch)
+    archive.write_bytes(archive.read_bytes() + b"changed")
+    with pytest.raises(ValueError, match="ZIP delle fonti differente"):
+        v103.run_v103(*args, source_archive=archive)
+    assert not args[4].exists()
+
+
+def test_archive_manifest_conflict_is_blocked_even_if_zip_pinned(
+    tmp_path, monkeypatch,
+):
+    args = _bundle(tmp_path, monkeypatch)
+    archive = _make_archive(args, tmp_path, monkeypatch)
+    with zipfile.ZipFile(archive, "r") as z:
+        contents = {name: z.read(name) for name in z.namelist()}
+    manifest = json.loads(contents["manifest.json"].decode())
+    manifest[0]["SHA256"] = "0" * 64
+    contents["manifest.json"] = json.dumps(manifest).encode()
+    with zipfile.ZipFile(archive, "w") as z:
+        for name, data in contents.items():
+            z.writestr(name, data)
+    monkeypatch.setattr(
+        v103, "SOURCE_ARCHIVE_SHA256", v103.sha(archive.read_bytes())
+    )
+    with pytest.raises(ValueError, match="SHA manifest incoerente"):
+        v103.run_v103(*args, source_archive=archive)
+    assert not args[4].exists()
+
+
+def test_missing_pdf_file_has_actionable_diagnostic(tmp_path, monkeypatch):
+    args = _bundle(tmp_path, monkeypatch)
+    (args[0].path / v103.CHEM_PDF).unlink()
+    with pytest.raises(ValueError, match="--source-archive"):
+        v103.validate_original_pdfs(args[0].path)
