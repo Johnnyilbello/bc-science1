@@ -7,12 +7,14 @@ PDFs must match the independently supplied ZIP manifest byte-for-byte.
 from __future__ import annotations
 
 import difflib
+import io
 import json
 import re
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 
 from .autopilot_runner import _validated_manifest
 from .courses import CourseScan, _fingerprint, _snapshot
@@ -21,6 +23,7 @@ from .scientific_clarifications_v101 import _decode, _encode
 from .structural_compression import TITLES, _replace, _spans, sha
 
 VERSION = "spark-v10.3-source-grounded-review-only"
+SOURCE_ARCHIVE_SHA256 = "1d042ce9a797c528d0a3eec26170a6dbcbba3a7c0f5c5354103f81339d48fcec"
 COMPLETE_SHA256 = "72c1dfc066489d5936ebccbef7aaa06df3a3ca5d171cc329279e8bd71c18c40b"
 V102_SHA256 = "50aa8e47be8526edbf46c10f940e899798030ca254d2bf51df76345eff67bdb3"
 V102_REPORT_SHA256 = "0294c88859d32416626f5ff7203945684494973d8afc9716b29d90b69a0bbc9c"
@@ -250,34 +253,126 @@ def _clean(s: str) -> str:
     return " ".join(s.casefold().split())
 
 
-def validate_original_pdfs(course: Path) -> list[dict]:
-    """Every SHA must match the exact archive manifest; pages prove anchors."""
-    candidates = [p for p in course.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf"]
-    verified: dict[str, Path] = {}
-    for filename, digest in SOURCE_HASHES.items():
-        matches = [p for p in candidates if p.name.casefold() == filename.casefold()]
-        if not matches:
-            raise ValueError(f"PDF originale mancante: {filename}")
-        valid = [p for p in matches if sha(p.read_bytes()) == digest]
-        if len(valid) != 1:
-            raise ValueError(f"PDF originale assente, diverso o duplicato: {filename}")
-        verified[filename] = valid[0]
+def _archive_sources(archive_path: Path) -> dict[str, bytes]:
+    """Read only the exact uploaded ZIP; no extraction or modified originals."""
+    if not archive_path.is_file():
+        raise ValueError(f"Archivio originale mancante: {archive_path}")
+    payload = archive_path.read_bytes()
+    if sha(payload) != SOURCE_ARCHIVE_SHA256:
+        raise ValueError(
+            "ZIP delle fonti differente dall'archivio originale verificato "
+            f"(SHA256 rilevato: {sha(payload)})."
+        )
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as package:
+            names = package.namelist()
+            if names.count("manifest.json") != 1:
+                raise ValueError("Manifest dell'archivio assente o duplicato.")
+            manifest = json.loads(package.read("manifest.json").decode("utf-8-sig"))
+            if not isinstance(manifest, list) or len(manifest) != len(SOURCE_HASHES):
+                raise ValueError("Manifest: attesi esattamente sette file PDF.")
+            records = {}
+            for record in manifest:
+                if not isinstance(record, dict):
+                    raise ValueError("Voce manifest non valida.")
+                filename = record.get("File")
+                if filename not in SOURCE_HASHES or filename in records:
+                    raise ValueError(f"Voce manifest duplicata o ignota: {filename}")
+                if str(record.get("SHA256", "")).lower() != SOURCE_HASHES[filename]:
+                    raise ValueError(f"SHA manifest incoerente: {filename}")
+                records[filename] = record
+            if set(records) != set(SOURCE_HASHES):
+                raise ValueError("Manifest non contiene tutte le sette dispense.")
+
+            pdf_entries = [
+                item for item in package.infolist()
+                if not item.is_dir() and item.filename.lower().endswith(".pdf")
+            ]
+            if len(pdf_entries) != len(SOURCE_HASHES):
+                raise ValueError("ZIP con PDF aggiuntivi, mancanti o duplicati.")
+            validated = {}
+            for filename, digest in SOURCE_HASHES.items():
+                matches = []
+                for entry in pdf_entries:
+                    basename = entry.filename.replace("\\", "/").rsplit("/", 1)[-1]
+                    original_name = re.sub(r"^\d{2}-", "", basename)
+                    if original_name.casefold() == filename.casefold():
+                        matches.append(entry)
+                if len(matches) != 1:
+                    raise ValueError(f"PDF non univoco dentro lo ZIP: {filename}")
+                entry = matches[0]
+                if entry.file_size != records[filename].get("DimensioneBytes"):
+                    raise ValueError(f"Dimensione incoerente nel manifest: {filename}")
+                data = package.read(entry)
+                if sha(data) != digest:
+                    raise ValueError(f"Contenuto PDF diverso dal manifest: {filename}")
+                validated[filename] = data
+            return validated
+    except (zipfile.BadZipFile, KeyError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("ZIP o manifest originali non leggibili.") from exc
+
+
+def validate_original_pdfs(
+    course: Path, source_archive: Path | None = None,
+) -> list[dict]:
+    """Verify seven immutable SHA values and each page's literal evidence."""
+    if source_archive is not None:
+        sources: dict[str, Path | bytes] = _archive_sources(source_archive)
+    else:
+        candidates = [
+            p for p in course.rglob("*")
+            if p.is_file() and p.suffix.lower() == ".pdf"
+        ]
+        sources = {}
+        for filename, digest in SOURCE_HASHES.items():
+            matches = [
+                p for p in candidates if p.name.casefold() == filename.casefold()
+            ]
+            if not matches:
+                raise ValueError(
+                    f"PDF non trovato nella cartella del corso: {filename}. "
+                    "Usare --source-archive con lo ZIP originale verificato."
+                )
+            valid = [p for p in matches if sha(p.read_bytes()) == digest]
+            if not valid:
+                observed = ", ".join(
+                    f"{p}: {sha(p.read_bytes())}" for p in matches
+                )
+                raise ValueError(
+                    f"Hash PDF del corso non coincidente: {filename}. "
+                    f"Copie trovate: {observed}. "
+                    "Usare --source-archive con lo ZIP originale verificato."
+                )
+            if len(valid) != 1:
+                raise ValueError(
+                    f"Più copie identiche del PDF nel corso: {filename}. "
+                    "Usare --source-archive con lo ZIP originale verificato."
+                )
+            sources[filename] = valid[0]
 
     checks = []
-    for f in FACTS:
-        path = verified[f.pdf]
-        with fitz.open(path) as doc:
-            if len(doc) < f.page:
-                raise ValueError(f"Pagina {f.page} non presente: {f.pdf}")
-            text = _clean(doc[f.page - 1].get_text("text"))
-        missing = [term for term in f.source_terms if _clean(term) not in text]
+    for fact in FACTS:
+        file = sources[fact.pdf]
+        if isinstance(file, bytes):
+            doc = fitz.open(stream=file, filetype="pdf")
+        else:
+            doc = fitz.open(file)
+        with doc:
+            if len(doc) < fact.page:
+                raise ValueError(f"Pagina {fact.page} non presente: {fact.pdf}")
+            content = _clean(doc[fact.page - 1].get_text("text"))
+        missing = [
+            term for term in fact.source_terms
+            if _clean(term) not in content
+        ]
         if missing:
             raise ValueError(
-                f"Fonte non verificabile {f.ident} p.{f.page}: {', '.join(missing)}"
+                f"Fonte non verificabile {fact.ident} p.{fact.page}: "
+                + ", ".join(missing)
             )
         checks.append({
-            **asdict(f),
-            "source_sha256": SOURCE_HASHES[f.pdf],
+            **asdict(fact),
+            "source_sha256": SOURCE_HASHES[fact.pdf],
             "page_anchor_text_check": True,
             "human_scientific_review_required": True,
         })
@@ -341,6 +436,7 @@ def run_v103(
     v102_candidate: Path,
     v102_report: Path,
     output_dir: Path,
+    source_archive: Path | None = None,
 ) -> Path:
     source_paths = [p.expanduser().resolve() for p in (
         complete_file, v102_candidate, v102_report
@@ -375,7 +471,7 @@ def run_v103(
     manifest, _ = _validated_manifest(scan, complete)
     if manifest["fingerprint"] != previous.get("source_fingerprint"):
         raise ValueError("Fingerprint delle dispense diverso da quello atteso.")
-    evidence = validate_original_pdfs(root)
+    evidence = validate_original_pdfs(root, source_archive)
     original_spans, full_spans = _spans(old), _spans(complete)
     if not _ordered_title_match(list(full_spans), list(original_spans))[0]:
         raise ValueError("L'indice V10.2 non corrisponde alla Completa.")
@@ -396,14 +492,14 @@ def run_v103(
         raise ValueError(f"Nuovo FAIL dell'audit: {', '.join(missing) or 'contenuti'}")
     if (
         _fingerprint(_snapshot(scan)) != manifest["fingerprint"]
-        or any(p.read_bytes() != original for p, original in zip(source_paths, raw_inputs, strict=True))
         or any(
-            len([p for p in root.rglob("*") if p.is_file() and p.name.casefold() == name.casefold()
-                 and sha(p.read_bytes()) == digest]) != 1
-            for name, digest in SOURCE_HASHES.items()
+            p.read_bytes() != original
+            for p, original in zip(source_paths, raw_inputs, strict=True)
         )
     ):
         raise ValueError("Dispense o input cambiati durante il test.")
+    # Recheck the chosen source mode immediately before staging any output.
+    validate_original_pdfs(root, source_archive)
     metrics = []
     for title in TITLES:
         reference = complete[slice(*full_spans[title])]
@@ -436,6 +532,12 @@ def run_v103(
         "before_audit": pre.status,
         "after_audit": post.status,
         "source_pdf_hashes": SOURCE_HASHES,
+        "source_validation_mode": (
+            "sha256_pinned_zip" if source_archive is not None else "course_folder"
+        ),
+        "source_archive_sha256": (
+            SOURCE_ARCHIVE_SHA256 if source_archive is not None else None
+        ),
         "changes": changes,
         "atomic_fact_matrix": evidence,
         "mandatory_fact_count": len(FACTS),
