@@ -41,7 +41,7 @@ SOURCE_HASHES: dict[str, str] = {
     "La struttura terziaria e quaternaria delle proteine ed i lipidi.pdf":
         "1ec0abb63260854b4cde61073b804bd187b7ee27f245b8c96af495e5492eb6f6",
     "CHIMICA ORGANICA e carboidrati 2.pdf":
-        "43343aeb466dcdd7dc16634cf27b1d0bcc153aa35f6df362f2ce9e0f33bec7efd",
+        "43343aeb466dcd7dc16634cf27b1d0bcc153aa35f6df362f2ce9e0f33bec7efd",
     "CHIMICA ORGANICA e carboidrati.pdf":
         "84ab6b61ec819dc7c88bdd6ec0a4cddf147410f45079c9bb060e88573f6e35cb",
 }
