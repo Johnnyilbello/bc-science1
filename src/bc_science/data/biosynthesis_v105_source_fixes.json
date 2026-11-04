@@ -1,0 +1,95 @@
+{
+  "version": "biosynthesis-v10.5-source-verified-preview",
+  "source_archive_sha256": "538d5e7853a032f0d516530b54309e730303a9f9c7a8669d9e40059d9178be17",
+  "complete_sha256": "72c1dfc066489d5936ebccbef7aaa06df3a3ca5d171cc329279e8bd71c18c40b",
+  "v104_candidate_sha256": "84648276613e5d89318db6d282dceb289676687df6dad4424d2d58bbc1791197",
+  "v104_report_sha256": "1be3c52968d5beaca40cb9fb878484659dd572d36d2b2b55296894d37c664cf6",
+  "chapter_original_sha256": {
+    "complete": "8ade835154ce2e6fb13dec13239cb027e5e1002e55a4b96cb7741b75a6d085df",
+    "essential": "cfdab31dcf4d41343af3e9a15a7612f9e08baf1861508d82f6a9f4ff1e648709"
+  },
+  "chapter_expected_corrected_sha256": {
+    "complete": "c7e9225b634c4e41cb4256255f9e70aad35d19383e76807c69afce3325a4cc57",
+    "essential": "537466d3d8c84ad759809b2058e2ccf09cd55b4a74d05de218b09495ce1e9245"
+  },
+  "pdf_sources": {
+    "PDF-01.pdf": {
+      "name": "BIOSINTESI DEGLI ACIDI GRASSI 2.pdf",
+      "sha256": "8c29b6f5736a02f7e41e638f89b4cc6ef64f4d19fcb5e3970dd6b9ba62d34803"
+    },
+    "PDF-02.pdf": {
+      "name": "BIOSINTESI DEGLI ACIDI GRASSI FAQ.pdf",
+      "sha256": "176aa7dd7f6c54c4f1cad789942f6cd4b6d326df546dc5b6d0f2a012365f1949"
+    },
+    "PDF-03.pdf": {
+      "name": "BIOSINTESI DEGLI ACIDI GRASSI.pdf",
+      "sha256": "7180a6a75adec7aebcf831720f3a9fcbc7357ace9498600630763101012facb4"
+    },
+    "PDF-04.pdf": {
+      "name": "La struttura terziaria e quaternaria delle proteine ed i lipidi 2.pdf",
+      "sha256": "b5af930242ab31b3f93f016be649e3446a354497bc68c02ca1951119e158130c"
+    },
+    "PDF-05.pdf": {
+      "name": "La struttura terziaria e quaternaria delle proteine ed i lipidi 3.pdf",
+      "sha256": "0f19a3f55bcdc44744109df538bcbbf319e5b2c9f61acdf3e7fbbb87a3f32705"
+    },
+    "PDF-06.pdf": {
+      "name": "La struttura terziaria e quaternaria delle proteine ed i lipidi.pdf",
+      "sha256": "1ec0abb63260854b4cde61073b804bd187b7ee27f245b8c96af495e5492eb6f6"
+    },
+    "PDF-07.pdf": {
+      "name": "Lipidi, Lipolisi e Beta ossidazione degli acidi grassi 2.pdf",
+      "sha256": "a58ef74cfb3ffadb6f879e59a83418124fbe87aa6915c60b566fbf40701aab08"
+    },
+    "PDF-08.pdf": {
+      "name": "Lipidi, Lipolisi e Beta ossidazione degli acidi grassi.pdf",
+      "sha256": "cbe314b9cf292aa7fa9b4dc6712687e1581a9226b530e34427a95a4d34a3d48e"
+    }
+  },
+  "fixes": [
+    {
+      "id": "B01",
+      "source_pdf": "PDF-03.pdf",
+      "source_page": 11,
+      "reason": "Stechiometria palmitato: 8 acetil-CoA, 7 ATP, 14 NADPH",
+      "old": "La sintesi del palmitato richiede 7 molecole di acetil-CoA, 14 di malonil-CoA, 14 di NADPH + H+ e 14 di ATP.",
+      "replacement": "Per sintetizzare **1 palmitato (16 atomi di carbonio)** servono in totale **8 acetil-CoA** (1 gruppo acetile iniziale e 7 acetil-CoA convertiti in **7 malonil-CoA**), **7 ATP** per la formazione del malonil-CoA e **14 NADPH** per le due riduzioni in ciascuno dei 7 cicli. È il bilancio delle slide eCampus, *BIOSINTESI DEGLI ACIDI GRASSI.pdf*, p. 11; non comprende eventuali costi energetici a monte per il trasferimento del citrato."
+    },
+    {
+      "id": "B02",
+      "source_pdf": "PDF-03.pdf",
+      "source_page": 2,
+      "reason": "Ossalacetato a malato consuma NADH; enzima malico produce NADPH",
+      "old": "L'ossalacetato può tornare nel mitocondrio per fornire NADH + H+ necessario alla sintesi. Il resto del NADPH + H+ proviene dal ciclo dei pentoso fosfati.",
+      "replacement": "Nel citosol, l'ossalacetato ottenuto dalla scissione del citrato viene ridotto a **malato consumando NADH**. Il malato può rientrare nel mitocondrio oppure essere trasformato in piruvato dall'**enzima malico**, che **produce NADPH**. Anche la **via dei pentoso fosfati** fornisce NADPH utilizzato nella sintesi degli acidi grassi. La figura eCampus *BIOSINTESI DEGLI ACIDI GRASSI.pdf*, p. 2, distingue NADH e NADPH."
+    },
+    {
+      "id": "B03",
+      "source_pdf": "PDF-01.pdf",
+      "source_page": 2,
+      "reason": "Rallentamento del flusso del ciclo di Krebs, non arresto",
+      "old": "Il citrato si accumula quando la cellula ha energia (alto ATP/NADH), bloccando il ciclo di Krebs e favorendo la sintesi.",
+      "replacement": "Il citrato tende ad accumularsi quando **ATP e NADH** sono elevati: viene inibita l'**isocitrato deidrogenasi**, quindi rallenta il flusso del ciclo di Krebs e può aumentare l'esportazione di citrato per la sintesi lipidica (*BIOSINTESI DEGLI ACIDI GRASSI 2.pdf*, p. 2)."
+    },
+    {
+      "id": "B04",
+      "source_pdf": "PDF-01.pdf",
+      "source_page": 5,
+      "reason": "De novo citosolica distinta da elongazione nel RE e mitocondri",
+      "old": "La lipogenesi avviene solo nel citoplasma; l'acetil-CoA mitocondriale deve essere convertito in citrato per entrare nel citoplasma.",
+      "replacement": "La **sintesi de novo del palmitato** avviene nel **citosol**: i gruppi acetile di origine mitocondriale raggiungono il citosol sotto forma di **citrato**. L'**allungamento** degli acidi grassi può proseguire anche nel reticolo endoplasmatico e nei mitocondri (*BIOSINTESI DEGLI ACIDI GRASSI 2.pdf*, pp. 1 e 5)."
+    }
+  ],
+  "global_recap_fix": {
+    "id": "B05_RECAP_SYNC",
+    "document": "essential",
+    "old": "La lipogenesi avviene solo nel citoplasma; l'acetil-CoA mitocondriale deve essere convertito in citrato per entrare nel citoplasma.",
+    "replacement": "La **sintesi de novo del palmitato** avviene nel **citosol**, utilizzando gruppi acetile trasportati dal mitocondrio come citrato; l'**allungamento** degli acidi grassi può avvenire anche nel reticolo endoplasmatico e nei mitocondri.",
+    "source_pdf": "PDF-01.pdf",
+    "source_pages": [
+      1,
+      5
+    ],
+    "rationale": "Il Ripasso globale V10.4 ripete una formula troppo assoluta nonostante la correzione B04 del capitolo."
+  }
+}

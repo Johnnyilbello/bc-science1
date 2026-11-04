@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+import zipfile
 from pathlib import Path
 from typing import Annotated
 
@@ -349,6 +350,46 @@ def courses_status(
         )
 
     console.print(table)
+
+
+@courses_app.command("biosynthesis-source-preview")
+def courses_biosynthesis_source_preview(
+    complete: Annotated[Path, typer.Option("--complete")],
+    v104_candidate: Annotated[Path, typer.Option("--v104-candidate")],
+    v104_report: Annotated[Path, typer.Option("--v104-report")],
+    source_archive: Annotated[Path, typer.Option("--source-archive")],
+    output_dir: Annotated[Path, typer.Option("--output-dir")],
+) -> None:
+    """V10.5: correct four biosynthesis claims in two nonpublished copies."""
+    from .biosynthesis_corrections_v105 import run_v105
+
+    try:
+        folder = run_v105(
+            complete, v104_candidate, v104_report, source_archive, output_dir
+        )
+        report = json.loads(
+            (folder / "v10.5-report.json").read_text(encoding="utf-8")
+        )
+        if (
+            report["publication_allowed"] is not False
+            or report["scientifically_certified"] is not False
+            or report["unchanged_chapters_per_document"] != 64
+            or len(report["corrections"]) != 4
+        ):
+            raise ValueError("Report V10.5 non conforme.")
+    except (ValueError, OSError, KeyError, TypeError, zipfile.BadZipFile) as exc:
+        console.print(f"[red]V10.5 bloccata:[/] {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print("[green]V10.5: DUE candidate NON pubblicate.[/]")
+    console.print("Correzioni: 4 nella Completa e 4 nell'Essenziale.")
+    console.print("64 capitoli non coinvolti immutati in ciascuna versione.")
+    console.print(
+        f"Audit scientifico automatico: "
+        f"{report['before_audit']} → {report['after_audit']}"
+    )
+    console.print(f"Dossier: {folder / 'v10.5-dossier.md'}")
+    console.print("[yellow]Nessuna certificazione, merge o pubblicazione.[/]")
 
 
 @courses_app.command("study-polish-preview")
