@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 from .fast_audit import audit_fast_essential
-from .scientific_clarifications_v101 import _decode, _encode
+from .scientific_clarifications_v101 import _decode
 from .source_grounded_v103 import FACTS, validate_fact_coverage
 from .structural_compression import TITLES, _spans
 from .study_polish_v104 import ADDITIONAL_SOURCE_CHECKS
@@ -79,7 +79,9 @@ def _verify_archive(path: Path, plan: dict) -> None:
 def _replace_single_chapter(
     original: bytes, plan: dict, label: str
 ) -> tuple[bytes, list[str]]:
-    text, newline, bom = _decode(original)
+    # Keep CRLF exactly: the audited extracts and their SHA-256 use CRLF.
+    _normalized, _newline, bom = _decode(original)
+    text = original[len(bom):].decode("utf-8")
     found = list(CHAPTER_RE.finditer(text))
     if len(found) != 1:
         raise ValueError("Capitolo Biosintesi assente o duplicato.")
@@ -113,18 +115,20 @@ def _replace_single_chapter(
         or revised[match.start() + len(updated + whitespace):] != text[match.end():]
     ):
         raise ValueError("Sezioni esterne a Biosintesi modificate.")
-    payload = _encode(revised, newline, bom)
-    if _decode(payload)[0] == text:
+    payload = bom + revised.encode("utf-8")
+    if payload == original:
         raise ValueError("Correzioni non applicate.")
-    before_spans = _spans(text)
-    after_spans = _spans(_decode(payload)[0])
+    before_text = _decode(original)[0]
+    after_text = _decode(payload)[0]
+    before_spans = _spans(before_text)
+    after_spans = _spans(after_text)
     if len(before_spans) != 65 or list(before_spans) != list(after_spans):
         raise ValueError("Indice o numero dei 65 capitoli modificato.")
     for title in before_spans:
         if title != TITLE:
             if (
-                text[slice(*before_spans[title])]
-                != _decode(payload)[0][slice(*after_spans[title])]
+                before_text[slice(*before_spans[title])]
+                != after_text[slice(*after_spans[title])]
             ):
                 raise ValueError(f"Capitolo esterno modificato: {title}")
     return payload, applied
