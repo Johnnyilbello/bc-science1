@@ -223,11 +223,11 @@ def run_v104(
     dossier = [
         "# BC Science V10.4 — Pilot didattico source-grounded", "",
         "**Non pubblicato. Non certificato scientificamente.**", "",
-        "Tre capitoli riscritti in modo progressivo e con domande di ripasso. "
-        "Trenta fatti obbligatori conservati come testimoni letterali, "
-        "ma il controllo testuale non certifica l'equivalenza semantica.", "",
-        f"Audit: {before.status} → {after.status}. "
-        f"Capitoli esterni identici: {report['unchanged_other_chapters']}.", "",
+        ("Tre capitoli riscritti in modo progressivo e con domande di ripasso. "
+         "Trenta fatti obbligatori conservati come testimoni letterali, "
+         "ma il controllo testuale non certifica l'equivalenza semantica."), "",
+        (f"Audit: {before.status} → {after.status}. "
+         f"Capitoli esterni identici: {report['unchanged_other_chapters']}."), "",
         "## Riduzioni senza soglia rigida", "",
     ]
     for item in per_chapter:
@@ -246,8 +246,8 @@ def run_v104(
     dossier += [
         "", "## Limitazioni", "",
         "- Riordino didattico da controllare manualmente sui PDF originali.",
-        "- Riferimenti esterni e discrepanze presenti nelle dispense "
-        "restano distinti dalle affermazioni del corso.",
+        ("- Riferimenti esterni e discrepanze presenti nelle dispense "
+         "restano distinti dalle affermazioni del corso."),
         "- Nessuna generalizzazione automatica ai 62 capitoli non coinvolti.",
         "- Nessuna modifica ai materiali sorgenti né merge/pubblicazione.",
         "",
