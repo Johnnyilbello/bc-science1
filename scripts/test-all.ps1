@@ -25,8 +25,15 @@ function Invoke-Stage {
     $exitCode = 0
     try {
         $global:LASTEXITCODE = 0
-        & $Executable @Arguments 2>&1 | Tee-Object -FilePath $log
-        $exitCode = [int]$LASTEXITCODE
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $Executable @Arguments 2>&1 | Tee-Object -FilePath $log | Out-Host
+            $exitCode = [int]$LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousPreference
+        }
     }
     catch {
         $message = $_ | Out-String
