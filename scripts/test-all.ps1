@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path -LiteralPath $RepoRoot).Path
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$reportDir = Join-Path $repo ("reports\\test-all\\" + $stamp)
+$reportDir = Join-Path $repo ("reports\test-all\" + $stamp)
 New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
 $script:Stages = New-Object System.Collections.Generic.List[object]
 
@@ -57,8 +57,8 @@ function Add-Skipped {
 
 Push-Location $repo
 try {
-    $python = Join-Path $repo ".venv\\Scripts\\python.exe"
-    $cli = Join-Path $repo ".venv\\Scripts\\bc-science.exe"
+    $python = Join-Path $repo ".venv\Scripts\python.exe"
+    $cli = Join-Path $repo ".venv\Scripts\bc-science.exe"
 
     if (-not (Test-Path -LiteralPath $python)) {
         $launcher = Get-Command py -ErrorAction SilentlyContinue
@@ -93,8 +93,8 @@ try {
             if ($configured -and (Test-Path -LiteralPath $configured -PathType Container)) {
                 $CourseRoot = $configured
             }
-            elseif (Test-Path -LiteralPath "C:\\Studio\\SCIENZE MOTORIE" -PathType Container) {
-                $CourseRoot = "C:\\Studio\\SCIENZE MOTORIE"
+            elseif (Test-Path -LiteralPath "C:\Studio\SCIENZE MOTORIE" -PathType Container) {
+                $CourseRoot = "C:\Studio\SCIENZE MOTORIE"
             }
         }
 
