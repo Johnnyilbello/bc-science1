@@ -32,7 +32,7 @@ from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
     name="bc-science",
-    help="Assistente locale per lo studio di Scienze Motorie eCampus.",
+    help="Assistente locale per lo studio di qualsiasi materia.",
     no_args_is_help=True,
 )
 models_app = typer.Typer(help="Gestione modelli locali.")
