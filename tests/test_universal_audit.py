@@ -52,7 +52,7 @@ def test_three_unrelated_subjects_audited_offline_without_ollama(
     assert len(payload["subjects"]) == 3
     assert "non certifica la correttezza scientifica" in markdown.read_text(
         encoding="utf-8"
-    )
+    ).lower()
 
 
 def test_manifest_coverage_is_traced_then_stale_hash_is_detected(
