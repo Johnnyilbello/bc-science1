@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bc-science"
-version = "0.9.17"
-description = "Local-first study assistant for eCampus Scienze Motorie"
+version = "0.9.18"
+description = "Local-first study assistant for multiple subjects"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

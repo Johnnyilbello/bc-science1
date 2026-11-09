@@ -75,6 +75,39 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Verifica multi-materia offline — 0.9.18
+
+Il nuovo audit strutturale è indipendente dalla disciplina: funziona anche
+con materie di altre facoltà, senza avviare Ollama.
+
+```powershell
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE"
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE" --strict
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE" --output-dir "C:\BC-Reports"
+```
+
+Produce una matrice documento → argomento → capitolo con SHA256 e segnala
+nuove/modificate dispense, collegamenti mancanti, output non aggiornati e
+audit in FAIL. I report `verification.md` e `verification.json` sono salvati
+in `%LOCALAPPDATA%\BCScience\reports\courses-verify` se non si indica
+`--output-dir`. `--strict` termina con errore anche in caso di WARN.
+
+**Limite:** questo audit non equivale a una verifica scientifica dei contenuti.
+
+Per testare installazione, lint, suite Python, diagnostica e materiale reale
+su Windows, dalla repository:
+
+```powershell
+.\scripts\test-all.ps1 -CourseRoot "C:\Studio\SCIENZE MOTORIE" -Full
+```
+
+Il runner salva un `result.json` e log separati sotto
+`reports\test-all\<timestamp>`. Senza `-Full` non rigenera dispense,
+ma esegue la verifica strutturale del corpus esistente. Se il corpus non
+è disponibile, i test del codice vengono comunque eseguiti e il controllo
+reale viene segnalato come non eseguito. La modalità Full richiede Ollama
+locale e usa il profilo Standard (`qwen3.5:4b`).
+
 ## Normalizzazione dispense eCampus — 0.9.4
 
 La normalizzazione dei nomi file usa ora regole conservative basate sul corpus reale:

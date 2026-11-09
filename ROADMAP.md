@@ -226,6 +226,38 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
+## 0.9.18 — Verifica strutturale multi-materia (incremento 0.10) ✅
+
+Nuovo comando `bc-science courses verify <RADICE> [--strict] [--output-dir DIR]`.
+Funziona offline, senza Ollama o API, per materie arbitrarie (non solo eCampus)
+e crea una matrice documento → argomento → capitolo con SHA256 delle fonti.
+Controlla hash e manifest, copertura delle fonti, presenza e aggiornamento di
+Completa/PDF/Essenziale e stato del precedente audit dello studio.
+
+- `PASS`: matrice, riassunto e output risultano strutturalmente aggiornati;
+- `WARN`: mancano output derivati, audit in WARN o materia senza fonti;
+- `FAIL`: riassunto mancante, fonte non verificata o audit studio in FAIL;
+- `--strict`: codice di uscita 1 se il risultato aggregato non è PASS;
+- report `verification.md` / `verification.json` sotto
+  `%LOCALAPPDATA%\\BCScience\\reports\\courses-verify`, o nell'output scelto;
+- test offline su materie distinte e manifest obsoleto, senza scaricare modelli.
+
+Limite esplicito: la tracciabilità prova solo la coerenza strutturale degli
+artefatti e degli hash, **non** la completezza dei fatti né la correttezza
+scientifica. Rimangono da completare nel milestone 0.10 il rilevamento delle
+contraddizioni, l'audit semantico fonte-per-fatto e il gate pre-finalizzazione.
+
+### Test completo Windows
+
+`scripts/test-all.ps1` crea/riusa la virtualenv ed esegue lint, pytest,
+CLI e diagnostica con log per fase e `result.json`. Se è disponibile una
+cartella materie (parametro `-CourseRoot`, variabile
+`BC_SCIENCE_COURSES_ROOT` o `C:\\Studio\\SCIENZE MOTORIE`), esegue anche list,
+status e verify strict. Con `-Full` dopo lint/test PASS avvia in aggiunta
+`courses build --profile standard` con Qwen3.5:4b locale e `courses audit --strict`.
+Il gate può fallire correttamente quando il corpus reale è incompleto:
+non verrà dichiarato PASS senza verifica locale.
+
 ## 0.10.5 — Scientific Enrichment oltre eCampus ✅
 
 Obiettivo: affiancare al materiale d'esame un secondo documento di approfondimento scientifico
