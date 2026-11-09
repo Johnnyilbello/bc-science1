@@ -28,6 +28,7 @@ from .scientific_research import (
     research_state,
 )
 from .summarizer import Summarizer
+from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
     name="bc-science",
@@ -349,6 +350,57 @@ def courses_status(
         )
 
     console.print(table)
+
+
+@courses_app.command("verify")
+def courses_verify(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con sottocartelle per materia"),
+    ],
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict/--no-strict",
+            help="Esce con errore se una materia è WARN/FAIL o non ci sono materie",
+        ),
+    ] = False,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Directory per report Markdown e JSON"),
+    ] = None,
+) -> None:
+    """Verifica offline fonti, matrice documenti/capitoli e stato degli output."""
+    try:
+        result = verify_courses(root)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    markdown_path, json_path = write_verification_reports(result, output_dir)
+    table = Table(title=f"BC Science — Verifica multi-materia · {result.status}")
+    table.add_column("Materia")
+    table.add_column("Esito")
+    table.add_column("Fonti collegate", justify="right")
+    table.add_column("Copertura")
+    table.add_column("Studio")
+    table.add_column("Audit")
+    for subject in result.subjects:
+        table.add_row(
+            subject.name,
+            subject.status,
+            f"{subject.mapped_sources}/{subject.source_count}",
+            subject.coverage,
+            subject.study,
+            subject.study_audit,
+        )
+    console.print(table)
+    console.print(f"[dim]Report: {markdown_path} · {json_path}[/]")
+    console.print(
+        "[dim]Verifica strutturale: non certifica la correttezza scientifica.[/]"
+    )
+    if strict and result.status != "PASS":
+        raise typer.Exit(1)
 
 
 @courses_app.command("audit")
