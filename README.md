@@ -81,15 +81,15 @@ Il nuovo audit strutturale è indipendente dalla disciplina: funziona anche
 con materie di altre facoltà, senza avviare Ollama.
 
 ```powershell
-bc-science courses verify "C:\\Studio\\SCIENZE MOTORIE"
-bc-science courses verify "C:\\Studio\\SCIENZE MOTORIE" --strict
-bc-science courses verify "C:\\Studio\\SCIENZE MOTORIE" --output-dir "C:\\BC-Reports"
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE"
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE" --strict
+bc-science courses verify "C:\Studio\SCIENZE MOTORIE" --output-dir "C:\BC-Reports"
 ```
 
 Produce una matrice documento → argomento → capitolo con SHA256 e segnala
 nuove/modificate dispense, collegamenti mancanti, output non aggiornati e
 audit in FAIL. I report `verification.md` e `verification.json` sono salvati
-in `%LOCALAPPDATA%\\BCScience\\reports\\courses-verify` se non si indica
+in `%LOCALAPPDATA%\BCScience\reports\courses-verify` se non si indica
 `--output-dir`. `--strict` termina con errore anche in caso di WARN.
 
 **Limite:** questo audit non equivale a una verifica scientifica dei contenuti.
@@ -98,11 +98,11 @@ Per testare installazione, lint, suite Python, diagnostica e materiale reale
 su Windows, dalla repository:
 
 ```powershell
-.\\scripts\\test-all.ps1 -CourseRoot "C:\\Studio\\SCIENZE MOTORIE" -Full
+.\scripts\test-all.ps1 -CourseRoot "C:\Studio\SCIENZE MOTORIE" -Full
 ```
 
 Il runner salva un `result.json` e log separati sotto
-`reports\\test-all\\<timestamp>`. Senza `-Full` non rigenera dispense,
+`reports\test-all\<timestamp>`. Senza `-Full` non rigenera dispense,
 ma esegue la verifica strutturale del corpus esistente. Se il corpus non
 è disponibile, i test del codice vengono comunque eseguiti e il controllo
 reale viene segnalato come non eseguito. La modalità Full richiede Ollama
