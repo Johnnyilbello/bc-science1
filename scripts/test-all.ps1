@@ -105,6 +105,49 @@ try {
             }
         }
 
+        if (-not $CourseRoot) {
+            $homeRoot = ""
+            if ($env:BC_SCIENCE_HOME) {
+                $homeRoot = $env:BC_SCIENCE_HOME
+            }
+            elseif ($env:LOCALAPPDATA) {
+                $homeRoot = Join-Path $env:LOCALAPPDATA "BCScience"
+            }
+            if ($homeRoot) {
+                $workspaces = Join-Path $homeRoot "workspaces\courses"
+                if (Test-Path -LiteralPath $workspaces -PathType Container) {
+                    $candidates = @()
+                    foreach ($folder in (Get-ChildItem -LiteralPath $workspaces -Directory)) {
+                        $manifestPath = Join-Path $folder.FullName "manifest.json"
+                        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+                            continue
+                        }
+                        try {
+                            $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 |
+                                ConvertFrom-Json
+                            if ($manifest.source -and (Test-Path -LiteralPath $manifest.source -PathType Container)) {
+                                $parent = Split-Path -Path $manifest.source -Parent
+                                if (Test-Path -LiteralPath $parent -PathType Container) {
+                                    $candidates += $parent
+                                }
+                            }
+                        }
+                        catch {
+                            # Un manifest corrotto non deve bloccare i test del codice.
+                        }
+                    }
+                    $groups = @($candidates | Group-Object | Sort-Object Count -Descending)
+                    if (
+                        $groups.Count -eq 1 -or
+                        ($groups.Count -gt 1 -and $groups[0].Count -gt $groups[1].Count)
+                    ) {
+                        $CourseRoot = $groups[0].Name
+                        Write-Host ("Cartella materie recuperata dai manifest: " + $CourseRoot)
+                    }
+                }
+            }
+        }
+
         if ($CourseRoot -and (Test-Path -LiteralPath $CourseRoot -PathType Container) -and (Test-Path -LiteralPath $cli)) {
             $CourseRoot = (Resolve-Path -LiteralPath $CourseRoot).Path
             $null = Invoke-Stage "courses-list" $cli @("courses", "list", $CourseRoot)
