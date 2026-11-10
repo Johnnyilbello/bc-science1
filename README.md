@@ -75,6 +75,33 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Bozze di correzione scientifica con controllo SHA256 — NON pubblicate
+
+Dopo aver prodotto il report \`inspect-scientific-flags\` sulle tre
+edizioni, creare proposte **isolate** per le formulazioni errate documentate:
+
+\`\`\`powershell
+bc-science courses draft-scientific-corrections "C:\Studio\SCIENZE MOTORIE" --audit-json "C:\BC-Science1\reports\scientific-flags\audit-con-anteprime.json" --preview-dir "C:\BC-Science1\reports\essential-preview\sessione" --output-dir "C:\BC-Science1\reports\scientific-correction-drafts\sessione"
+\`\`\`
+
+Per ogni documento interessato il comando ricava il percorso dalla cartella
+materie, non da un percorso arbitrario indicato nel report; verifica che SHA256
+e testo corrente corrispondano all'audit, richiede esattamente **una**
+occorrenza della formulazione errata e rifiuta i casi non riconoscibili.
+Prepara file \`proposta-NN.md\`, \`proposta-NN.diff\`,
+\`review-report.md\` e \`review-report.json\` in una cartella nuova.
+
+Le proposte trattano soltanto quattro formulazioni accertate su questo
+corpus (esofago, vie biliari, palmitato e volume corrente). Non sono una
+correzione generica di tutta la fisiologia, anatomia e biochimica. Se il
+documento è cambiato o il passaggio non è univoco, lo stato è \`BLOCKED\`.
+Lo stato \`REVIEW\` significa **proposta da confrontare** con la dispensa
+originale e una fonte scientifica indipendente, non validazione.
+
+Il comando **non** scrive sopra riassunti, PDF, indici, manifest, cache,
+né sulle fonti originali. Non elimina i warning degli audit esistenti.
+Nessuna proposta può essere pubblicata automaticamente da questa CLI.
+
 ## Segnalazione di affermazioni scientifiche sospette (read-only)
 
 Dopo un confronto tra i riassunti pubblicati e le dispense originali
