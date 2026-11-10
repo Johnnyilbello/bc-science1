@@ -141,7 +141,7 @@ _PROOF_STOPWORDS = frozenset({
     "quando", "come", "se", "si", "sua", "suo", "suoi", "sue",
     "loro", "questo", "questa", "queste", "questi", "quello", "quella", "quelli",
     "quelle", "è", "sono", "essere", "era", "erano", "ha", "hanno",
-    "abbia", "negli", "nelle", "in", "non",
+    "abbia", "negli", "in", "non",
 })
 _PROOF_WORD = re.compile(r"[a-z]{3,}|\d+(?:[.,]\d+)?")
 _PROOF_NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
