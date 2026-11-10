@@ -29,6 +29,7 @@ from .model_manager import ensure_model_with_progress
 from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
 from .retrieval_audit import DEFAULT_RETRIEVAL_CASES, evaluate_retrieval
+from .scientific_claim_flags import inspect_scientific_claims
 from .scientific_research import (
     ResearchError,
     ScientificResearchBuilder,
@@ -590,6 +591,93 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("inspect-scientific-flags")
+def courses_inspect_scientific_flags(
+    root: Annotated[Path, typer.Argument(help="Cartella con le materie")],
+    output_json: Annotated[
+        Path | None,
+        typer.Option("--output-json", help="Nuovo report JSON ASCII-safe, fuori dagli output live"),
+    ] = None,
+) -> None:
+    """Segnala un piccolo insieme di anomalie scientifiche note; non corregge."""
+    import hashlib
+    from dataclasses import asdict
+    from datetime import datetime, timezone
+
+    from .courses import course_output_path, course_study_output_path
+
+    records = []
+    total_files = 0
+    try:
+        for scan in scan_courses(root):
+            for edition, path in (
+                ("Completa", course_output_path(scan)),
+                ("Essenziale", course_study_output_path(scan)),
+            ):
+                if not path.is_file():
+                    continue
+                content = path.read_text(encoding="utf-8")
+                total_files += 1
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                for finding in inspect_scientific_claims(content):
+                    records.append({
+                        "subject": scan.name,
+                        "edition": edition,
+                        "path": str(path),
+                        "document_sha256": digest,
+                        **asdict(finding),
+                    })
+    except (ValueError, OSError, UnicodeError) as exc:
+        console.print(f"[red]Analisi non eseguibile: {exc}[/]")
+        raise typer.Exit(2) from exc
+
+    if output_json is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_json = app_home() / "reports" / "scientific-flags" / (
+            stamp + ".json"
+        )
+    try:
+        target = output_json.expanduser().resolve()
+        source_root = root.expanduser().resolve()
+        live_root = (app_home() / "outputs").resolve()
+        if (
+            target == source_root or target.is_relative_to(source_root)
+            or target == live_root or target.is_relative_to(live_root)
+        ):
+            raise ValueError("Il report deve essere fuori dalle dispense e dagli output live.")
+        if target.exists():
+            raise ValueError("Il report esiste già: sovrascrittura vietata.")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "bc-science-known-scientific-flags-v1",
+            "scope": "regole note documentate, nessuna certificazione completa",
+            "scanned_files": total_files,
+            "flags": records,
+        }
+        with target.open("x", encoding="ascii") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=True, indent=2))
+            stream.write("\n")
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Impossibile salvare report: {exc}[/]")
+        raise typer.Exit(2) from exc
+
+    console.print(
+        f"[yellow]Possibili anomalie scientifiche documentate: {len(records)}[/]"
+        f" · documenti esaminati: {total_files}"
+    )
+    counts: dict[tuple[str, str], int] = {}
+    for row in records:
+        key = (row["subject"], row["edition"])
+        counts[key] = counts.get(key, 0) + 1
+    for (subject, edition), count in sorted(counts.items()):
+        console.print(f"  {subject} · {edition}: {count}")
+    console.print(f"[green]Report JSON:[/] {target}")
+    console.print(
+        "[dim]Un risultato senza anomalie non equivale a correttezza scientifica. "
+        "Queste sono soltanto regole mirate e documentate. Nessun testo modificato.[/]"
+    )
 
 
 @courses_app.command("inspect-claim")
