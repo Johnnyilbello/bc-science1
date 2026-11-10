@@ -214,6 +214,7 @@ def _challenge_incomplete_support(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
     chat: Callable[[list[dict[str, str]]], str],
+    missing_anchors: list[str] | None = None,
 ) -> dict:
     """Second, independent local challenge: cite contrary evidence or abstain."""
     passages = [
@@ -232,24 +233,35 @@ def _challenge_incomplete_support(
         "Cerca esplicitamente un'evidenza che contraddica una componente. "
         "Se la fonte NON dice una componente, indica NOT_SHOWN: "
         "assenza di prova non significa contraddizione. "
-        "Se un estratto dice il contrario, indica CONTRADICTED e cita "
-        "quel passaggio alla lettera. Non inventare nuove informazioni "
-        "o la risposta corretta. Rispondi SOLO JSON con "
-        "assessment CONTRADICTED oppure UNVERIFIED e lista delle "
-        "componenti problematiche: "
-        '{"assessment":"CONTRADICTED|UNVERIFIED",'
-        '"missing_parts":["parte 1","parte 2"],'
+        "Se una parafrasi descrive lo stesso fatto, puoi indicare SUPPORTED, "
+        "ma solo decomponendo la frase in componenti verificabili. "
+        "Per OGNI componente dichiarata supportata indica una parte "
+        "letterale della AFFERMAZIONE e una citazione letterale "
+        "che la dimostra. Una citazione di un oggetto non basta "
+        "a dimostrare anche la relazione, quantità o direzione. "
+        "NON forzare numeri o negazioni dove non ci sono. "
+        "Rispondi SOLO JSON: "
+        '{"assessment":"SUPPORTED|CONTRADICTED|UNVERIFIED",'
+        '"missing_parts":["parte non dimostrata"],'
+        '"facets":[{"claim_part":"parte copiata letteralmente dal claim",'
+        '"state":"SUPPORTED|CONTRADICTED|NOT_SHOWN",'
+        '"source_id":1,"quote":"testo letterale dalla fonte"}],'
         '"counter_quotes":[{"source_id":1,'
         '"quote":"citazione originale continua di almeno 16 caratteri"}]}. '
-        "Per CONTRADICTED serve almeno una controcitazione valida; "
+        "Per CONTRADICTED serve una controcitazione valida. "
+        "Per SUPPORTED ogni componente deve avere prova esplicita; "
         "per UNVERIFIED puoi lasciare counter_quotes vuoto. "
         f"\nAFFERMAZIONE: {claim.text}\n"
+        f"INDIZI_LESSICALI_NON_RISOLTI: "
+        f"{json.dumps(missing_anchors or [], ensure_ascii=False)}\n"
         f"ESTRATTI: {json.dumps(passages, ensure_ascii=False)}"
     )
     result = {
         "assessment": "UNVERIFIED",
         "missing_parts": [],
         "counter_quotes": [],
+        "facets": [],
+        "semantic_support_candidate": False,
         "model_challenge_valid": False,
     }
     try:
@@ -267,8 +279,9 @@ def _challenge_incomplete_support(
         assessment = obj.get("assessment")
         missing_parts = obj.get("missing_parts")
         counter_quotes = obj.get("counter_quotes")
+        facets = obj.get("facets", [])
         if (
-            assessment not in {"UNVERIFIED", "CONTRADICTED"}
+            assessment not in {"UNVERIFIED", "CONTRADICTED", "SUPPORTED"}
             or not isinstance(missing_parts, list)
             or len(missing_parts) > 8
             or not all(
@@ -277,6 +290,8 @@ def _challenge_incomplete_support(
             )
             or not isinstance(counter_quotes, list)
             or len(counter_quotes) > 3
+            or not isinstance(facets, list)
+            or len(facets) > 8
         ):
             return result
         canonical_quotes = []
@@ -301,10 +316,74 @@ def _challenge_incomplete_support(
             canonical_quotes.append(verified)
         if assessment == "CONTRADICTED" and not canonical_quotes:
             return result
+        validated_facets = []
+        for facet in facets:
+            if not isinstance(facet, dict):
+                return result
+            phrase, state = facet.get("claim_part"), facet.get("state")
+            if (
+                not isinstance(phrase, str)
+                or not 5 <= len(phrase) <= 250
+                or phrase.casefold() not in claim.text.casefold()
+                or state not in {"SUPPORTED", "CONTRADICTED", "NOT_SHOWN"}
+            ):
+                return result
+            checked_quote = None
+            if state != "NOT_SHOWN":
+                source_id = facet.get("source_id")
+                if (
+                    type(source_id) is not int
+                    or not 1 <= source_id <= len(evidence[:5])
+                ):
+                    return result
+                item = evidence[source_id - 1]
+                checked_quote = {
+                    "source": item.source_path,
+                    "page": item.page,
+                    "block": item.block,
+                    "quote": facet.get("quote"),
+                }
+                if not validate_original_quote(checked_quote, evidence):
+                    return result
+            validated_facets.append({
+                "claim_part": phrase, "state": state,
+                "source_quote": checked_quote,
+            })
+
+        # Never use this as an automatic scientific approval. It is
+        # *candidate* semantic coverage for subsequent measurement.
+        supported_facets = [
+            facet for facet in validated_facets
+            if facet["state"] == "SUPPORTED"
+        ]
+        facet_text = " ".join(facet["claim_part"] for facet in supported_facets)
+        material_terms = _proof_words(claim.text)
+        facet_terms = _proof_words(facet_text)
+        facet_coverage = (
+            sum(_matched_proof_token(term, facet_terms) for term in material_terms)
+            / len(material_terms)
+            if material_terms else 0.0
+        )
+        missing_numbers = (
+            set(_PROOF_NUMBER.findall(claim.text))
+            - set(_PROOF_NUMBER.findall(facet_text))
+        )
+        semantic_candidate = (
+            assessment == "SUPPORTED"
+            and not missing_parts
+            and len(supported_facets) > 0
+            and len(supported_facets) == len(validated_facets)
+            and facet_coverage >= 0.90
+            and not missing_numbers
+            and not _DIRECTION_LOOP.search(claim.text)
+        )
         return {
             "assessment": assessment,
             "missing_parts": missing_parts,
             "counter_quotes": canonical_quotes,
+            "facets": validated_facets,
+            "facet_coverage": round(facet_coverage, 3),
+            "semantic_support_candidate": semantic_candidate,
             "model_challenge_valid": True,
         }
     except (ValueError, TypeError, KeyError, IndexError):
@@ -431,7 +510,7 @@ def verify_claim_with_evidence(
             if not accepted:
                 status = "UNVERIFIED"
                 challenge = _challenge_incomplete_support(
-                    claim, evidence, chat,
+                    claim, evidence, chat, missing,
                 )
                 critique = ""
                 if challenge["model_challenge_valid"]:
@@ -441,6 +520,11 @@ def verify_claim_with_evidence(
                     if challenge["assessment"] == "CONTRADICTED":
                         status = "SUSPECTED_CONTRADICTION"
                         critique += " (controprova letterale disponibile)"
+                    elif challenge["semantic_support_candidate"]:
+                        critique += (
+                            " (parafrasi plausibile secondo il secondo "
+                            "modello, NON approvata automaticamente)"
+                        )
                 rationale = (
                     "Conferma del modello respinta: le citazioni non "
                     "coprono l'intera affermazione (ancore mancanti: "
