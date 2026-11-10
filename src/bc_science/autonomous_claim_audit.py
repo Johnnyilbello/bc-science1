@@ -23,6 +23,17 @@ _RELATION = re.compile(
     r"determina|causa|avviene|collega|consiste|compost\w*|format\w*|è|sono)\b",
     re.IGNORECASE,
 )
+_MULTI_QUANTITY = re.compile(r"(?<!\\w)\\d+(?:[.,]\\d+)?")
+_DIRECTION_LOOP = re.compile(
+    r"\\b(?:da|dal|dallo|dalla|dai|dagli|dalle)\\s+"
+    r"([a-zà-ÿ]{4,})\\s+(?:a|al|allo|alla|ai|agli|alle)\\s+\\1\\b",
+    re.IGNORECASE,
+)
+_STRONG_NEGATION = re.compile(
+    r"\\b(?:non\\s+(?:pu[oò]|possono|è\\s+possibile|riesce)|impossibile)\\b",
+    re.IGNORECASE,
+)
+
 _VALID = {"SUPPORTED", "CONTRADICTED", "SOURCE_CONFLICT", "UNVERIFIED"}
 
 
@@ -60,7 +71,15 @@ def extract_claim_candidates(
         if not 28 <= len(sentence) <= 550 or sentence.casefold() in seen:
             continue
         seen.add(sentence.casefold())
-        if _NUMBER.search(sentence):
+        number_count = len(_MULTI_QUANTITY.findall(sentence))
+        # Generic risk ranking only: these patterns do not imply an error.
+        if _DIRECTION_LOOP.search(sentence):
+            kind, priority = "relation", 6
+        elif number_count >= 3:
+            kind, priority = "quantity", 5
+        elif _STRONG_NEGATION.search(sentence):
+            kind, priority = "negation", 5
+        elif _NUMBER.search(sentence):
             kind, priority = "quantity", 4
         elif _NEGATION.search(sentence):
             kind, priority = "negation", 3
