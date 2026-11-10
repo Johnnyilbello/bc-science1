@@ -69,7 +69,11 @@ def extract_claim_candidates(
     seen: set[str] = set()
     for sentence in _lines(matches[0]):
         sentence = re.sub(r"\s+", " ", sentence).strip()
-        if not 28 <= len(sentence) <= 550 or sentence.casefold() in seen:
+        if (
+            not 28 <= len(sentence) <= 550
+            or sentence.casefold() in seen
+            or sentence.casefold() == chapter.casefold()
+        ):
             continue
         seen.add(sentence.casefold())
         number_count = len(_MULTI_QUANTITY.findall(sentence))
