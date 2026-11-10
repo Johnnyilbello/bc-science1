@@ -634,7 +634,7 @@ def courses_inspect_scientific_flags(
             subjects = {scan.name.casefold() for scan in scans}
             for item in preview_report["subjects"]:
                 if not isinstance(item, dict):
-                    raise ValueError("Riga anteprima non valida.")
+                    raise TypeError("Riga anteprima non valida.")
                 subject = item.get("subject")
                 filename = item.get("preview_path")
                 if not isinstance(subject, str) or subject.casefold() not in subjects:
@@ -642,7 +642,7 @@ def courses_inspect_scientific_flags(
                 if not filename:
                     continue  # Materia senza bozza: BLOCKED senza file
                 if not isinstance(filename, str):
-                    raise ValueError("Percorso bozza non valido.")
+                    raise TypeError("Percorso bozza non valido.")
                 draft = Path(filename).resolve()
                 if (
                     not draft.is_relative_to(base)
