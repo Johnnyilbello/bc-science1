@@ -75,6 +75,42 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Audit autonomo sperimentale delle affermazioni — Qwen locale
+
+I quattro errori conosciuti (esofago, vie biliari, palmitato, spirometria)
+hanno evidenziato il limite delle regole statiche: non insegnano al
+sistema a riconoscere contraddizioni nuove in altre materie.
+
+Il comando seguente è un **pilota generico offline**. Campiona
+affermazioni del capitolo senza hardcodare risposte scientifiche,
+con rappresentanza di quantità, negazioni e relazioni; recupera estratti
+dalle dispense originali nel cache SHA256; Qwen 4B confronta affermazione
+e fonti e deve motivare ogni giudizio con citazioni letterali. Il codice
+verifica che testo, percorso e pagina/blocco citati esistano davvero.
+
+~~~powershell
+bc-science courses auto-audit-claims "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Apparato digerente (Faringe ed esofago)" --edition Completa --max-claims 8 --output-dir "C:\BC-Science1\reports\autonomous-claims\pilot-anatomia"
+~~~
+
+Per analizzare una bozza non pubblicata, aggiungere
+`--edition Anteprima --preview-dir "C:\BC-Science1\reports\essential-preview\sessione"`.
+
+`PROVISIONALLY_SUPPORTED` indica solo sostegno nella fonte locale,
+non verità scientifica. `SUSPECTED_CONTRADICTION` è una possibile
+contraddizione da rivedere. `SOURCE_CONFLICT` significa che passaggi
+originali sono discordanti. `UNVERIFIED` significa prove insufficienti,
+citazioni inventate o risposta non validabile.
+
+I PDF originali possono contenere errori: NON è validazione scientifica
+indipendente né una soluzione generale per correggere le dispense.
+Ollama deve girare solo su localhost con `qwen3.5:4b` già installato.
+Nessuna chiamata cloud o API a pagamento, nessun modello scaricato.
+Produce `report.json` e `report.md` in una directory nuova e isolata.
+Il campione è limitato a 1–30 affermazioni per esecuzione. L'assenza di
+flag in un campione **non** permette la pubblicazione. Per integrare
+l'audit nella generazione occorre prima misurare sul corpus reale
+richiamo degli errori, falsi positivi e qualità delle citazioni.
+
 ## Bozze di correzione scientifica con controllo SHA256 — NON pubblicate
 
 Dopo aver prodotto il report `inspect-scientific-flags` sulle tre
