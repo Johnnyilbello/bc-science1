@@ -24,18 +24,18 @@ from .scientific_claim_flags import inspect_scientific_claims
 
 _CORRECTIONS = {
     "ESOPHAGUS_DIRECTION": (
-        re.compile(r"\bdallo\s+stomaco\s+allo\s+stomaco\b", re.I),
+        re.compile(r"\bdallo\s+stomaco\s+allo\s+stomaco\b", re.IGNORECASE),
         "dalla faringe allo stomaco",
     ),
     "BILIARY_DIRECTION": (
-        re.compile(r"\bverso\s+l['’]esterno\s+del\s+corpo\b", re.I),
+        re.compile(r"\bverso\s+l['’]esterno\s+del\s+corpo\b", re.IGNORECASE),
         "dal fegato verso il dotto epatico comune e, attraverso il coledoco, al duodeno",
     ),
     "PALMITATE_STOICHIOMETRY": (
         re.compile(
             r"La sintesi del palmitato richiede 7 molecole di acetil-CoA,\s*"
             r"14 di malonil-CoA,\s*14 di NADPH\s*\+\s*H\+\s*e\s*14 di ATP\.",
-            re.I,
+            re.IGNORECASE,
         ),
         (
             "Per sintetizzare una molecola di palmitato, l'acido grasso sintasi "
@@ -49,7 +49,7 @@ _CORRECTIONS = {
             r"Questo volume non pu[oò] essere misurato dallo spirometro\s+"
             r"perch[eé]\s+lo strumento registra (?:solo|soltanto)\s+"
             r"l['’]aria in movimento",
-            re.I,
+            re.IGNORECASE,
         ),
         (
             "Il volume corrente (VT) è misurabile mediante spirometria; "
