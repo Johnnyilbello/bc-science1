@@ -226,6 +226,37 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
+## 0.9.19 — Agent Mesh V1: 100 verificatori specializzati
+
+Obiettivo: dare a BC Science una struttura agentica modulare anziché
+avviare 100 processi Qwen in parallelo sulla GPU locale.
+
+Implementazione:
+- 100 ruoli univoci, 10 aree con 10 regole ognuna;
+- orchestrazione deterministica per `ingest`, `summarize`, `study`, `publish`;
+- router a budget con priorità sull'integrità dei dati e possibilità `--all`;
+- report riproducibili JSON/Markdown, senza scritture sul corpus;
+- stati PASS / WARN / FAIL / SKIP per ogni agente, aggregato INCOMPLETE;
+- fail-closed su errori operativi e su fonti/materiale assente;
+- suite di regressione multi-materia e CLI, nessuna API esterna.
+
+Questi 100 agenti sono **verificatori software**, non 100 modelli indipendenti.
+Il loro superamento non è prova di correttezza scientifica né assenza totale
+di errori: servono a individuare anomalie e rendere visibile ciò che manca.
+
+Ricerca GitHub verificata per le evoluzioni:
+- Pydantic AI + Ollama locale per ruoli LLM a output strutturato;
+- LangGraph per checkpoint e ripresa dell'esecuzione;
+- Microsoft Agent Framework per parallelismi/consenso avanzati.
+Nessuna di queste dipendenze è obbligatoria oggi: prima misurare latenza,
+consumo di RAM e qualità sul corpus reale.
+
+**Fase successiva (non ancora completata):** introdurre agenti generativi
+mirati a verifica fonte→affermazione e review indipendente, con
+limiti token/timeout, approvazione umana e checkpoint persistenti;
+integrare i gate nei percorsi di pubblicazione soltanto dopo validazione
+end-to-end e confronto con una baseline umana.
+
 ## 0.9.18 — Verifica strutturale multi-materia (incremento 0.10) ✅
 
 Nuovo comando `bc-science courses verify <RADICE> [--strict] [--output-dir DIR]`.
