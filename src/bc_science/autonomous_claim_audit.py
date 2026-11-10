@@ -224,6 +224,10 @@ def verify_claim_with_evidence(
         "rationale": "Nessuna prova originale pertinente o verificabile",
         "quotes": [],
         "limitations": "Giudizio locale fallibile, non validazione scientifica",
+        "review_signals": (
+            ["POSSIBLE_DIRECTION_SELF_LOOP"]
+            if _DIRECTION_LOOP.search(claim.text) else []
+        ),
     }
     if not evidence:
         return base
