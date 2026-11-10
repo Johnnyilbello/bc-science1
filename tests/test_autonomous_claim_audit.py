@@ -181,3 +181,46 @@ def test_generic_risk_detects_multiple_quantities_with_no_subject_specific_rule(
     assert len(claims) == 1
     assert "7 unità" in claims[0].text
     assert claims[0].priority == 5
+
+
+def test_short_evidence_id_is_resolved_to_real_original_provenance():
+    claim = extract_claim_candidates(
+        _course("Astronomia", "Marte è il terzo pianeta dal Sole."),
+        "Astronomia",
+    )[0]
+    original = _source(
+        "Nella classificazione astronomica Marte è il quarto pianeta dal Sole.",
+        name="astro.pdf",
+        page=9,
+    )
+    response = lambda messages: json.dumps({
+        "label": "CONTRADICTED",
+        "rationale": "Terzo e quarto non coincidono.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Marte è il quarto pianeta dal Sole",
+        }],
+    })
+    result = verify_claim_with_evidence(claim, [original], response)
+    assert result["status"] == "SUSPECTED_CONTRADICTION"
+    assert result["quotes"] == [{
+        "source": "astro.pdf",
+        "page": 9,
+        "block": None,
+        "quote": "Marte è il quarto pianeta dal Sole",
+    }]
+
+
+def test_out_of_range_source_id_fails_closed():
+    claim = extract_claim_candidates(
+        _course("Fisica", "La massa è una proprietà dei corpi."),
+        "Fisica",
+    )[0]
+    original = _source("La massa è una proprietà dei corpi materiali.")
+    response = lambda _messages: json.dumps({
+        "label": "SUPPORTED", "rationale": "Fonte",
+        "quotes": [{"source_id": 99, "quote": "La massa è una proprietà dei corpi"}],
+    })
+    verdict = verify_claim_with_evidence(claim, [original], response)
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["model_label"] == "INVALID"
