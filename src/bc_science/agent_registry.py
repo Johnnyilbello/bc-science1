@@ -160,6 +160,20 @@ TASK_GROUPS: dict[str, tuple[str, ...]] = {
 assert len(AGENTS) == len(AGENT_BY_ID) == 100
 
 
+_PRIORITY: dict[str, tuple[int, ...]] = {
+    "SRC": (1, 4, 8, 2, 9, 7, 3, 5, 6, 10),
+    "MAN": (1, 2, 3, 7, 9, 8, 10, 4, 5, 6),
+    "MAP": (1, 5, 7, 10, 2, 4, 9, 6, 8, 3),
+    "CMP": (1, 2, 3, 5, 10, 7, 8, 6, 9, 4),
+    "PDF": (1, 2, 4, 7, 5, 6, 3, 8, 9, 10),
+    "STD": (1, 2, 3, 8, 9, 10, 5, 6, 7, 4),
+    "SPF": (1, 2, 4, 7, 5, 6, 3, 8, 9, 10),
+    "AUD": (1, 2, 4, 5, 6, 8, 9, 10, 3, 7),
+    "RES": (1, 2, 4, 5, 9, 7, 8, 10, 3, 6),
+    "SEC": (1, 3, 4, 5, 6, 10, 2, 7, 8, 9),
+}
+
+
 def plan_agents(task: str = "study", *, limit: int = 24, all_agents: bool = False) -> tuple[AgentSpec, ...]:
     """Deterministic round-robin routing; no network, no inference, no cost."""
     if task not in TASK_GROUPS:
@@ -172,7 +186,7 @@ def plan_agents(task: str = "study", *, limit: int = 24, all_agents: bool = Fals
     result = []
     for idx in range(10):
         for group in active:
-            agent = AGENT_BY_ID[f"{group}-{idx + 1:02d}"]
+            agent = AGENT_BY_ID[f"{group}-{_PRIORITY[group][idx]:02d}"]
             result.append(agent)
             if len(result) == limit:
                 return tuple(result)
