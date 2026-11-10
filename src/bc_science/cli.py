@@ -9,8 +9,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .autonomous_claim_audit import run_claim_audit
 from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
+from .autonomous_claim_audit import run_claim_audit
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
