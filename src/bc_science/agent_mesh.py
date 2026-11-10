@@ -48,11 +48,11 @@ class AgentRun:
 
 def _aggregate(statuses: list[str]) -> str:
     if not statuses or any(
-        status not in {"PASS", "WARN", "FAIL", "SKIP", "N/A"}
+        status not in {"PASS", "WARN", "FAIL", "SKIP", "N/A", "INCOMPLETE"}
         for status in statuses
     ) or "FAIL" in statuses:
         return "FAIL"
-    if "WARN" in statuses or "SKIP" in statuses:
+    if any(status in {"WARN", "SKIP", "INCOMPLETE"} for status in statuses):
         return "INCOMPLETE"
     if "PASS" in statuses:
         return "PASS"
