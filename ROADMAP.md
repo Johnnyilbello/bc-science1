@@ -242,6 +242,29 @@ La modifica non si applica a una generazione già avviata nella sessione
 Windows: richiede un successivo avvio del codice aggiornato. Il PASS del codice
 non sostituisce la verifica su tutte le dispense reali.
 
+## 0.9.19 — Anteprime Essenziali non pubblicate per le anomalie reali
+
+Dopo la lettura del report sul PC:
+- Anatomia: Completa 61.884 parole, Essenziale 26.669, copertura lessicale
+  stimata 31,3%, 309 possibili omissioni d'esame e 3 fatti numerici da
+  confrontare sulle fonti. Non assumere che 31,3% corrisponda alla completezza
+  scientifica: una sintesi breve omette intenzionalmente contenuti.
+- Fisiologia: Completa 70.396 parole, Essenziale 73.809;
+  Biologia/Chimica: Completa 59.239, Essenziale 61.978.
+  Le versioni “Essenziali” attuali devono diventare realmente più concise.
+
+Aggiunta `courses preview-essential` come **alternativa a una rigenerazione
+in-place**: recupera la Completa solo con SHA256/manifest/copertura validi;
+genera una bozza estrattiva offline da `study_editions`, confronta tecnicamente
+capitoli e numeri d'esame, conta possibili lacune numeriche con l'audit v2 e
+scrive un report in un percorso isolato, senza toccare output, PDF, manifest o
+fonti. Le proposte restano in `REVIEW` o `BLOCKED` e non vengono mai
+promosse automaticamente a documenti di studio validati.
+
+Prossime fasi: revisione delle affermazioni sui documenti eCampus originali,
+verifica semantica delle lacune (con attenzione ai falsi positivi), revisione
+editoriale dei capitoli prima della pubblicazione dietro approvazione umana.
+
 ## 0.9.19 — Allineamento audit v2 già presenti (non distruttivo)
 
 - Recuperato da `feat/spark-v10-4-didactic-polish-20261104` il motore
