@@ -29,6 +29,7 @@ from .scientific_research import (
     research_state,
 )
 from .summarizer import Summarizer
+from .study_preview import preview_essential_editions
 from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
@@ -583,6 +584,71 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("preview-essential")
+def courses_preview_essential(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con le materie"),
+    ],
+    subject: Annotated[
+        str | None,
+        typer.Option("--subject", help="Materia singola; omettere per tutte"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Cartella isolata anteprime; mai output live"),
+    ] = None,
+) -> None:
+    """Crea solo bozze estrattive, senza alterare gli output pubblicati."""
+    from datetime import datetime, timezone
+
+    if output_dir is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_dir = app_home() / "reports" / "essential-preview" / stamp
+    try:
+        result = preview_essential_editions(
+            root, output_dir, subject=subject,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    table = Table(title="BC Science — Anteprime Essenziali NON PUBBLICATE")
+    table.add_column("Materia")
+    table.add_column("Stato")
+    table.add_column("Parole oggi", justify="right")
+    table.add_column("Parole bozza", justify="right")
+    table.add_column("Compress.", justify="right")
+    table.add_column("Numerici?", justify="right")
+    table.add_column("Esame?", justify="right")
+    for item in result.subjects:
+        table.add_row(
+            item.subject, item.state,
+            str(item.existing_essential_words or "—"),
+            str(item.candidate_words or "—"),
+            (
+                f"{item.candidate_compression_percent:.1f}%"
+                if item.candidate_compression_percent is not None else "—"
+            ),
+            (
+                str(item.candidate_missing_numeric)
+                if item.candidate_missing_numeric is not None else "—"
+            ),
+            (
+                str(item.candidate_missing_exam)
+                if item.candidate_missing_exam is not None else "—"
+            ),
+        )
+    console.print(table)
+    console.print(
+        f"[dim]Anteprime e diagnostica: {result.report_dir}[/]"
+    )
+    console.print(
+        "[yellow]NON pubblicate. Nessun file live modificato. "
+        "Fatti e comprensione da validare manualmente sulle dispense.[/]"
+    )
 
 
 @courses_app.command("build")
