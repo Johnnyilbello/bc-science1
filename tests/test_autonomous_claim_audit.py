@@ -249,6 +249,7 @@ def test_partial_source_quote_cannot_approve_unsupported_relation():
     )
     assert result["status"] == "UNVERIFIED"
     assert result["model_label"] == "SUPPORTED"
+    assert "POSSIBLE_DIRECTION_SELF_LOOP" in result["review_signals"]
     assert "napoli" in result["proof_validation"]["unsupported_anchors"]
     assert not result["proof_validation"]["all_material_claim_parts_checked"]
 
