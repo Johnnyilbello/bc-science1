@@ -640,7 +640,7 @@ def courses_inspect_claim(
             pending = target.with_name(target.name + ".pending")
             if pending.exists():
                 raise ValueError("File temporaneo già presente: nessuna sovrascrittura.")
-            payload = json.dumps(report, ensure_ascii=True, indent=2) + "\\n"
+            payload = json.dumps(report, ensure_ascii=True, indent=2) + "\n"
             try:
                 with pending.open("x", encoding="ascii") as stream:
                     stream.write(payload)
