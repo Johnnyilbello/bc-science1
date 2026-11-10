@@ -600,6 +600,10 @@ def courses_inspect_scientific_flags(
         Path | None,
         typer.Option("--output-json", help="Nuovo report JSON ASCII-safe, fuori dagli output live"),
     ] = None,
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Includi le bozze da un preview-report.json esistente"),
+    ] = None,
 ) -> None:
     """Segnala un piccolo insieme di anomalie scientifiche note; non corregge."""
     import hashlib
@@ -611,11 +615,54 @@ def courses_inspect_scientific_flags(
     records = []
     total_files = 0
     try:
-        for scan in scan_courses(root):
-            for edition, path in (
+        scans = scan_courses(root)
+        preview_paths: dict[str, Path] = {}
+        if preview_dir is not None:
+            base = preview_dir.expanduser().resolve()
+            source = base / "preview-report.json"
+            preview_report = json.loads(source.read_text(encoding="utf-8"))
+            if (
+                not isinstance(preview_report, dict)
+                or preview_report.get("schema") != "bc-science-essential-preview-v1"
+                or not isinstance(preview_report.get("root"), str)
+                or Path(preview_report["root"]).resolve() != root.expanduser().resolve()
+                or not isinstance(preview_report.get("report_dir"), str)
+                or Path(preview_report["report_dir"]).resolve() != base
+                or not isinstance(preview_report.get("subjects"), list)
+            ):
+                raise ValueError("Manifest anteprime non valido o relativo a materie diverse.")
+            subjects = {scan.name.casefold() for scan in scans}
+            for item in preview_report["subjects"]:
+                if not isinstance(item, dict):
+                    raise ValueError("Riga anteprima non valida.")
+                subject = item.get("subject")
+                filename = item.get("preview_path")
+                if not isinstance(subject, str) or subject.casefold() not in subjects:
+                    raise ValueError("Materia anteprima sconosciuta.")
+                if not filename:
+                    continue  # Materia senza bozza: BLOCKED senza file
+                if not isinstance(filename, str):
+                    raise ValueError("Percorso bozza non valido.")
+                draft = Path(filename).resolve()
+                if (
+                    not draft.is_relative_to(base)
+                    or draft.suffix.casefold() != ".md"
+                    or not draft.is_file()
+                ):
+                    raise ValueError("Bozza esterna o mancante: lettura non consentita.")
+                if subject.casefold() in preview_paths:
+                    raise ValueError("Materia duplicata nel manifest anteprime.")
+                preview_paths[subject.casefold()] = draft
+
+        for scan in scans:
+            editions = [
                 ("Completa", course_output_path(scan)),
                 ("Essenziale", course_study_output_path(scan)),
-            ):
+            ]
+            draft = preview_paths.get(scan.name.casefold())
+            if draft is not None:
+                editions.append(("Anteprima", draft))
+            for edition, path in editions:
                 if not path.is_file():
                     continue
                 content = path.read_text(encoding="utf-8")
@@ -629,7 +676,7 @@ def courses_inspect_scientific_flags(
                         "document_sha256": digest,
                         **asdict(finding),
                     })
-    except (ValueError, OSError, UnicodeError) as exc:
+    except (ValueError, OSError, UnicodeError, TypeError) as exc:
         console.print(f"[red]Analisi non eseguibile: {exc}[/]")
         raise typer.Exit(2) from exc
 
