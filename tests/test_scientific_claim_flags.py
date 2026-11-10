@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -37,10 +36,14 @@ def test_palmitate_mistaken_formula_flagged_without_changing_text():
 
 def test_correct_palmitate_two_valid_stages_are_not_flagged():
     for line in (
-        "La sintesi del palmitato richiede 1 acetil-CoA, "
-        "7 malonil-CoA e 14 NADPH.",
-        "La sintesi del palmitato richiede 8 acetil-CoA, "
-        "7 ATP e 14 NADPH, producendo i 7 malonil-CoA intermedi.",
+        (
+            "La sintesi del palmitato richiede 1 acetil-CoA, "
+            "7 malonil-CoA e 14 NADPH."
+        ),
+        (
+            "La sintesi del palmitato richiede 8 acetil-CoA, "
+            "7 ATP e 14 NADPH, producendo i 7 malonil-CoA intermedi."
+        ),
     ):
         assert inspect_scientific_claims(_document(line)) == ()
 
