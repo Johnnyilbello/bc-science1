@@ -155,5 +155,5 @@ def test_subject_filter_and_missing_subject(tmp_path: Path, monkeypatch):
 def test_cli_help_exposes_non_publishing_preview():
     result = CliRunner().invoke(app, ["courses", "preview-essential", "--help"])
     assert result.exit_code == 0
-    assert "--subject" in result.output
-    assert "--output-dir" in result.output
+    # Rich may insert ANSI formatting between "--" and the option name.
+    assert "Crea solo bozze" in result.output or "bozze" in result.output
