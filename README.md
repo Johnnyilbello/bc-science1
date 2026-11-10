@@ -75,6 +75,31 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Anteprima Essenziale non distruttiva — audit del corpus reale
+
+Quando una versione Essenziale è troppo lunga oppure non copre fatti critici,
+non utilizzare subito `courses build` (può elaborare l'intero corso).
+Usa la funzione **read-only rispetto ai materiali pubblicati**:
+
+```powershell
+bc-science courses preview-essential "C:\Studio\SCIENZE MOTORIE" --output-dir "C:\BC-Science1\reports\essenziale-preview-01"
+bc-science courses preview-essential "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --output-dir "C:\BC-Science1\reports\anteprima-anatomia-01"
+```
+
+Il comando confronta le bozze estrattive generate offline con i file
+esistenti, riutilizza i capitoli della Completa **solo se gli hash e il
+manifest risultano verificati**, segnala eventuali fatti numerici e punti
+d'esame non coperti, e produce `preview-report.md`, `preview-report.json`
+e `*-anteprima.md` in una directory di report **nuova e isolata**.
+
+Le anteprime **non** sostituiscono `riassunto-studio.md` o i PDF, non
+ricreano indicizzazioni/OCR, non attivano Ollama, e non modificano il manifest
+né gli audit persistenti. `REVIEW` significa soltanto `da esaminare`, non
+un'approvazione scientifica; `BLOCKED` significa che il materiale non ha
+superato un gate tecnico. Una compressione maggiore non prova che tutte le
+nozioni essenziali siano preservate: confrontare i passaggi segnalati con
+la Completa e con i documenti originali prima di pubblicare.
+
 ## BC Science Agent Mesh — 100 ruoli di verifica (0.9.19)
 
 Il registro `bc-science agents list` contiene **100 agenti verificatori diversi**,
