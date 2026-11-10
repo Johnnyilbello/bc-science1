@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
@@ -125,6 +126,83 @@ def _json_object(raw: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
+
+# These are generic Italian function words, NOT subject-specific corrections.
+_PROOF_STOPWORDS = frozenset(
+    "il lo la i gli le un uno una di del della dello delle dei degli "
+    "a ad al allo alla ai agli alle da dal dallo dalla dai dagli dalle "
+    "nel nello nella nei nelle con per su tra fra e ed o oppure ma che "
+    "cui quando come se si sua suo suoi sue loro questo questa queste "
+    "questi quello quella quelli quelle è sono essere era erano ha hanno "
+    "abbia negli nelle in non".split()
+)
+_PROOF_WORD = re.compile(r"[a-z]{3,}|\\d+(?:[.,]\\d+)?")
+_PROOF_NUMBER = re.compile(r"(?<!\\w)\\d+(?:[.,]\\d+)?")
+_PROOF_NEGATION = re.compile(
+    r"\\b(?:non|mai|nessun[ao]?|esclusivamente|soltanto|solo)\\b",
+    re.IGNORECASE,
+)
+
+
+def _proof_words(text: str) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", text.casefold())
+    normalized = "".join(
+        character for character in normalized
+        if not unicodedata.combining(character)
+    )
+    return [
+        word for word in _PROOF_WORD.findall(normalized)
+        if word not in _PROOF_STOPWORDS
+    ]
+
+
+def _matched_proof_token(term: str, proof_tokens: list[str]) -> bool:
+    return any(
+        term == other or (
+            len(term) >= 6 and len(other) >= 6 and term[:5] == other[:5]
+        )
+        for other in proof_tokens
+    )
+
+
+def _proof_completeness(
+    claim_text: str, quotes: list[dict],
+) -> tuple[bool, list[str], float]:
+    """Conservative generic guard against partial-evidence confirmations.
+
+    Does not infer truth: it asks whether *material content words, numbers
+    and negation* in a claim are represented by its cited passages.
+    Unrecognized paraphrases are marked UNVERIFIED, never CONTRADICTED.
+    """
+    claim_terms = _proof_words(claim_text)
+    if not claim_terms:
+        return False, [], 0.0
+    cited = " ".join(str(quote["quote"]) for quote in quotes)
+    cited_terms = _proof_words(cited)
+    unsupported = [
+        term for term in claim_terms
+        if not _matched_proof_token(term, cited_terms)
+    ]
+    ratio = (len(claim_terms) - len(unsupported)) / len(claim_terms)
+
+    claim_numbers = set(_PROOF_NUMBER.findall(claim_text))
+    quote_numbers = set(_PROOF_NUMBER.findall(cited))
+    missing_numbers = claim_numbers - quote_numbers
+    for term in sorted(missing_numbers):
+        if term not in unsupported:
+            unsupported.append(term)
+
+    # A statement with polarity/exception cannot be approved if quotes
+    # do not even express any comparable restrictive cue.
+    claim_has_restriction = bool(_PROOF_NEGATION.search(claim_text))
+    evidence_has_restriction = bool(_PROOF_NEGATION.search(cited))
+    polarity_missing = claim_has_restriction and not evidence_has_restriction
+    accepted = ratio >= 0.65 and not missing_numbers and not polarity_missing
+    if polarity_missing:
+        unsupported.append("negazione_o_limitazione")
+    return accepted, sorted(set(unsupported)), round(ratio, 3)
+
+
 def verify_claim_with_evidence(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -226,9 +304,29 @@ def verify_claim_with_evidence(
             "SOURCE_CONFLICT": "SOURCE_CONFLICT",
             "UNVERIFIED": "UNVERIFIED",
         }[label]
+        proof = None
+        if label == "SUPPORTED":
+            accepted, missing, coverage = _proof_completeness(
+                claim.text, verified_quotes,
+            )
+            proof = {
+                "anchor_coverage": coverage,
+                "unsupported_anchors": missing,
+                "all_material_claim_parts_checked": accepted,
+                "method": "conservative-lexical-proof-v1",
+            }
+            if not accepted:
+                status = "UNVERIFIED"
+                rationale = (
+                    "Conferma del modello respinta: le citazioni non "
+                    "coprono l'intera affermazione (ancore mancanti: "
+                    + ", ".join(missing[:10])
+                    + "). " + rationale
+                )
         return {
             **base, "status": status, "model_label": label,
             "rationale": rationale[:750], "quotes": verified_quotes,
+            "proof_validation": proof,
         }
     except (ValueError, TypeError, KeyError, IndexError) as exc:
         return {
