@@ -226,6 +226,22 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
+## 0.9.19 patch — Preservazione delle versioni verificate e test Windows
+
+- Evita rebuild completo se i documenti, il fingerprint del manifest e la
+  matrice capitoli sono ancora verificati, anche se il prompt corrente cambia.
+- Mantiene nel manifest la **versione reale** della pipeline che ha creato il
+  riassunto esistente, senza dichiararlo falsamente rigenerato da prompt nuovi.
+- File aggiunti/modificati/rimossi continuano a seguire la pipeline sicura
+  con invalidazione e rebuild.
+- Il runner Windows colloca i file temporanei pytest nella propria cartella
+  report, evitando di dipendere dalla cartella temporanea di sistema che nel
+  collaudo locale ha prodotto un WinError 5 durante la pulizia.
+
+La modifica non si applica a una generazione già avviata nella sessione
+Windows: richiede un successivo avvio del codice aggiornato. Il PASS del codice
+non sostituisce la verifica su tutte le dispense reali.
+
 ## 0.9.19 — Agent Mesh V1: 100 verificatori specializzati
 
 Obiettivo: dare a BC Science una struttura agentica modulare anziché
