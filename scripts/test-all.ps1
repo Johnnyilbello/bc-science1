@@ -86,7 +86,7 @@ try {
     if (Test-Path -LiteralPath $python) {
         $null = Invoke-Stage "install-dev" $python @("-m", "pip", "install", "--disable-pip-version-check", "-e", ".[dev]")
         $lintCode = Invoke-Stage "ruff" $python @("-m", "ruff", "check", ".")
-        $testCode = Invoke-Stage "pytest" $python @("-m", "pytest", "-q")
+        $testCode = Invoke-Stage "pytest" $python @("-m", "pytest", "-q", "--basetemp", (Join-Path $reportDir "pytest-temp"))
         if (Test-Path -LiteralPath $cli) {
             $null = Invoke-Stage "verify-cli-help" $cli @("courses", "verify", "--help")
             $null = Invoke-Stage "agents-list" $cli @("agents", "list")
