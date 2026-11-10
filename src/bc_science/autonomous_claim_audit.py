@@ -188,7 +188,7 @@ def verify_claim_with_evidence(
         verified_quotes = []
         for quote in quotes:
             if not isinstance(quote, dict):
-                raise ValueError("Oggetto citazione non valido")
+                raise TypeError("Oggetto citazione non valido")
             if "source_id" in quote:
                 source_id = quote["source_id"]
                 if (
