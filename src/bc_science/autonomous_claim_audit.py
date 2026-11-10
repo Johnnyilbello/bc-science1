@@ -210,6 +210,107 @@ def _proof_completeness(
     return accepted, sorted(set(unsupported)), round(ratio, 3)
 
 
+def _challenge_incomplete_support(
+    claim: CandidateClaim,
+    evidence: list[OriginalEvidence],
+    chat: Callable[[list[dict[str, str]]], str],
+) -> dict:
+    """Second, independent local challenge: cite contrary evidence or abstain."""
+    passages = [
+        {
+            "id": index,
+            "text": item.excerpt[:1700],
+        }
+        for index, item in enumerate(evidence[:5], start=1)
+    ]
+    prompt = (
+        "Analizza da zero, senza vedere giudizi precedenti. "
+        "Scomponi questa frase in tutte le sue componenti verificabili "
+        "(soggetto, predicato, relazioni, origine/destinazione, numeri, "
+        "negazioni, modificatori). Controlla che OGNI componente sia "
+        "sostenuta da fonti originali, non solo le parole in comune. "
+        "Cerca esplicitamente un'evidenza che contraddica una componente. "
+        "Se la fonte NON dice una componente, indica NOT_SHOWN: "
+        "assenza di prova non significa contraddizione. "
+        "Se un estratto dice il contrario, indica CONTRADICTED e cita "
+        "quel passaggio alla lettera. Non inventare nuove informazioni "
+        "o la risposta corretta. Rispondi SOLO JSON con "
+        "assessment CONTRADICTED oppure UNVERIFIED e lista delle "
+        "componenti problematiche: "
+        '{"assessment":"CONTRADICTED|UNVERIFIED",'
+        '"missing_parts":["parte 1","parte 2"],'
+        '"counter_quotes":[{"source_id":1,'
+        '"quote":"citazione originale continua di almeno 16 caratteri"}]}. '
+        "Per CONTRADICTED serve almeno una controcitazione valida; "
+        "per UNVERIFIED puoi lasciare counter_quotes vuoto. "
+        f"\\nAFFERMAZIONE: {claim.text}\\n"
+        f"ESTRATTI: {json.dumps(passages, ensure_ascii=False)}"
+    )
+    result = {
+        "assessment": "UNVERIFIED",
+        "missing_parts": [],
+        "counter_quotes": [],
+        "model_challenge_valid": False,
+    }
+    try:
+        response = chat([
+            {"role": "system", "content": (
+                "Sei un revisore critico indipendente di prove testuali. "
+                "Non presumere che l'affermazione sia vera. "
+                "Evita conclusioni senza contraddizione testuale pertinente."
+            )},
+            {"role": "user", "content": prompt},
+        ])
+        obj = _json_object(response)
+        if obj is None:
+            return result
+        assessment = obj.get("assessment")
+        missing_parts = obj.get("missing_parts")
+        counter_quotes = obj.get("counter_quotes")
+        if (
+            assessment not in {"UNVERIFIED", "CONTRADICTED"}
+            or not isinstance(missing_parts, list)
+            or len(missing_parts) > 8
+            or not all(
+                isinstance(part, str) and 1 <= len(part.strip()) <= 250
+                for part in missing_parts
+            )
+            or not isinstance(counter_quotes, list)
+            or len(counter_quotes) > 3
+        ):
+            return result
+        canonical_quotes = []
+        for quote in counter_quotes:
+            if not isinstance(quote, dict):
+                return result
+            source_id = quote.get("source_id")
+            if (
+                type(source_id) is not int
+                or not 1 <= source_id <= len(evidence[:5])
+            ):
+                return result
+            passage = evidence[source_id - 1]
+            verified = {
+                "source": passage.source_path,
+                "page": passage.page,
+                "block": passage.block,
+                "quote": quote.get("quote"),
+            }
+            if not validate_original_quote(verified, evidence):
+                return result
+            canonical_quotes.append(verified)
+        if assessment == "CONTRADICTED" and not canonical_quotes:
+            return result
+        return {
+            "assessment": assessment,
+            "missing_parts": missing_parts,
+            "counter_quotes": canonical_quotes,
+            "model_challenge_valid": True,
+        }
+    except (ValueError, TypeError, KeyError, IndexError):
+        return result
+
+
 def verify_claim_with_evidence(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -316,6 +417,7 @@ def verify_claim_with_evidence(
             "UNVERIFIED": "UNVERIFIED",
         }[label]
         proof = None
+        challenge = None
         if label == "SUPPORTED":
             accepted, missing, coverage = _proof_completeness(
                 claim.text, verified_quotes,
@@ -328,6 +430,14 @@ def verify_claim_with_evidence(
             }
             if not accepted:
                 status = "UNVERIFIED"
+                challenge = _challenge_incomplete_support(
+                    claim, evidence, chat,
+                )
+                if (
+                    challenge["model_challenge_valid"]
+                    and challenge["assessment"] == "CONTRADICTED"
+                ):
+                    status = "SUSPECTED_CONTRADICTION"
                 rationale = (
                     "Conferma del modello respinta: le citazioni non "
                     "coprono l'intera affermazione (ancore mancanti: "
@@ -337,7 +447,7 @@ def verify_claim_with_evidence(
         return {
             **base, "status": status, "model_label": label,
             "rationale": rationale[:750], "quotes": verified_quotes,
-            "proof_validation": proof,
+            "proof_validation": proof, "independent_challenge": challenge,
         }
     except (ValueError, TypeError, KeyError, IndexError) as exc:
         return {
