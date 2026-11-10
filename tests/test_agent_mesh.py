@@ -7,7 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from bc_science.agent_mesh import run_agents, write_agent_reports
-from bc_science.agent_registry import AGENTS, AGENT_BY_ID, TASK_GROUPS, plan_agents
+from bc_science.agent_registry import AGENT_BY_ID, AGENTS, TASK_GROUPS, plan_agents
 from bc_science.cli import app
 
 
