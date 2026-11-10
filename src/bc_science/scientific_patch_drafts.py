@@ -38,7 +38,7 @@ _CORRECTIONS = {
             re.IGNORECASE,
         ),
         (
-            "Per sintetizzare una molecola di palmitato, l'acido grasso sintasi "
+            "La sintesi del palmitato mediante acido grasso sintasi "
             "utilizza 1 acetil-CoA iniziale, 7 malonil-CoA e 14 NADPH. "
             "La formazione dei 7 malonil-CoA consuma 7 ATP e richiede "
             "7 ulteriori acetil-CoA: 8 acetil-CoA in totale."
