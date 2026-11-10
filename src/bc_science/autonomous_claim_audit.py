@@ -8,8 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Callable
 
 from .evidence_engine import OriginalEvidence, validate_original_quote
 from .quality_signals import _lines
