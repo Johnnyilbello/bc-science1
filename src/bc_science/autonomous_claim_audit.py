@@ -507,7 +507,7 @@ def verify_claim_with_evidence(
                 "all_material_claim_parts_checked": accepted,
                 "method": "conservative-lexical-proof-v1",
             }
-            if not accepted:
+            if not accepted or base["review_signals"]:
                 status = "UNVERIFIED"
                 challenge = _challenge_incomplete_support(
                     claim, evidence, chat, missing,
