@@ -242,6 +242,27 @@ La modifica non si applica a una generazione già avviata nella sessione
 Windows: richiede un successivo avvio del codice aggiornato. Il PASS del codice
 non sostituisce la verifica su tutte le dispense reali.
 
+## 0.9.19 — Diagnostica agentica basata sul corpus reale
+
+Raffinamento della prima esecuzione su 617 documenti di tre materie:
+
+- `STD-10` e `AUD-09`: mostra contatori e fino a tre esempi
+  fonte-completa → essenziale dei fatti numerici o d'esame non coperti.
+  I due controlli possono descrivere lo stesso difetto, quindi non sommarli.
+- `AUD-10`: rispetta `FAIL` del report audit sottostante (fail-closed);
+  un `WARN` resta `WARN`, con fino a tre motivazioni leggibili.
+- `AUD-03`: le versioni d'audit obsolete sono `WARN` e richiedono
+  un ricalcolo mirato, non la rigenerazione delle dispense.
+- `SRC-07`: elenca i primi gruppi di file identici per SHA256, senza
+  eliminare file potenzialmente necessari.
+- `RES-01..10` e `SEC-09` (ricerca opzionale disabilitata):
+  stato `N/A` distinto da `SKIP`. I controlli N/A non sono mai conteggiati
+  come PASS, ma non impediscono il PASS degli obbligatori.
+- CLI e Markdown evidenziano soltanto i FAIL/WARN con motivazioni, e
+  mantengono la matrice completa dei 100 controlli per l'audit.
+- Nessuna modifica automatica alle fonti o alla versione Essenziale.
+  Le lacune numeriche devono essere riviste sul testo effettivo.
+
 ## 0.9.19 — Agent Mesh V1: 100 verificatori specializzati
 
 Obiettivo: dare a BC Science una struttura agentica modulare anziché
