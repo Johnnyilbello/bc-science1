@@ -127,6 +127,15 @@ flag in un campione **non** permette la pubblicazione. Per integrare
 l'audit nella generazione occorre prima misurare sul corpus reale
 richiamo degli errori, falsi positivi e qualità delle citazioni.
 
+**Collaudo V2:** 12 affermazioni, due `PROVISIONALLY_SUPPORTED` e dieci
+`UNVERIFIED`. Il caso di esofago è bloccato, ma molte parafrasi
+legittime sono respinte dalla copertura lessicale (`dietro` vs
+`posteriore`, `cm` vs `centimetri`). Il secondo revisore è stato
+esteso a una lista di **componenti semantiche** (`facets`) con prove
+attribuite e citazioni verificabili. L'eventuale
+`semantic_support_candidate` è soltanto un'indicazione sperimentale:
+non muta lo stato `UNVERIFIED` e non autorizza nuove pubblicazioni.
+
 ## Bozze di correzione scientifica con controllo SHA256 — NON pubblicate
 
 Dopo aver prodotto il report `inspect-scientific-flags` sulle tre
