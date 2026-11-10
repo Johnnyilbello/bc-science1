@@ -88,6 +88,22 @@ dalle dispense originali nel cache SHA256; Qwen 4B confronta affermazione
 e fonti e deve motivare ogni giudizio con citazioni letterali. Il codice
 verifica che testo, percorso e pagina/blocco citati esistano davvero.
 
+**Correzione dopo il primo collaudo reale:** Qwen aveva etichettato come
+`SUPPORTED` una frase di Anatomia con un percorso assurdo, citando solo
+che l'organo era un tubo muscolare. Una citazione letterale non è di per sé
+una prova del significato dell'intera affermazione. Adesso ogni risposta
+`SUPPORTED` supera anche un controllo prudente e generico di copertura
+delle ancore fattuali (valori, parole importanti, negazioni). Se mancano
+elementi, è declassata a `UNVERIFIED` e viene avviata una seconda
+verifica critica autonoma sul modello locale. Questa cerca componenti
+non dimostrate e, solo con una controcitazione letterale verificata,
+può registrare una `SUSPECTED_CONTRADICTION`. Anche i possibili percorsi
+circolari vengono segnalati come indizio da rivedere, non come errore
+scientifico certo. Il controllo prudente può produrre falsi negativi
+quando la fonte usa sinonimi: non va interpretato come verifica semantica
+completa, né può autorizzare pubblicazione o correzioni automatiche.
+
+
 ~~~powershell
 bc-science courses auto-audit-claims "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Apparato digerente (Faringe ed esofago)" --edition Completa --max-claims 8 --output-dir "C:\BC-Science1\reports\autonomous-claims\pilot-anatomia"
 ~~~
