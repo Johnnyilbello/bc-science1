@@ -131,14 +131,18 @@ def _json_object(raw: str) -> dict | None:
 
 
 # These are generic Italian function words, NOT subject-specific corrections.
-_PROOF_STOPWORDS = frozenset(
-    "il lo la i gli le un uno una di del della dello delle dei degli "
-    "a ad al allo alla ai agli alle da dal dallo dalla dai dagli dalle "
-    "nel nello nella nei nelle con per su tra fra e ed o oppure ma che "
-    "cui quando come se si sua suo suoi sue loro questo questa queste "
-    "questi quello quella quelli quelle è sono essere era erano ha hanno "
-    "abbia negli nelle in non".split()
-)
+_PROOF_STOPWORDS = frozenset({
+    "il", "lo", "la", "i", "gli", "le", "un", "uno",
+    "una", "di", "del", "della", "dello", "delle", "dei", "degli",
+    "a", "ad", "al", "allo", "alla", "ai", "agli", "alle",
+    "da", "dal", "dallo", "dalla", "dai", "dagli", "dalle", "nel",
+    "nello", "nella", "nei", "nelle", "con", "per", "su", "tra",
+    "fra", "e", "ed", "o", "oppure", "ma", "che", "cui",
+    "quando", "come", "se", "si", "sua", "suo", "suoi", "sue",
+    "loro", "questo", "questa", "queste", "questi", "quello", "quella", "quelli",
+    "quelle", "è", "sono", "essere", "era", "erano", "ha", "hanno",
+    "abbia", "negli", "nelle", "in", "non",
+})
 _PROOF_WORD = re.compile(r"[a-z]{3,}|\d+(?:[.,]\d+)?")
 _PROOF_NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 _PROOF_NEGATION = re.compile(
