@@ -84,7 +84,7 @@ def test_full_run_honours_100_roles_and_reports_disabled_research_skips(
     assert len(report.subjects[0].results) == 100
     research = [x for x in report.subjects[0].results if x.agent_id.startswith("RES")]
     assert len(research) == 10
-    assert all(x.status == "SKIP" for x in research)
+    assert all(x.status == "N/A" for x in research)
     assert report.status != "PASS"
 
 
