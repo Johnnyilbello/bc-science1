@@ -126,7 +126,6 @@ def _json_object(raw: str) -> dict | None:
     return obj if isinstance(obj, dict) else None
 
 
-
 # These are generic Italian function words, NOT subject-specific corrections.
 _PROOF_STOPWORDS = frozenset(
     "il lo la i gli le un uno una di del della dello delle dei degli "
@@ -136,10 +135,10 @@ _PROOF_STOPWORDS = frozenset(
     "questi quello quella quelli quelle è sono essere era erano ha hanno "
     "abbia negli nelle in non".split()
 )
-_PROOF_WORD = re.compile(r"[a-z]{3,}|\\d+(?:[.,]\\d+)?")
-_PROOF_NUMBER = re.compile(r"(?<!\\w)\\d+(?:[.,]\\d+)?")
+_PROOF_WORD = re.compile(r"[a-z]{3,}|\d+(?:[.,]\d+)?")
+_PROOF_NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 _PROOF_NEGATION = re.compile(
-    r"\\b(?:non|mai|nessun[ao]?|esclusivamente|soltanto|solo)\\b",
+    r"\b(?:non|mai|nessun[ao]?|esclusivamente|soltanto|solo)\b",
     re.IGNORECASE,
 )
 
