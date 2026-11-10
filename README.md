@@ -86,13 +86,17 @@ bc-science courses draft-scientific-corrections "C:\Studio\SCIENZE MOTORIE" --au
 
 Per ogni documento interessato il comando ricava il percorso dalla cartella
 materie, non da un percorso arbitrario indicato nel report; verifica che SHA256
-e testo corrente corrispondano all'audit, richiede esattamente **una**
-occorrenza della formulazione errata e rifiuta i casi non riconoscibili.
+e testo corrente corrispondano all'audit e limita ogni sostituzione al **capitolo
+indicato dall'audit**. Consente da una a cinque ripetizioni identiche dell'errore
+nello stesso capitolo, non interviene negli altri capitoli e blocca i casi
+ambigui o non riconoscibili.
 Prepara file `proposta-NN.md`, `proposta-NN.diff`,
 `review-report.md` e `review-report.json` in una cartella nuova.
 
 Le proposte trattano soltanto quattro formulazioni accertate su questo
-corpus (esofago, vie biliari, palmitato e volume corrente). Non sono una
+corpus (esofago, vie biliari, palmitato e volume corrente). Il caso di
+spirometria sostituisce **l'intera frase errata**, senza lasciare in coda
+un frammento di testo che ne contraddice il significato. Non sono una
 correzione generica di tutta la fisiologia, anatomia e biochimica. Se il
 documento è cambiato o il passaggio non è univoco, lo stato è `BLOCKED`.
 Lo stato `REVIEW` significa **proposta da confrontare** con la dispensa
