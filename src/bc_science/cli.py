@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
@@ -28,7 +29,6 @@ from .scientific_research import (
     research_state,
 )
 from .summarizer import Summarizer
-from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
 from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
