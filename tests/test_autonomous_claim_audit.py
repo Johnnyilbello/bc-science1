@@ -522,8 +522,9 @@ def test_critic_cannot_approve_self_loop_even_with_literal_facets():
         claim, [source], lambda _messages: next(responses),
     )
     assert "POSSIBLE_DIRECTION_SELF_LOOP" in verdict["review_signals"]
-    # A repeated place name is only an indication, not a scientific verdict.
-    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+    # A repeated place name is not proof of an error, but requires review.
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["independent_challenge"] is not None
 
 
 def test_critic_rejects_semantic_evidence_not_in_original():
