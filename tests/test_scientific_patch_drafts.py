@@ -188,14 +188,14 @@ def test_cli_outputs_review_only_report(monkeypatch, tmp_path):
 def test_same_incorrect_phrase_three_times_within_flagged_chapter():
     bad = "la bile viaggia verso l'esterno del corpo."
     text = (
-        "# Anatomia\\n\\n## Indice degli argomenti\\n"
-        "- Vie biliari\\n\\n---\\n\\n"
-        "## Vie biliari\\n\\n"
-        "Dotti epatici: " + bad + "\\n\\n"
-        "Dotti epatici: " + bad + "\\n\\n"
-        "Dotti epatici: " + bad + "\\n\\n"
-        "## Non pertinente\\n\\n"
-        "Il contesto di altro argomento cita " + bad + "\\n"
+        "# Anatomia\n\n## Indice degli argomenti\n"
+        "- Vie biliari\n\n---\n\n"
+        "## Vie biliari\n\n"
+        "Dotti epatici: " + bad + "\n\n"
+        "Dotti epatici: " + bad + "\n\n"
+        "Dotti epatici: " + bad + "\n\n"
+        "## Non pertinente\n\n"
+        "Il contesto di altro argomento cita " + bad + "\n"
     )
     pattern, replacement = _CORRECTIONS["BILIARY_DIRECTION"]
     revised, occurrences = _replace_in_chapter(
@@ -238,8 +238,6 @@ def test_unrecognized_tidal_sentence_is_not_partially_rewritten():
         "Questo volume non può essere misurato dallo spirometro "
         "perché lo strumento registra solo l'aria in movimento senza eccezioni.",
     )
-    import pytest
-
     with pytest.raises(ValueError, match="non accettabili: 0"):
         _replace_in_chapter(text, "Capacità polmonari", pattern, replacement)
     assert "non può essere misurato" in text
