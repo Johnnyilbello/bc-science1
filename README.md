@@ -92,7 +92,12 @@ bc-science agents run "C:\\Studio\\SCIENZE MOTORIE" --task publish --all --stric
 
 Il coordinatore seleziona per task `ingest`, `summarize`, `study` o
 `publish`, dando priorità ai controlli di integrità. Lo stato per ciascuna
-regola è `PASS`, `WARN`, `FAIL` oppure `SKIP` (non eseguito / non verificabile).
+regola è `PASS`, `WARN`, `FAIL`, `SKIP` (non verificabile)
+oppure `N/A` (controllo facoltativo esplicitamente disattivato).
+I controlli opzionali disattivati non vengono conteggiati come PASS e non
+penalizzano da soli gli obbligatori. Le anomalie `FAIL/WARN` vengono mostrate
+nella console con i fatti numerici mancanti, le motivazioni dell'audit e
+i primi nomi dei file identici per SHA256.
 Un controllo obbligatorio mancante impedisce di dichiarare un PASS aggregato;
 una selezione parziale non viene spacciata per una verifica completa.
 Ogni esecuzione produce `agent-report.json` e `agent-report.md` sotto
