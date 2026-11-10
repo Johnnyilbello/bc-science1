@@ -390,6 +390,11 @@ def _study(c: AgentContext, k: int) -> Check:
         return _pass(info.get("summary_sha256") == _sha(text), "SHA256 Essenziale")
     if c.audit is None:
         return _skip("Audit numerico mancante: non verificato")
+    if not (
+        "missing_numeric_facts" in c.audit
+        or "missing_exam_number_chapters" in c.audit
+    ):
+        return _skip("Audit senza campo esplicito sulle omissioni numeriche")
     misses = c.audit.get("missing_numeric_facts", 0)
     chapters = c.audit.get("missing_exam_number_chapters", ())
     return _pass(misses == 0 and not chapters, "Nessuna omissione numerica rilevata")
@@ -457,6 +462,11 @@ def _audit(c: AgentContext, k: int) -> Check:
     if k == 7:
         return _pass(a.get("source_coverage_complete") is True, "Copertura sorgenti")
     if k == 8:
+        if not (
+            "missing_numeric_facts" in a
+            or "missing_exam_number_chapters" in a
+        ):
+            return _skip("Audit privo di metrica sulle omissioni")
         return _pass(
             a.get("missing_numeric_facts", 0) == 0
             and a.get("missing_exam_facts", 0) == 0
