@@ -119,14 +119,18 @@ def _editorial_and_known_claim_flags(text: str, *, edition: str) -> Check:
         )
         return (
             "WARN",
-            f"{len(known)} potenziali errori scientifici noti nella versione "
-            f"{edition} (repertorio NON esaustivo). {examples}. "
-            "Verificare con le fonti; nessuna correzione automatica.",
+            (
+                f"{len(known)} potenziali errori scientifici noti nella versione "
+                f"{edition} (repertorio NON esaustivo). {examples}. "
+                "Verificare con le fonti; nessuna correzione automatica."
+            ),
         )
     return (
         "PASS",
-        f"Nessun segnaposto o allarme nel repertorio limitato ({edition}); "
-        "NON equivale a validazione scientifica",
+        (
+            f"Nessun segnaposto o allarme nel repertorio limitato ({edition}); "
+            "NON equivale a validazione scientifica"
+        ),
     )
 
 
