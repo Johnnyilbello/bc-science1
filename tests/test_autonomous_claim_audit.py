@@ -224,3 +224,118 @@ def test_out_of_range_source_id_fails_closed():
     verdict = verify_claim_with_evidence(claim, [original], response)
     assert verdict["status"] == "UNVERIFIED"
     assert verdict["model_label"] == "INVALID"
+
+def test_partial_source_quote_cannot_approve_unsupported_relation():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "Il traghetto trasporta i passeggeri da Napoli a Napoli.",
+        ),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il traghetto è una grande nave passeggeri con ponte principale.",
+    )
+    response = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "La nave è un traghetto per passeggeri.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il traghetto è una grande nave passeggeri",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: response,
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert result["model_label"] == "SUPPORTED"
+    assert "napoli" in result["proof_validation"]["unsupported_anchors"]
+    assert not result["proof_validation"]["all_material_claim_parts_checked"]
+
+
+def test_partial_quote_cannot_approve_multiple_unproven_facets():
+    claim = extract_claim_candidates(
+        _course(
+            "Tecnologia",
+            "Il motore produce corrente elettrica senza combustibile "
+            "e opera esclusivamente sott'acqua.",
+        ),
+        "Tecnologia",
+    )[0]
+    source = _source(
+        "Il motore produce corrente elettrica durante l'uso normale.",
+    )
+    answer = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "Il motore produce corrente elettrica.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il motore produce corrente elettrica durante l'uso normale",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: answer,
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert "combustibile" in result["proof_validation"]["unsupported_anchors"]
+    assert "sott" in ",".join(result["proof_validation"]["unsupported_anchors"])
+
+
+def test_fully_quoted_claim_is_still_only_provisionally_supported():
+    claim = extract_claim_candidates(
+        _course(
+            "Storia",
+            "Il documento riporta 14 delegati presenti alla seduta.",
+        ),
+        "Storia",
+    )[0]
+    source = _source(
+        "Il documento riporta 14 delegati presenti alla seduta.",
+    )
+    response = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "Testo presente nella fonte.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il documento riporta 14 delegati presenti alla seduta",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: response,
+    )
+    assert result["status"] == "PROVISIONALLY_SUPPORTED"
+    assert result["proof_validation"]["all_material_claim_parts_checked"]
+
+
+def test_missing_numeric_quantity_blocks_supported_label():
+    claim = extract_claim_candidates(
+        _course("Scienze", "Il laboratorio contiene 23 strumenti di misura."),
+        "Scienze",
+    )[0]
+    source = _source("Il laboratorio contiene strumenti di misura.")
+    result = verify_claim_with_evidence(
+        claim, [source],
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "Sono presenti strumenti",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il laboratorio contiene strumenti di misura",
+            }],
+        }),
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert "23" in result["proof_validation"]["unsupported_anchors"]
+
+
+def test_chapter_title_is_not_a_factual_claim():
+    doc = _course(
+        "APPARATO DIGERENTE (Faringe ed esofago)",
+        "APPARATO DIGERENTE (Faringe ed esofago)\n"
+        "L'esofago è un organo che collega la faringe allo stomaco.",
+    )
+    claims = extract_claim_candidates(
+        doc, "APPARATO DIGERENTE (Faringe ed esofago)",
+    )
+    assert len(claims) == 1
+    assert "collega" in claims[0].text
