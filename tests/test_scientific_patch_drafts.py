@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from bc_science import cli, scientific_patch_drafts
-from bc_science.scientific_claim_flags import inspect_scientific_claims
+from bc_science.scientific_claim_flags import _PALMITATE, inspect_scientific_claims
 from bc_science.scientific_patch_drafts import prepare_scientific_correction_drafts
 
 
@@ -98,6 +98,8 @@ def test_drafts_fix_only_known_phrases_and_leave_live_bytes_identical(
     for row in plan["proposals"]:
         draft = Path(row["draft_path"]).read_text(encoding="utf-8")
         assert inspect_scientific_claims(draft) == ()
+        if row["subject"] == "BIOLOGIA":
+            assert _PALMITATE.search(draft) is not None
         assert row["revised_sha256"] == hashlib.sha256(draft.encode("utf-8")).hexdigest()
         diff = Path(row["diff_path"]).read_text(encoding="utf-8")
         assert diff.startswith("--- ")
