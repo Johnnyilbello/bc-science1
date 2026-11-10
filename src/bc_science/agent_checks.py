@@ -29,6 +29,7 @@ from .courses import (
     course_study_pdf_path,
 )
 from .documents import SUPPORTED
+from .scientific_claim_flags import inspect_scientific_claims
 from .summarizer import _extract_summary_chapters, group_course_files, topic_key
 
 Check = tuple[str, str]
@@ -105,6 +106,28 @@ def _numeric_evidence(audit: dict) -> str:
     if not samples["numero"] and not samples["esame"]:
         parts.append("Aprire audit.json per le evidenze originali")
     return ". ".join(parts)
+
+
+def _editorial_and_known_claim_flags(text: str, *, edition: str) -> Check:
+    """Combine existing placeholder guard with a bounded scientific warning."""
+    if _PLACEHOLDER.search(text):
+        return "FAIL", f"Segnaposto editoriale nella versione {edition}"
+    known = inspect_scientific_claims(text)
+    if known:
+        examples = "; ".join(
+            f"{flag.chapter}: {flag.rule}" for flag in known[:4]
+        )
+        return (
+            "WARN",
+            f"{len(known)} potenziali errori scientifici noti nella versione "
+            f"{edition} (repertorio NON esaustivo). {examples}. "
+            "Verificare con le fonti; nessuna correzione automatica.",
+        )
+    return (
+        "PASS",
+        f"Nessun segnaposto o allarme nel repertorio limitato ({edition}); "
+        "NON equivale a validazione scientifica",
+    )
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -365,7 +388,7 @@ def _complete(c: AgentContext, k: int) -> Check:
     if k == 7:
         return _pass("indice degli argomenti" in text.casefold(), "Indice presente")
     if k == 8:
-        return _pass(not _PLACEHOLDER.search(text), "Nessun segnaposto editoriale")
+        return _editorial_and_known_claim_flags(text, edition="Completa")
     if c.manifest is None:
         return _skip("SHA manifest non disponibile")
     return _pass(c.manifest.get("summary_sha256") == _sha(text), "SHA256 Completa")
@@ -424,7 +447,7 @@ def _study(c: AgentContext, k: int) -> Check:
             "Capitoli Essenziale con testo",
         )
     if k == 6:
-        return _pass(not _PLACEHOLDER.search(text), "Nessun segnaposto Essenziale")
+        return _editorial_and_known_claim_flags(text, edition="Essenziale")
     info = (c.manifest or {}).get("study")
     if k in {7, 8} and not isinstance(info, dict):
         return _skip("Metadati Essenziale mancanti")
