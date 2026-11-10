@@ -29,7 +29,7 @@ _CORRECTIONS = {
     ),
     "BILIARY_DIRECTION": (
         re.compile(r"\bverso\s+l['’]esterno\s+del\s+corpo\b", re.IGNORECASE),
-        "dal fegato verso il dotto epatico comune e, attraverso il coledoco, al duodeno",
+        "dal fegato al dotto epatico comune e, attraverso il coledoco, al duodeno",
     ),
     "PALMITATE_STOICHIOMETRY": (
         re.compile(
@@ -48,13 +48,14 @@ _CORRECTIONS = {
         re.compile(
             r"Questo volume non pu[oò] essere misurato dallo spirometro\s+"
             r"perch[eé]\s+lo strumento registra (?:solo|soltanto)\s+"
-            r"l['’]aria in movimento",
+            r"l['’]aria in movimento\s+e\s+non\s+quella\s+ferma\s+"
+            r"nelle\s+vie\s+respiratorie\.",
             re.IGNORECASE,
         ),
         (
-            "Il volume corrente (VT) è misurabile mediante spirometria; "
-            "è il volume residuo (VR) che non può essere misurato "
-            "direttamente con la spirometria"
+            "Questo volume è misurabile con lo spirometro, mentre "
+            "il volume residuo (VR) non è misurabile direttamente "
+            "con la spirometria."
         ),
     ),
 }
@@ -76,6 +77,40 @@ class DraftReview:
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+_CHAPTER_HEADING = re.compile(r"(?m)^##[ \\t]+([^\\r\\n]+?)[ \\t]*\\r?$")
+_MAX_IDENTICAL_OCCURRENCES = 5
+
+
+def _replace_in_chapter(
+    text: str, title: str, matcher: re.Pattern[str], replacement: str,
+) -> tuple[str, int]:
+    """Replace only in an exactly named Markdown H2 section.
+
+    Multiple copies of the same documented error in *one chapter* are
+    allowed, but must be bounded. No change to other chapters or preamble.
+    """
+    matches = list(_CHAPTER_HEADING.finditer(text))
+    selected = [
+        index for index, match in enumerate(matches)
+        if match.group(1).strip().casefold() == title.strip().casefold()
+    ]
+    if len(selected) != 1:
+        raise ValueError(f"Intestazione capitolo non univoca: {title}")
+    index = selected[0]
+    begin = matches[index].end()
+    finish = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    section = text[begin:finish]
+    count = len(list(matcher.finditer(section)))
+    if not 1 <= count <= _MAX_IDENTICAL_OCCURRENCES:
+        raise ValueError(
+            f"Occorrenze nel capitolo {title} non accettabili: {count}"
+        )
+    updated, replaced = matcher.subn(replacement, section)
+    if replaced != count:
+        raise ValueError("Sostituzione non deterministica")
+    return text[:begin] + updated + text[finish:], count
 
 
 def _allowed_documents(root: Path, preview_dir: Path | None) -> dict[tuple[str, str], Path]:
@@ -198,19 +233,37 @@ def prepare_scientific_correction_drafts(
                 reason = "Documento modificato dopo l'audit: nessuna proposta"
             else:
                 revised = before
-                for rule in rules:
-                    if rule not in _CORRECTIONS:
-                        reason = f"Regola senza proposta: {rule}"
-                        break
-                    matcher, replacement = _CORRECTIONS[rule]
-                    revised, count = matcher.subn(replacement, revised)
-                    if count != 1:
-                        reason = f"Occorrenze esatte non univoche per {rule}: {count}"
-                        break
+                old_flags = {
+                    (flag.rule, flag.chapter)
+                    for flag in inspect_scientific_claims(before)
+                }
+                targets = [
+                    (str(flag.get("rule") or ""), str(flag.get("chapter") or ""))
+                    for flag in flags
+                ]
+                if len(set(targets)) != len(targets):
+                    reason = "Segnalazioni duplicate non ammesse"
+                elif not set(targets).issubset(old_flags):
+                    reason = "La regola/il capitolo non corrisponde al testo corrente"
+                else:
+                    for rule, chapter in targets:
+                        if rule not in _CORRECTIONS:
+                            reason = f"Regola senza proposta: {rule}"
+                            break
+                        matcher, replacement = _CORRECTIONS[rule]
+                        try:
+                            revised, _count = _replace_in_chapter(
+                                revised, chapter, matcher, replacement,
+                            )
+                        except ValueError as exc:
+                            reason = str(exc)
+                            break
                 if not reason:
-                    old_rules = {flag.rule for flag in inspect_scientific_claims(before)}
-                    new_rules = {flag.rule for flag in inspect_scientific_claims(revised)}
-                    if (set(rules) & new_rules) or (new_rules - old_rules):
+                    new_flags = {
+                        (flag.rule, flag.chapter)
+                        for flag in inspect_scientific_claims(revised)
+                    }
+                    if (set(targets) & new_flags) or (new_flags - old_flags):
                         reason = "La proposta non elimina l'errore o genera nuovi allarmi"
                     elif revised == before:
                         reason = "Nessun cambiamento"
