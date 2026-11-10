@@ -723,16 +723,24 @@ def courses_auto_audit_claims(
             "Verdetti del modello non sono una certificazione scientifica.", "",
         ]
         for item in report["claims"]:
+            critic = item.get("independent_challenge") or {}
             lines.extend([
                 f"## {item['status']}",
                 f"Affermazione: {item['claim']['text']}",
                 f"Motivo: {item['rationale']}",
-                f"Citazioni validate: {len(item['quotes'])}", "",
+                f"Citazioni validate: {len(item['quotes'])}",
+                "Parafrasi candidata (NON approvata): "
+                f"{bool(critic.get('semantic_support_candidate', False))}",
+                f"Componenti semantiche: {len(critic.get('facets', []))}", "",
             ])
         (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
     except (OSError, ValueError, TypeError, KeyError) as exc:
         console.print(f"[red]Audit autonomo non completato: {exc}[/]")
         raise typer.Exit(2) from exc
+    console.print(
+        f"[dim]Parafrasi semantiche candidate, non approvate: "
+        f"{report['semantic_support_candidates']}[/]"
+    )
     console.print(f"[green]Report audit autonomo:[/] {target}")
     console.print(
         "[yellow]Nessun riassunto corretto o pubblicato. "
