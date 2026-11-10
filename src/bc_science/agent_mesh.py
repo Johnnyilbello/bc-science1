@@ -102,7 +102,12 @@ def run_agents(
         registered_agents=len(AGENTS),
         selected_agents=len(selected),
         exhaustive=all_agents,
-        status=_aggregate([subject.status for subject in subjects]),
+        status=(
+            "INCOMPLETE"
+            if not all_agents and subjects
+            and _aggregate([subject.status for subject in subjects]) == "PASS"
+            else _aggregate([subject.status for subject in subjects])
+        ),
         subjects=tuple(subjects),
     )
 
