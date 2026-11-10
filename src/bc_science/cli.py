@@ -28,6 +28,7 @@ from .scientific_research import (
     research_state,
 )
 from .summarizer import Summarizer
+from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
 from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
@@ -38,9 +39,11 @@ app = typer.Typer(
 models_app = typer.Typer(help="Gestione modelli locali.")
 courses_app = typer.Typer(help="Gestione multi-materia da una cartella radice.")
 research_app = typer.Typer(help="Approfondimenti scientifici separati oltre eCampus.")
+agents_app = typer.Typer(help="Orchestrazione offline di 100 agenti verificatori specializzati.")
 app.add_typer(models_app, name="models")
 app.add_typer(courses_app, name="courses")
 app.add_typer(research_app, name="research")
+app.add_typer(agents_app, name="agents")
 console = Console()
 
 
@@ -256,6 +259,85 @@ def research_build(
         "[green]Ricerca scientifica completata.[/] "
         f"{created} create/aggiornate · {reused} riutilizzate · {missing} senza riassunto"
     )
+
+
+@agents_app.command("list")
+def agents_list() -> None:
+    """Elenca i 100 agenti registrati, senza modelli o connessione."""
+    table = Table(title="BC Science — 100 verificatori specializzati")
+    table.add_column("ID")
+    table.add_column("Gruppo")
+    table.add_column("Fase")
+    table.add_column("Controllo")
+    for item in available_agents():
+        table.add_row(item.id, item.group, item.phase, item.title)
+    console.print(table)
+
+
+@agents_app.command("plan")
+def agents_plan(
+    task: Annotated[str, typer.Option("--task", help="ingest, summarize, study o publish")] = "study",
+    limit: Annotated[int, typer.Option("--limit", help="Massimo agenti nella selezione")] = 24,
+    all_agents: Annotated[bool, typer.Option("--all", help="Seleziona tutti i 100 agenti")] = False,
+) -> None:
+    """Mostra quali agenti verrebbero eseguiti senza avviarli."""
+    try:
+        selected = plan_agents(task, limit=limit, all_agents=all_agents)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(f"[bold]{len(selected)}/100 agenti[/] per '{task}'")
+    for item in selected:
+        console.print(f"[dim]{item.id}[/] · {item.title}")
+
+
+@agents_app.command("run")
+def agents_run(
+    root: Annotated[Path, typer.Argument(help="Cartella radice contenente le materie")],
+    task: Annotated[str, typer.Option("--task", help="ingest, summarize, study o publish")] = "study",
+    limit: Annotated[int, typer.Option("--limit", help="Numero di verificatori selezionati")] = 24,
+    all_agents: Annotated[bool, typer.Option("--all", help="Esegui tutti i 100 verificatori")] = False,
+    strict: Annotated[bool, typer.Option("--strict", help="Codice di errore se non PASS")] = False,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Directory per report JSON e Markdown"),
+    ] = None,
+) -> None:
+    """Esegue verifiche offline read-only con report e stato INCOMPLETE."""
+    try:
+        report = run_agents(root, task=task, limit=limit, all_agents=all_agents)
+        markdown_path, json_path = write_agent_reports(report, output_dir=output_dir)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    table = Table(title=f"BC Science — Agent Mesh · {report.status}")
+    table.add_column("Materia")
+    table.add_column("Esito")
+    table.add_column("PASS", justify="right")
+    table.add_column("WARN", justify="right")
+    table.add_column("FAIL", justify="right")
+    table.add_column("SKIP", justify="right")
+    for subject in report.subjects:
+        counts = {
+            status: sum(item.status == status for item in subject.results)
+            for status in ("PASS", "WARN", "FAIL", "SKIP")
+        }
+        table.add_row(
+            subject.subject, subject.status,
+            *(str(counts[status]) for status in ("PASS", "WARN", "FAIL", "SKIP")),
+        )
+    console.print(table)
+    console.print(
+        f"[dim]{report.selected_agents}/{report.registered_agents} agenti selezionati; "
+        f"report: {markdown_path} · {json_path}[/]"
+    )
+    console.print(
+        "[dim]Controlli strutturali: nessuna certificazione scientifica;"
+        " SKIP non equivale a PASS.[/]"
+    )
+    if strict and report.status != "PASS":
+        raise typer.Exit(1)
 
 
 @courses_app.command("list")
