@@ -30,6 +30,7 @@ from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
 from .retrieval_audit import DEFAULT_RETRIEVAL_CASES, evaluate_retrieval
 from .scientific_claim_flags import inspect_scientific_claims
+from .scientific_patch_drafts import prepare_scientific_correction_drafts
 from .scientific_research import (
     ResearchError,
     ScientificResearchBuilder,
@@ -591,6 +592,51 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("draft-scientific-corrections")
+def courses_draft_scientific_corrections(
+    root: Annotated[Path, typer.Argument(help="Radice delle materie")],
+    audit_json: Annotated[
+        Path, typer.Option("--audit-json", help="Report inspect-scientific-flags esistente"),
+    ],
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="Nuova cartella revisioni isolata"),
+    ] = None,
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Cartella anteprime autorizzate dal manifest"),
+    ] = None,
+) -> None:
+    """Crea bozze scientifiche con SHA256 verificato; non pubblica nulla."""
+    from datetime import datetime, timezone
+
+    if output_dir is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_dir = app_home() / "reports" / "scientific-correction-drafts" / stamp
+    try:
+        report = prepare_scientific_correction_drafts(
+            root, audit_json, output_dir, preview_dir=preview_dir,
+        )
+    except (OSError, ValueError, TypeError, UnicodeError) as exc:
+        console.print(f"[red]Impossibile creare bozze: {exc}[/]")
+        raise typer.Exit(2) from exc
+    counts: dict[str, int] = {}
+    for item in report["proposals"]:
+        counts[item["state"]] = counts.get(item["state"], 0) + 1
+        console.print(
+            f"  {item['subject']} · {item['edition']}: "
+            f"{item['state']} ({item['reason']})"
+        )
+    console.print(
+        f"[yellow]Bozze da controllare: {counts.get('REVIEW', 0)} · "
+        f"Bloccate: {counts.get('BLOCKED', 0)}[/]"
+    )
+    console.print(f"[green]Report e differenze:[/] {report['report_dir']}")
+    console.print(
+        "[dim]Nessuna modifica alle dispense, alle due versioni pubblicate, "
+        "ai PDF o ai manifest. Non equivale a verifica scientifica.[/]"
+    )
 
 
 @courses_app.command("inspect-scientific-flags")
