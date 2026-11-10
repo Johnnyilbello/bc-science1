@@ -1076,6 +1076,14 @@ def build_course(
                 manifest=manifest,
                 progress=progress,
             )
+            study_pipeline = STUDY_PROMPT_VERSION
+            previous_study = manifest.get("study")
+            if (
+                not study_generated
+                and isinstance(previous_study, dict)
+                and isinstance(previous_study.get("pipeline"), str)
+            ):
+                study_pipeline = previous_study["pipeline"]
             _write_manifest(
                 scan,
                 snapshot,
@@ -1089,6 +1097,7 @@ def build_course(
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
                 summary_pipeline=str(manifest.get("summary_pipeline") or PROMPT_VERSION),
+                study_pipeline=study_pipeline,
             )
             if study_text is not None:
                 audit_status, audit_path = _ensure_course_audit_status(
