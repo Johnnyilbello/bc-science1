@@ -447,3 +447,117 @@ def test_full_source_quote_does_not_trigger_unnecessary_second_call():
     assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
     assert len(called) == 1
     assert verdict["independent_challenge"] is None
+
+
+def test_critic_can_collect_semantic_paraphrase_without_auto_approval():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "Il rilievo è posizionato dietro la città e misura 25 cm.",
+        ),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il rilievo, posteriore alla città, ha lunghezza di 25 cm.",
+    )
+    calls = []
+
+    def fake_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "Fonte descrive il rilievo",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "Il rilievo, posteriore alla città, ha lunghezza di 25 cm",
+                }],
+            })
+        return json.dumps({
+            "assessment": "SUPPORTED",
+            "missing_parts": [],
+            "counter_quotes": [],
+            "facets": [{
+                "claim_part": (
+                    "Il rilievo è posizionato dietro la città e misura 25 cm"
+                ),
+                "state": "SUPPORTED",
+                "source_id": 1,
+                "quote": "Il rilievo, posteriore alla città, ha lunghezza di 25 cm",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], fake_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    critic = verdict["independent_challenge"]
+    assert critic["assessment"] == "SUPPORTED"
+    assert critic["model_challenge_valid"]
+    assert critic["semantic_support_candidate"]
+    assert critic["facet_coverage"] == 1.0
+    assert critic["facets"][0]["source_quote"]["source"] == "source.pdf"
+
+
+def test_critic_cannot_approve_self_loop_even_with_literal_facets():
+    claim = extract_claim_candidates(
+        _course(
+            "Storia",
+            "L'ambasciatore viaggia da Roma a Roma per la missione.",
+        ),
+        "Storia",
+    )[0]
+    source = _source(
+        "L'ambasciatore viaggia da Roma a Roma per la missione.",
+    )
+    responses = iter([
+        json.dumps({
+            "label": "SUPPORTED", "rationale": "citazione letterale",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'ambasciatore viaggia da Roma a Roma per la missione",
+            }],
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [source], lambda _messages: next(responses),
+    )
+    assert "POSSIBLE_DIRECTION_SELF_LOOP" in verdict["review_signals"]
+    # A repeated place name is only an indication, not a scientific verdict.
+    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+
+
+def test_critic_rejects_semantic_evidence_not_in_original():
+    claim = extract_claim_candidates(
+        _course("Fisica", "Il campo agisce a 15 km di distanza."),
+        "Fisica",
+    )[0]
+    source = _source("Il campo agisce a grandi distanze.")
+    calls = []
+
+    def fake_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "rationale": "Il campo agisce",
+                "quotes": [{
+                    "source_id": 1, "quote": "Il campo agisce a grandi distanze",
+                }],
+            })
+        return json.dumps({
+            "assessment": "SUPPORTED",
+            "missing_parts": [],
+            "counter_quotes": [],
+            "facets": [{
+                "claim_part": "Il campo agisce a 15 km di distanza",
+                "state": "SUPPORTED",
+                "source_id": 1,
+                "quote": "Il campo agisce a 15 km di distanza",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], fake_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    critic = verdict["independent_challenge"]
+    assert critic["model_challenge_valid"] is False
+    assert critic["semantic_support_candidate"] is False
