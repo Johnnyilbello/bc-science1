@@ -729,8 +729,10 @@ def courses_auto_audit_claims(
                 f"Affermazione: {item['claim']['text']}",
                 f"Motivo: {item['rationale']}",
                 f"Citazioni validate: {len(item['quotes'])}",
-                "Parafrasi candidata (NON approvata): "
-                f"{bool(critic.get('semantic_support_candidate', False))}",
+                (
+                    "Parafrasi candidata (NON approvata): "
+                    f"{bool(critic.get('semantic_support_candidate', False))}"
+                ),
                 f"Componenti semantiche: {len(critic.get('facets', []))}", "",
             ])
         (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
