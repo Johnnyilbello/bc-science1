@@ -13,7 +13,13 @@ from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_r
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
-from .courses import audit_course, build_course, course_state, scan_courses
+from .courses import (
+    audit_course,
+    build_course,
+    course_state,
+    inspect_original_evidence,
+    scan_courses,
+)
 from .documents import iter_source_files
 from .finalizer import finalize_course_bundle, finalize_file
 from .hardware import detect_hardware, select_model_plan
@@ -584,6 +590,49 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("inspect-claim")
+def courses_inspect_claim(
+    root: Annotated[Path, typer.Argument(help="Cartella con le materie")],
+    subject: Annotated[str, typer.Option("--subject", help="Nome esatto della materia")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo del capitolo")],
+    claim: Annotated[str, typer.Option("--claim", help="Affermazione da verificare (testo, non una domanda)")],
+) -> None:
+    """Ricerca prova originale locale per un'affermazione; non certifica la verità."""
+    try:
+        scans = scan_courses(root)
+        matches = [scan for scan in scans if scan.name.casefold() == subject.casefold()]
+        if len(matches) != 1:
+            raise ValueError(f"Materia non trovata univocamente: {subject}")
+        report = inspect_original_evidence(
+            matches[0], chapter, edition="complete", claim=claim,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(f"[bold]Affermazione:[/] {report['claim']}")
+    console.print(f"[bold]Materia e capitolo:[/] {subject} · {chapter}")
+    console.print(f"[bold]Esito ricerca:[/] {report['status']}")
+    evidence = report["evidence"]
+    if not evidence:
+        console.print(
+            "[yellow]Nessun passaggio trovato nella cache originale: "
+            "non equivale a prova dell'assenza né a conferma dell'errore.[/]"
+        )
+    for item in evidence:
+        place = (
+            f"pagina {item['page']}" if item.get("page") is not None
+            else f"blocco {item['block']}" if item.get("block") is not None
+            else "posizione non disponibile"
+        )
+        console.print(f"\\n[bold]{Path(item['source_path']).name} · {place}[/]")
+        console.print(item["excerpt"])
+    console.print(
+        "[dim]Risultato di recupero lessicale dalle fonti originali con "
+        "hash verificato. Un passaggio simile NON valida la sua correttezza "
+        "scientifica né dimostra che supporti l'affermazione.[/]"
+    )
 
 
 @courses_app.command("preview-essential")
