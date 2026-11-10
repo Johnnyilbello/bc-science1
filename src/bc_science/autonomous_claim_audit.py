@@ -23,14 +23,14 @@ _RELATION = re.compile(
     r"determina|causa|avviene|collega|consiste|compost\w*|format\w*|è|sono)\b",
     re.IGNORECASE,
 )
-_MULTI_QUANTITY = re.compile(r"(?<!\\w)\\d+(?:[.,]\\d+)?")
+_MULTI_QUANTITY = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 _DIRECTION_LOOP = re.compile(
-    r"\\b(?:da|dal|dallo|dalla|dai|dagli|dalle)\\s+"
-    r"([a-zà-ÿ]{4,})\\s+(?:a|al|allo|alla|ai|agli|alle)\\s+\\1\\b",
+    r"\b(?:da|dal|dallo|dalla|dai|dagli|dalle)\s+"
+    r"([a-zà-ÿ]{4,})\s+(?:a|al|allo|alla|ai|agli|alle)\s+\1\b",
     re.IGNORECASE,
 )
 _STRONG_NEGATION = re.compile(
-    r"\\b(?:non\\s+(?:pu[oò]|possono|è\\s+possibile|riesce)|impossibile)\\b",
+    r"\b(?:non\s+(?:pu[oò]|possono|è\s+possibile|riesce)|impossibile)\b",
     re.IGNORECASE,
 )
 
