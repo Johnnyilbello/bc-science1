@@ -132,11 +132,11 @@ def write_agent_reports(
         "# BC Science — Agent Mesh",
         "",
         f"Esito: **{report.status}**",
-        f"Task: **{report.task}** · Agenti registrati: {report.registered_agents}"
-        f" · selezionati: {report.selected_agents}",
+        (f"Task: **{report.task}** · Agenti registrati: {report.registered_agents}"
+         f" · selezionati: {report.selected_agents}"),
         "",
-        "**Limite:** i controlli sono deterministici e non garantiscono"
-        " correttezza scientifica, completezza semantica o zero errori.",
+        ("**Limite:** i controlli sono deterministici e non garantiscono"
+         " correttezza scientifica, completezza semantica o zero errori."),
         "SKIP significa non verificato. INCOMPLETE non equivale a PASS.",
         "",
     ]
