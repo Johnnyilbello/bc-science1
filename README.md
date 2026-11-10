@@ -75,6 +75,36 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Segnalazione di affermazioni scientifiche sospette (read-only)
+
+Dopo un confronto tra i riassunti pubblicati e le dispense originali
+è emerso che un'affermazione numerica errata può essere introdotta nella
+**Completa** e propagata nell'**Essenziale** conservando tutti i numeri.
+I gate di copertura numerica non possono certificarne la correttezza.
+
+La CLI include un controllo prudente, offline e **non esaustivo** per un
+piccolo elenco di errori già verificati con fonti scientifiche:
+
+```powershell
+bc-science courses inspect-scientific-flags "C:\Studio\SCIENZE MOTORIE" --output-json "C:\BC-Science1\reports\scientific-flags\manual-review.json"
+```
+
+Il report contiene materia, edizione, capitolo, stringa sospetta, hash del
+documento, regola e fonte esterna quando disponibile. Nessuna modifica a
+`riassunto-unico.md`, `riassunto-studio.md`, ai PDF, alle dispense o al manifest.
+L'assenza di segnalazioni **non** significa che un riassunto sia corretto.
+Un alert richiede riscontro manuale, non è una correzione automatica.
+
+Esempio scientifico: la sintesi del palmitato impiega **1 acetil-CoA
+iniziale + 7 malonil-CoA + 14 NADPH** nella reazione FAS; includendo
+la produzione dei malonil-CoA, il totale è **8 acetil-CoA + 7 ATP
++ 14 NADPH**. Riferimenti:
+[Reactome](https://reactome.org/content/detail/R-HSA-75872),
+[Lipid Metabolism (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8411952/).
+La discrepanza nella Completa è un caso da risolvere dopo aver confrontato
+gli originali, la bibliografia scientifica e le modifiche proposte.
+Non cambiare direttamente i documenti originari eCampus.
+
 ## Controllo di un'affermazione nelle dispense originali
 
 Per verificare una possibile inesattezza presente nell'Essenziale o nella
