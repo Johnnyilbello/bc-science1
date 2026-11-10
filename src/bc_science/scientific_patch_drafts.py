@@ -79,7 +79,7 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-_CHAPTER_HEADING = re.compile(r"(?m)^##[ \\t]+([^\\r\\n]+?)[ \\t]*\\r?$")
+_CHAPTER_HEADING = re.compile(r"(?m)^##[ \t]+([^\r\n]+?)[ \t]*\r?$")
 _MAX_IDENTICAL_OCCURRENCES = 5
 
 
