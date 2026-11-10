@@ -40,6 +40,8 @@ def test_duplicate_source_warning_lists_actual_files(tmp_path: Path, monkeypatch
 
 def test_numeric_omissions_are_actionable_and_fail_closed(tmp_path: Path, monkeypatch):
     context = _context(tmp_path, monkeypatch)
+    # Synthetic Essential is required before its numeric content can be audited.
+    context.study = "# ANATOMIA\n\n## Apparato digerente\nDispensa di prova."
     context.audit = {
         "status": "FAIL",
         "audit_version": "not-important-here",
