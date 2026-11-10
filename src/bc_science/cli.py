@@ -28,8 +28,8 @@ from .scientific_research import (
     ScientificResearchBuilder,
     research_state,
 )
-from .summarizer import Summarizer
 from .study_preview import preview_essential_editions
+from .summarizer import Summarizer
 from .universal_audit import verify_courses, write_verification_reports
 
 app = typer.Typer(
