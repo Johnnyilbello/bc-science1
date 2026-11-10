@@ -72,7 +72,25 @@ def extract_claim_candidates(
             chapter, sentence, kind, priority, _digest(sentence),
         ))
     ranked = sorted(enumerate(candidates), key=lambda x: (-x[1].priority, x[0]))
-    return tuple(claim for _, claim in ranked[:limit])
+    # A purely numeric top-N sample can omit wrong directions/negations.
+    # Reserve a slot for each present category before filling by priority.
+    selected: list[CandidateClaim] = []
+    selected_hashes: set[str] = set()
+    for category in ("quantity", "negation", "relation", "other"):
+        for _, candidate in ranked:
+            if candidate.category == category:
+                selected.append(candidate)
+                selected_hashes.add(candidate.claim_sha256)
+                break
+        if len(selected) >= limit:
+            return tuple(selected)
+    for _, candidate in ranked:
+        if candidate.claim_sha256 not in selected_hashes:
+            selected.append(candidate)
+            selected_hashes.add(candidate.claim_sha256)
+        if len(selected) >= limit:
+            break
+    return tuple(selected)
 
 
 def _json_object(raw: str) -> dict | None:
