@@ -143,9 +143,9 @@ def verify_claim_with_evidence(
     if not evidence:
         return base
     excerpts = [
-        {"source": e.source_path, "page": e.page, "block": e.block,
-         "excerpt": e.excerpt[:1700]}
-        for e in evidence[:5]
+        {"id": index, "source": e.source_path, "page": e.page,
+         "block": e.block, "excerpt": e.excerpt[:1700]}
+        for index, e in enumerate(evidence[:5], start=1)
     ]
     messages = [
         {"role": "system", "content": (
@@ -161,8 +161,10 @@ def verify_claim_with_evidence(
             "Confronta l'affermazione con le prove. Rispondi SOLO JSON: "
             '{"label":"SUPPORTED|CONTRADICTED|SOURCE_CONFLICT|UNVERIFIED",'
             '"rationale":"motivazione breve in italiano",'
-            '"quotes":[{"source":"percorso esatto", "page":null,'
-            '"block":1, "quote":"testo letterale di almeno 16 caratteri"}]}. '
+            '"quotes":[{"source_id":1,'
+            '"quote":"testo letterale di almeno 16 caratteri"}]}. '
+            "source_id è l'id numerico del passaggio nelle ORIGINALI. "
+            "Non ricopiare percorsi o numeri di pagina: li aggiunge il sistema. "
             "SUPPORTED e CONTRADICTED esigono almeno una citazione "
             "pertinente; SOURCE_CONFLICT due passaggi diversi. "
             "NON giudicare una formula corretta solo perché i numeri "
@@ -183,13 +185,39 @@ def verify_claim_with_evidence(
             raise ValueError("Etichetta o motivazione non valida")
         if not isinstance(quotes, list) or len(quotes) > 3:
             raise ValueError("Citazioni malformate")
-        if not all(validate_original_quote(q, evidence) for q in quotes):
-            raise ValueError("Citazioni non letterali o non attribuibili")
-        if label in {"SUPPORTED", "CONTRADICTED"} and not quotes:
+        verified_quotes = []
+        for quote in quotes:
+            if not isinstance(quote, dict):
+                raise ValueError("Oggetto citazione non valido")
+            if "source_id" in quote:
+                source_id = quote["source_id"]
+                if (
+                    type(source_id) is not int
+                    or source_id < 1
+                    or source_id > len(evidence[:5])
+                ):
+                    raise ValueError("Indice citazione non valido")
+                passage = evidence[source_id - 1]
+                canonical = {
+                    "source": passage.source_path,
+                    "page": passage.page,
+                    "block": passage.block,
+                    "quote": quote.get("quote"),
+                }
+            else:
+                # Compatible with earlier complete-provenance model output.
+                canonical = quote
+            if not validate_original_quote(canonical, evidence):
+                raise ValueError("Citazione non letterale o non attribuibile")
+            verified_quotes.append(canonical)
+        if label in {"SUPPORTED", "CONTRADICTED"} and not verified_quotes:
             raise ValueError("Manca la prova letterale")
         if label == "SOURCE_CONFLICT" and (
-            len(quotes) < 2
-            or len({(q["source"], q["page"], q["block"]) for q in quotes}) < 2
+            len(verified_quotes) < 2
+            or len({
+                (q["source"], q["page"], q["block"])
+                for q in verified_quotes
+            }) < 2
         ):
             raise ValueError("Conflitto senza due passaggi distinti")
         status = {
@@ -200,7 +228,7 @@ def verify_claim_with_evidence(
         }[label]
         return {
             **base, "status": status, "model_label": label,
-            "rationale": rationale[:750], "quotes": quotes,
+            "rationale": rationale[:750], "quotes": verified_quotes,
         }
     except (ValueError, TypeError, KeyError, IndexError) as exc:
         return {
