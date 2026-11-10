@@ -340,3 +340,110 @@ def test_chapter_title_is_not_a_factual_claim():
     )
     assert len(claims) == 1
     assert "collega" in claims[0].text
+
+
+def test_critical_second_pass_can_identify_counterevidence_without_known_answer():
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il fiume trasporta acqua dal mare al mare."),
+        "Geografia",
+    )[0]
+    original = [
+        _source(
+            "Un fiume è un corso d'acqua che percorre il territorio.",
+            name="corso.pdf",
+        ),
+        _source(
+            "Il fiume nasce in montagna e sfocia nel mare.",
+            name="geografia.pdf",
+        ),
+    ]
+    calls = []
+
+    def fake_local_model(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "La fonte descrive il fiume.",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "Un fiume è un corso d'acqua che percorre il territorio",
+                }],
+            })
+        return json.dumps({
+            "assessment": "CONTRADICTED",
+            "missing_parts": ["Origine dal mare non dimostrata"],
+            "counter_quotes": [{
+                "source_id": 2,
+                "quote": "Il fiume nasce in montagna e sfocia nel mare",
+            }],
+        })
+
+    result = verify_claim_with_evidence(claim, original, fake_local_model)
+    assert len(calls) == 2
+    assert result["model_label"] == "SUPPORTED"
+    assert result["status"] == "SUSPECTED_CONTRADICTION"
+    critic = result["independent_challenge"]
+    assert critic["model_challenge_valid"] is True
+    assert critic["counter_quotes"][0]["source"] == "geografia.pdf"
+    assert "Origine dal mare" in critic["missing_parts"][0]
+
+
+def test_critic_hallucinated_counterquote_keeps_unverified_status():
+    claim = extract_claim_candidates(
+        _course("Scienze", "La soluzione contiene 21 grammi di sale."),
+        "Scienze",
+    )[0]
+    original = _source(
+        "La soluzione contiene sale e acqua in proporzioni variabili.",
+    )
+    calls = []
+
+    def fake_local_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "La soluzione contiene sale.",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "La soluzione contiene sale e acqua",
+                }],
+            })
+        return json.dumps({
+            "assessment": "CONTRADICTED",
+            "missing_parts": ["Massa del sale"],
+            "counter_quotes": [{
+                "source_id": 1,
+                "quote": "La soluzione contiene 90 grammi di sale",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [original], fake_local_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["independent_challenge"]["model_challenge_valid"] is False
+
+
+def test_full_source_quote_does_not_trigger_unnecessary_second_call():
+    claim = extract_claim_candidates(
+        _course("Astronomia", "Marte orbita intorno al Sole."),
+        "Astronomia",
+    )[0]
+    source = _source("Marte orbita intorno al Sole.")
+    called = []
+
+    def local_model(_messages):
+        called.append(1)
+        return json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "Confermato nel testo originale",
+            "quotes": [{
+                "source_id": 1, "quote": "Marte orbita intorno al Sole",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local_model)
+    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+    assert len(called) == 1
+    assert verdict["independent_challenge"] is None
