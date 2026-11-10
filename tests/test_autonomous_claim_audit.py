@@ -517,6 +517,12 @@ def test_critic_cannot_approve_self_loop_even_with_literal_facets():
                 "quote": "L'ambasciatore viaggia da Roma a Roma per la missione",
             }],
         }),
+        json.dumps({
+            "assessment": "UNVERIFIED",
+            "missing_parts": ["Il percorso potrebbe essere circolare"],
+            "facets": [],
+            "counter_quotes": [],
+        }),
     ])
     verdict = verify_claim_with_evidence(
         claim, [source], lambda _messages: next(responses),
