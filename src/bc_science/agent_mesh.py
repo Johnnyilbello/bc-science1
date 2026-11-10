@@ -47,11 +47,17 @@ class AgentRun:
 
 
 def _aggregate(statuses: list[str]) -> str:
-    if not statuses or "FAIL" in statuses:
+    if not statuses or any(
+        status not in {"PASS", "WARN", "FAIL", "SKIP", "N/A"}
+        for status in statuses
+    ) or "FAIL" in statuses:
         return "FAIL"
     if "WARN" in statuses or "SKIP" in statuses:
         return "INCOMPLETE"
-    return "PASS"
+    if "PASS" in statuses:
+        return "PASS"
+    # All N/A is not evidence of a successful review.
+    return "INCOMPLETE"
 
 
 def run_agents(
@@ -137,9 +143,28 @@ def write_agent_reports(
         "",
         ("**Limite:** i controlli sono deterministici e non garantiscono"
          " correttezza scientifica, completezza semantica o zero errori."),
-        "SKIP significa non verificato. INCOMPLETE non equivale a PASS.",
+        "SKIP significa non verificato. N/A significa controllo facoltativo",
+        "non applicabile e non viene contato come PASS.",
+        "INCOMPLETE non equivale a PASS.",
+        "",
+        "## Problemi da verificare",
         "",
     ]
+    findings = [
+        (subject, item)
+        for subject in report.subjects
+        for item in subject.results
+        if item.status in {"FAIL", "WARN"}
+    ]
+    if findings:
+        for subject, item in findings:
+            evidence = item.evidence.replace("\\n", " ").replace("\\r", " ")
+            lines.append(
+                f"- **{subject.subject} · {item.agent_id} · {item.status}**: {evidence}"
+            )
+    else:
+        lines.append("- Nessun FAIL/WARN rilevato; controllare comunque SKIP e N/A.")
+    lines.append("")
     if not report.subjects:
         lines.append("Nessuna materia trovata: FAIL.")
     for subject in report.subjects:
