@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AppConfig, app_home
+from .course_audit import AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION
 from .courses import (
     CourseScan,
     _coverage_map_from_manifest,
@@ -31,7 +32,7 @@ from .documents import SUPPORTED
 from .summarizer import _extract_summary_chapters, group_course_files, topic_key
 
 Check = tuple[str, str]
-VALID_STATUSES = {"PASS", "WARN", "FAIL", "SKIP"}
+VALID_STATUSES = {"PASS", "WARN", "FAIL", "SKIP", "N/A"}
 _PLACEHOLDER = re.compile(r"\bTODO\b|lorem ipsum|\bTBD\b|\[INSERIRE\]", re.IGNORECASE)
 _SCRIPT = re.compile(r"<script\b|javascript\s*:|<iframe\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
@@ -66,6 +67,35 @@ def _pass(ok: bool, description: str, *, warning: bool = False) -> Check:
 
 def _skip(reason: str) -> Check:
     return "SKIP", reason
+
+
+def _not_applicable(reason: str) -> Check:
+    """Explicitly disabled optional workflow; never counted as verified PASS."""
+    return "N/A", reason
+
+
+def _numeric_evidence(audit: dict) -> str:
+    numeric = audit.get("missing_numeric_facts", 0)
+    exam = audit.get("missing_exam_facts", 0)
+    chapters = audit.get("missing_exam_number_chapters") or ()
+    examples: list[str] = []
+    facts = audit.get("missing_facts")
+    if isinstance(facts, list):
+        for row in facts:
+            if not isinstance(row, dict) or row.get("category") not in {"numero", "esame"}:
+                continue
+            chapter = str(row.get("chapter") or "capitolo sconosciuto")
+            statement = str(row.get("text") or "")
+            examples.append(f"{chapter}: {statement[:140]}")
+            if len(examples) == 3:
+                break
+    detail = "; ".join(examples)
+    return (
+        f"Fatti numerici non coperti: {numeric}; punti d'esame: {exam}; "
+        f"capitoli numerici segnalati: {len(chapters)}"
+        + (f". Esempi da verificare: {detail}" if detail else
+           ". Aprire audit.json per i fatti atomici non coperti")
+    )
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -193,8 +223,17 @@ def _sources(c: AgentContext, k: int) -> Check:
         normalized = [str(r["path"]).casefold() for r in rows]
         return _pass(len(set(normalized)) == len(rows), "Percorsi univoci")
     if k == 6:
-        hashes = [str(r["sha256"]) for r in rows]
-        return _pass(len(set(hashes)) == len(rows), "Duplicati SHA256", warning=True)
+        groups: dict[str, list[str]] = {}
+        for row in rows:
+            groups.setdefault(str(row["sha256"]), []).append(str(row["path"]))
+        duplicates = [names for names in groups.values() if len(names) > 1]
+        if not duplicates:
+            return "PASS", "Nessun SHA256 duplicato"
+        samples = "; ".join(" = ".join(names[:3]) for names in duplicates[:3])
+        return "WARN", (
+            f"{len(duplicates)} gruppi di file con SHA256 identico "
+            f"(non modificati): {samples}"
+        )
     if k == 7:
         return _pass(not c.links, "Nessun collegamento simbolico nelle fonti")
     if k == 8:
@@ -397,7 +436,11 @@ def _study(c: AgentContext, k: int) -> Check:
         return _skip("Audit senza campo esplicito sulle omissioni numeriche")
     misses = c.audit.get("missing_numeric_facts", 0)
     chapters = c.audit.get("missing_exam_number_chapters", ())
-    return _pass(misses == 0 and not chapters, "Nessuna omissione numerica rilevata")
+    return _pass(
+        misses == 0 and not chapters,
+        "Nessuna omissione numerica rilevata" if misses == 0 and not chapters
+        else _numeric_evidence(c.audit),
+    )
 
 
 def _study_pdf(c: AgentContext, k: int) -> Check:
@@ -443,8 +486,17 @@ def _audit(c: AgentContext, k: int) -> Check:
     if a is None:
         return _skip("Report audit mancante o non valido")
     if k == 2:
-        return _pass(isinstance(a.get("audit_version"), str)
-                     and bool(a["audit_version"]), "Versione audit")
+        version = a.get("audit_version")
+        if not isinstance(version, str) or not version:
+            return "FAIL", "Versione audit mancante"
+        return _pass(
+            version in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION},
+            f"Versione audit: {version}"
+            + (" (obsoleta: ricalcolare l'audit, non il riassunto)"
+               if version not in {AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION}
+               else " (corrente)"),
+            warning=True,
+        )
     if k == 3:
         return _pass(a.get("status") in {"PASS", "WARN", "FAIL"}, "Stato riconosciuto")
     if k == 4:
@@ -467,18 +519,35 @@ def _audit(c: AgentContext, k: int) -> Check:
             or "missing_exam_number_chapters" in a
         ):
             return _skip("Audit privo di metrica sulle omissioni")
-        return _pass(
+        ok = (
             a.get("missing_numeric_facts", 0) == 0
             and a.get("missing_exam_facts", 0) == 0
-            and not a.get("missing_exam_number_chapters", ()),
-            "Nessuna omissione numerica rilevata",
+            and not a.get("missing_exam_number_chapters", ())
         )
-    return _pass(a.get("status") == "PASS", "Audit finale approvabile", warning=True)
+        return _pass(
+            ok,
+            "Nessuna omissione numerica o d'esame rilevata"
+            if ok else _numeric_evidence(a),
+        )
+    state = a.get("status")
+    if state == "PASS":
+        return "PASS", "Audit finale PASS"
+    raw_warnings = a.get("warnings")
+    details = (
+        "; ".join(str(item) for item in raw_warnings[:3])
+        if isinstance(raw_warnings, list) else ""
+    )
+    message = f"Audit finale {state or 'sconosciuto'}"
+    if details:
+        message += f": {details}"
+    if state == "WARN":
+        return "WARN", message
+    return "FAIL", message
 
 
 def _research(c: AgentContext, k: int) -> Check:
     if not c.research_enabled:
-        return _skip("Ricerca PubMed non abilitata: funzione opt-in")
+        return _not_applicable("Ricerca PubMed disattivata: funzione facoltativa")
     r = c.research
     if k == 0:
         return _pass(c.research_path.is_file(), "Approfondimento separato presente")
@@ -543,6 +612,8 @@ def _security(c: AgentContext, k: int) -> Check:
             "Manifest senza chiavi segrete",
         )
     if k in {6, 7, 8}:
+        if k == 8 and not c.research_enabled:
+            return _not_applicable("Documento PubMed facoltativo non abilitato")
         texts = {6: c.complete, 7: c.study, 8: c.research}
         if texts[k] is None:
             return _skip("Documento non disponibile")
