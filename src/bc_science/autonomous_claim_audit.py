@@ -570,6 +570,17 @@ def run_claim_audit(
         "document_sha256": _digest(document),
         "claims_total": len(claims),
         "claims": outcomes,
+        "semantic_support_candidates": sum(
+            bool(
+                (outcome.get("independent_challenge") or {})
+                .get("semantic_support_candidate")
+            )
+            for outcome in outcomes
+        ),
+        "suspected_contradictions": sum(
+            outcome["status"] == "SUSPECTED_CONTRADICTION"
+            for outcome in outcomes
+        ),
         "complete_scientific_validation": False,
         "published_modified": False,
         "scope": "Verifica locale sperimentale, limitata e non esaustiva",
