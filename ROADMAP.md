@@ -242,6 +242,25 @@ La modifica non si applica a una generazione già avviata nella sessione
 Windows: richiede un successivo avvio del codice aggiornato. Il PASS del codice
 non sostituisce la verifica su tutte le dispense reali.
 
+## 0.9.19 — Allineamento audit v2 già presenti (non distruttivo)
+
+- Recuperato da `feat/spark-v10-4-didactic-polish-20261104` il motore
+  `atomic-fact-v2-source-qualifiers` realmente usato dagli audit locali.
+- I report v2 con hash correnti di Completa ed Essenziale sono ora
+  compatibili; non vengono dichiarati obsoleti soltanto perché il branch
+  precedente usava `atomic-fact-v1`.
+- Ripristinati il controllo delle affermazioni qualificate, il gate sulla
+  compressione troppo bassa e la rubrica narrativa dell'Essenziale.
+- Mantenuta la versione del motore *fast* `audit-fast-essential-v4-original-evidence`
+  fino a un suo aggiornamento distinto e testato; nessuna falsa migrazione.
+- `STD-10/AUD-09` mostrano separatamente esempi `numero` ed `esame`:
+  un'affermazione d'esame priva di numeri non è un esempio numerico.
+- La compatibilità dei report non cambia i loro esiti sostanziali: 309
+  possibili omissioni d'esame di Anatomia e compressione 0% nelle altre due
+  materie restano da esaminare sui documenti.
+- Evitare `courses build --Full` per questo controllo: il problema è
+  attualmente sull'Essenziale e sull'audit, non sulle 617 fonti originali.
+
 ## 0.9.19 — Diagnostica agentica basata sul corpus reale
 
 Raffinamento della prima esecuzione su 617 documenti di tre materie:
