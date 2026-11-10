@@ -75,6 +75,39 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## BC Science Agent Mesh — 100 ruoli di verifica (0.9.19)
+
+Il registro `bc-science agents list` contiene **100 agenti verificatori diversi**,
+organizzati in dieci aree: fonti, manifest, mappa, Completa, PDF, Essenziale,
+PDF Essenziale, audit, ricerca e sicurezza. Sono verificatori deterministici,
+NON 100 istanze di LLM: niente chiamate cloud, nessun modello aggiuntivo,
+nessun costo di inferenza per questi controlli.
+
+```powershell
+bc-science agents list
+bc-science agents plan --task study --limit 24
+bc-science agents run "C:\\Studio\\SCIENZE MOTORIE" --task study
+bc-science agents run "C:\\Studio\\SCIENZE MOTORIE" --task publish --all --strict
+```
+
+Il coordinatore seleziona per task `ingest`, `summarize`, `study` o
+`publish`, dando priorità ai controlli di integrità. Lo stato per ciascuna
+regola è `PASS`, `WARN`, `FAIL` oppure `SKIP` (non eseguito / non verificabile).
+Un controllo obbligatorio mancante impedisce di dichiarare un PASS aggregato;
+una selezione parziale non viene spacciata per una verifica completa.
+Ogni esecuzione produce `agent-report.json` e `agent-report.md` sotto
+`%LOCALAPPDATA%\\BCScience\\reports\\agent-mesh\\<TASK>`,
+oppure nella directory passata con `--output-dir`.
+
+Tutti i controlli sono **read-only**: non modificano le dispense o i riassunti.
+Il catalogo offre un livello aggiuntivo di diagnostica, non certifica
+scientificamente le spiegazioni. La modalità `--strict` termina con
+codice diverso da zero per `FAIL` o `INCOMPLETE`.
+
+L'architettura è costruita per introdurre in una fase successiva
+solo quando necessario agenti ragionatori Qwen locali, checkpoint e
+consenso umano per modifiche alle dispense.
+
 ## Verifica multi-materia offline — 0.9.18
 
 Il nuovo audit strutturale è indipendente dalla disciplina: funziona anche
