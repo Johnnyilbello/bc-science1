@@ -11,7 +11,11 @@ from typer.testing import CliRunner
 
 from bc_science import cli, scientific_patch_drafts
 from bc_science.scientific_claim_flags import _PALMITATE, inspect_scientific_claims
-from bc_science.scientific_patch_drafts import prepare_scientific_correction_drafts
+from bc_science.scientific_patch_drafts import (
+    _CORRECTIONS,
+    _replace_in_chapter,
+    prepare_scientific_correction_drafts,
+)
 
 
 def _doc(chapter: str, body: str) -> str:
@@ -179,3 +183,63 @@ def test_cli_outputs_review_only_report(monkeypatch, tmp_path):
     report = json.loads((out / "review-report.json").read_text(encoding="utf-8"))
     assert len(report["proposals"]) == 2
     assert all(item["state"] == "REVIEW" for item in report["proposals"])
+
+
+def test_same_incorrect_phrase_three_times_within_flagged_chapter():
+    bad = "la bile viaggia verso l'esterno del corpo."
+    text = (
+        "# Anatomia\\n\\n## Indice degli argomenti\\n"
+        "- Vie biliari\\n\\n---\\n\\n"
+        "## Vie biliari\\n\\n"
+        "Dotti epatici: " + bad + "\\n\\n"
+        "Dotti epatici: " + bad + "\\n\\n"
+        "Dotti epatici: " + bad + "\\n\\n"
+        "## Non pertinente\\n\\n"
+        "Il contesto di altro argomento cita " + bad + "\\n"
+    )
+    pattern, replacement = _CORRECTIONS["BILIARY_DIRECTION"]
+    revised, occurrences = _replace_in_chapter(
+        text, "Vie biliari", pattern, replacement,
+    )
+    assert occurrences == 3
+    assert revised.count("dal fegato al dotto epatico comune") == 3
+    assert revised.split("## Non pertinente", 1)[1] == text.split(
+        "## Non pertinente", 1
+    )[1]
+
+
+def test_tidal_proposal_replaces_complete_sentence_not_partial_fragment():
+    broken = (
+        "Questo volume non può essere misurato dallo spirometro "
+        "perché lo strumento registra solo l'aria in movimento "
+        "e non quella ferma nelle vie respiratorie."
+    )
+    prefix = (
+        "Il volume corrente (VT) è la quantità di aria scambiata in un atto "
+        "respiratorio normale a riposo, pari a circa 500 mL. "
+    )
+    content = _doc("Capacità polmonari", prefix + broken)
+    pattern, replacement = _CORRECTIONS["TIDAL_VOLUME_SPIROMETRY"]
+    corrected, count = _replace_in_chapter(
+        content, "Capacità polmonari", pattern, replacement,
+    )
+    assert count == 1
+    assert "aria in movimento e non quella ferma" not in corrected
+    assert "non quella ferma nelle vie respiratorie" not in corrected
+    assert "pari a circa 500 mL. Questo volume è misurabile" in corrected
+    assert corrected.count("volume residuo (VR) non è misurabile") == 1
+    assert inspect_scientific_claims(corrected) == ()
+
+
+def test_unrecognized_tidal_sentence_is_not_partially_rewritten():
+    pattern, replacement = _CORRECTIONS["TIDAL_VOLUME_SPIROMETRY"]
+    text = _doc(
+        "Capacità polmonari",
+        "Questo volume non può essere misurato dallo spirometro "
+        "perché lo strumento registra solo l'aria in movimento senza eccezioni.",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="non accettabili: 0"):
+        _replace_in_chapter(text, "Capacità polmonari", pattern, replacement)
+    assert "non può essere misurato" in text
