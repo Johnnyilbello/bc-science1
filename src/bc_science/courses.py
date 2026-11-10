@@ -1053,7 +1053,6 @@ def build_course(
         if (
             manifest is not None
             and manifest.get("fingerprint") == fingerprint
-            and manifest.get("summary_pipeline") == PROMPT_VERSION
             and existing_coverage.complete
         ):
             pdf, pages, pdf_generated = _ensure_pdf(
@@ -1089,6 +1088,7 @@ def build_course(
                 study_text=study_text,
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
+                summary_pipeline=str(manifest.get("summary_pipeline") or PROMPT_VERSION),
             )
             if study_text is not None:
                 audit_status, audit_path = _ensure_course_audit_status(
