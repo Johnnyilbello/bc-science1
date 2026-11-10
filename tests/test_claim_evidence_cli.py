@@ -73,3 +73,77 @@ def test_cli_claim_unknown_subject_fails_closed(monkeypatch, tmp_path):
     ])
     assert result.exit_code == 2
     assert "Materia non trovata" in result.output
+
+
+def test_cli_claim_json_output_is_complete_and_unicode_safe(
+    monkeypatch, tmp_path,
+):
+    import json
+
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        cli, "scan_courses",
+        lambda root: [SimpleNamespace(name="FONDAMENTI DI BIOLOGIA  E CHIMICA")],
+    )
+    sample = {
+        "claim": "Sintesi del palmitato — β-ossidazione",
+        "status": "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE",
+        "evidence": [
+            {
+                "source_path": str(tmp_path / "dispensa-β.pdf"),
+                "page": 9,
+                "block": None,
+                "excerpt": "ΔG°' = −30 kJ/mol; acetil-CoA, malonil-CoA, ATP, NADPH.",
+                "rank": 1,
+                "provenance": "cached_page",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        cli, "inspect_original_evidence",
+        lambda *args, **kwargs: sample,
+    )
+    output = tmp_path / "report" / "original-claim.json"
+    cmd = [
+        "courses", "inspect-claim", str(tmp_path / "sources"),
+        "--subject", "FONDAMENTI DI BIOLOGIA  E CHIMICA",
+        "--chapter", "BIOSINTESI DEGLI ACIDI GRASSI",
+        "--claim", "Sintesi del palmitato — β-ossidazione",
+        "--output-json", str(output), "--quiet",
+    ]
+    result = CliRunner().invoke(cli.app, cmd)
+    assert result.exit_code == 0, result.output
+    assert output.exists()
+    assert json.loads(output.read_text(encoding="utf-8")) == sample
+    assert output.read_bytes().decode("ascii")
+    assert "acetil-CoA" not in result.output
+
+    # Existing reports are never silently overwritten.
+    result2 = CliRunner().invoke(cli.app, cmd)
+    assert result2.exit_code == 2
+    assert json.loads(output.read_text(encoding="utf-8")) == sample
+
+
+def test_cli_claim_json_refuses_live_output_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("BC_SCIENCE_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(cli, "scan_courses", lambda root: [SimpleNamespace(name="ANATOMIA")])
+    monkeypatch.setattr(
+        cli, "inspect_original_evidence",
+        lambda *args, **kwargs: {"claim": "test", "status": "NONE", "evidence": []},
+    )
+    root = tmp_path / "materie"
+    forbidden = [
+        root / "ANATOMIA" / "record.json",
+        tmp_path / "home" / "outputs" / "courses" / "ANATOMIA" / "report.json",
+    ]
+    for path in forbidden:
+        result = CliRunner().invoke(
+            cli.app,
+            [
+                "courses", "inspect-claim", str(root),
+                "--subject", "ANATOMIA", "--chapter", "Midollo spinale",
+                "--claim", "31 coppie", "--output-json", str(path), "--quiet",
+            ],
+        )
+        assert result.exit_code == 2
+        assert not path.exists()
