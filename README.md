@@ -89,6 +89,21 @@ piccolo elenco di errori già verificati con fonti scientifiche:
 bc-science courses inspect-scientific-flags "C:\Studio\SCIENZE MOTORIE" --output-json "C:\BC-Science1\reports\scientific-flags\manual-review.json"
 ```
 
+Per includere anche **bozze non pubblicate** generate dal comando
+`courses preview-essential`, indicare la directory che contiene il
+`preview-report.json` originale:
+
+```powershell
+bc-science courses inspect-scientific-flags "C:\Studio\SCIENZE MOTORIE" --preview-dir "C:\BC-Science1\reports\essential-preview\20261110-155540" --output-json "C:\BC-Science1\reports\scientific-flags\complete-and-preview.json"
+```
+
+I risultati delle bozze sono etichettati `Anteprima` e **non vengono
+confusi** con `Completa` o `Essenziale`. La CLI rifiuta anteprime esterne
+alla cartella del report e manifest riferiti ad altri corsi. In particolare,
+l'errore di spirometria riscontrato nella bozza di Fisiologia non era
+nell'elenco precedente perché quel controllo leggeva soltanto i sei
+documenti pubblicati: non equivale necessariamente a un falso negativo.
+
 Il report contiene materia, edizione, capitolo, stringa sospetta, hash del
 documento, regola e fonte esterna quando disponibile. Nessuna modifica a
 `riassunto-unico.md`, `riassunto-studio.md`, ai PDF, alle dispense o al manifest.
