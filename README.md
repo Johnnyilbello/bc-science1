@@ -75,6 +75,26 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Controllo di un'affermazione nelle dispense originali
+
+Per verificare una possibile inesattezza presente nell'Essenziale o nella
+Completa si può recuperare l'evidenza originale con la CLI:
+
+```powershell
+bc-science courses inspect-claim "C:\\Studio\\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Midollo spinale" --claim "Dal midollo spinale si originano 31 paia di nervi spinali."
+```
+
+La ricerca riutilizza la cache delle fonti originali con i relativi SHA256
+convalidati (FTS5/BM25 o fallback lessicale), restituendo nome del documento,
+pagina se disponibile, oppure blocco e passaggio pertinente. Nessuna
+chiamata a modelli o rete; non rigenera dispense, riassunti o PDF. La cache
+dell'indice delle prove può essere popolata localmente.
+
+Una corrispondenza lessicale **non** prova la verità scientifica del testo
+recuperato, né certifica che la frase sia correttamente giustificata. Se non
+emerge una corrispondenza, questo non dimostra che il fatto manchi nei PDF:
+potrebbe essere espresso diversamente, oppure non disponibile nella cache.
+
 ## Anteprima Essenziale non distruttiva — audit del corpus reale
 
 Quando una versione Essenziale è troppo lunga oppure non copre fatti critici,
