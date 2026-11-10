@@ -75,27 +75,36 @@ def _not_applicable(reason: str) -> Check:
 
 
 def _numeric_evidence(audit: dict) -> str:
+    """Keep numeric omissions separate from exam assertions in the evidence."""
     numeric = audit.get("missing_numeric_facts", 0)
     exam = audit.get("missing_exam_facts", 0)
     chapters = audit.get("missing_exam_number_chapters") or ()
-    examples: list[str] = []
     facts = audit.get("missing_facts")
+    samples: dict[str, list[str]] = {"numero": [], "esame": []}
     if isinstance(facts, list):
         for row in facts:
-            if not isinstance(row, dict) or row.get("category") not in {"numero", "esame"}:
+            if not isinstance(row, dict):
+                continue
+            category = str(row.get("category") or "")
+            if category not in samples or len(samples[category]) >= 3:
                 continue
             chapter = str(row.get("chapter") or "capitolo sconosciuto")
-            statement = str(row.get("text") or "")
-            examples.append(f"{chapter}: {statement[:140]}")
-            if len(examples) == 3:
-                break
-    detail = "; ".join(examples)
-    return (
-        f"Fatti numerici non coperti: {numeric}; punti d'esame: {exam}; "
-        f"capitoli numerici segnalati: {len(chapters)}"
-        + (f". Esempi da verificare: {detail}" if detail else
-           ". Aprire audit.json per i fatti atomici non coperti")
-    )
+            statement = str(row.get("text") or "").strip()
+            if statement:
+                samples[category].append(f"{chapter}: {statement[:140]}")
+
+    parts = [
+        f"Fatti numerici non coperti: {numeric}",
+        f"punti d'esame: {exam}",
+        f"capitoli numerici segnalati: {len(chapters)}",
+    ]
+    if samples["numero"]:
+        parts.append("Esempi NUMERICI: " + "; ".join(samples["numero"]))
+    if samples["esame"]:
+        parts.append("Esempi D'ESAME: " + "; ".join(samples["esame"]))
+    if not samples["numero"] and not samples["esame"]:
+        parts.append("Aprire audit.json per le evidenze originali")
+    return ". ".join(parts)
 
 
 def _inside(path: Path, root: Path) -> bool:
