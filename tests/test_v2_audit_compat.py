@@ -3,9 +3,12 @@ from __future__ import annotations
 
 from bc_science.agent_checks import _numeric_evidence
 from bc_science.course_audit import (
-    AUDIT_VERSION, FAST_ESSENTIAL_AUDIT_VERSION,
-    audit_report_is_current, audit_study_pair,
-    extract_atomic_facts, write_audit_reports,
+    AUDIT_VERSION,
+    FAST_ESSENTIAL_AUDIT_VERSION,
+    audit_report_is_current,
+    audit_study_pair,
+    extract_atomic_facts,
+    write_audit_reports,
 )
 
 
