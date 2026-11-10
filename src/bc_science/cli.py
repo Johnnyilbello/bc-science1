@@ -318,16 +318,34 @@ def agents_run(
     table.add_column("WARN", justify="right")
     table.add_column("FAIL", justify="right")
     table.add_column("SKIP", justify="right")
+    table.add_column("N/A", justify="right")
     for subject in report.subjects:
         counts = {
             status: sum(item.status == status for item in subject.results)
-            for status in ("PASS", "WARN", "FAIL", "SKIP")
+            for status in ("PASS", "WARN", "FAIL", "SKIP", "N/A")
         }
         table.add_row(
             subject.subject, subject.status,
-            *(str(counts[status]) for status in ("PASS", "WARN", "FAIL", "SKIP")),
+            *(str(counts[status]) for status in ("PASS", "WARN", "FAIL", "SKIP", "N/A")),
         )
     console.print(table)
+    findings = [
+        (subject.subject, item)
+        for subject in report.subjects
+        for item in subject.results
+        if item.status in {"FAIL", "WARN"}
+    ]
+    if findings:
+        console.print("[bold]Anomalie da verificare (nessun dato modificato):[/]")
+        for subject_name, item in findings[:15]:
+            console.print(
+                f"  {subject_name} · {item.agent_id} [{item.status}] "
+                f"{item.evidence}"
+            )
+        if len(findings) > 15:
+            console.print(
+                f"[dim]Altre {len(findings) - 15} anomalie nel report Markdown/JSON.[/]"
+            )
     console.print(
         f"[dim]{report.selected_agents}/{report.registered_agents} agenti selezionati; "
         f"report: {markdown_path} · {json_path}[/]"
