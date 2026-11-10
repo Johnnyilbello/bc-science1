@@ -151,3 +151,33 @@ def test_invalid_sample_size_and_invalid_chapter_fail_closed():
         extract_claim_candidates(text, "Storia", limit=31)
     with pytest.raises(ValueError, match="assente"):
         extract_claim_candidates(text, "Fisica")
+
+
+def test_generic_selection_includes_self_loop_despite_many_numbers():
+    text = _course(
+        "Geografia",
+        "La capitale del paese A ha 10 milioni di abitanti. "
+        "Il paese B ha 20 milioni di abitanti. "
+        "Il lago è profondo 300 metri. "
+        "Il fiume è lungo 250 chilometri. "
+        "La rotta percorre la tratta da Torino a Torino. "
+        "Il percorso non può essere completato per mancanza di ponti.",
+    )
+    claims = extract_claim_candidates(text, "Geografia", limit=3)
+    assert len(claims) == 3
+    assert any("Torino a Torino" in x.text for x in claims)
+    assert any(x.category == "quantity" for x in claims)
+    assert any(x.category == "negation" for x in claims)
+
+
+def test_generic_risk_detects_multiple_quantities_with_no_subject_specific_rule():
+    text = _course(
+        "Economia",
+        "Il bilancio richiede 7 unità di riserva, 14 di spesa, "
+        "22 di investimento e 6 di accantonamento. "
+        "Un trimestre dura 3 mesi.",
+    )
+    claims = extract_claim_candidates(text, "Economia", limit=1)
+    assert len(claims) == 1
+    assert "7 unità" in claims[0].text
+    assert claims[0].priority == 5
