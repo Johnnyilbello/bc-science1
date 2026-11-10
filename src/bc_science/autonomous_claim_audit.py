@@ -243,7 +243,7 @@ def _challenge_incomplete_support(
         '"quote":"citazione originale continua di almeno 16 caratteri"}]}. '
         "Per CONTRADICTED serve almeno una controcitazione valida; "
         "per UNVERIFIED puoi lasciare counter_quotes vuoto. "
-        f"\\nAFFERMAZIONE: {claim.text}\\n"
+        f"\nAFFERMAZIONE: {claim.text}\n"
         f"ESTRATTI: {json.dumps(passages, ensure_ascii=False)}"
     )
     result = {
@@ -433,16 +433,19 @@ def verify_claim_with_evidence(
                 challenge = _challenge_incomplete_support(
                     claim, evidence, chat,
                 )
-                if (
-                    challenge["model_challenge_valid"]
-                    and challenge["assessment"] == "CONTRADICTED"
-                ):
-                    status = "SUSPECTED_CONTRADICTION"
+                critique = ""
+                if challenge["model_challenge_valid"]:
+                    critique = " Revisione critica: " + "; ".join(
+                        challenge["missing_parts"][:3]
+                    )
+                    if challenge["assessment"] == "CONTRADICTED":
+                        status = "SUSPECTED_CONTRADICTION"
+                        critique += " (controprova letterale disponibile)"
                 rationale = (
                     "Conferma del modello respinta: le citazioni non "
                     "coprono l'intera affermazione (ancore mancanti: "
                     + ", ".join(missing[:10])
-                    + "). " + rationale
+                    + "). " + rationale + critique
                 )
         return {
             **base, "status": status, "model_label": label,
