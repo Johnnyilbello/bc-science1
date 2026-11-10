@@ -598,6 +598,14 @@ def courses_inspect_claim(
     subject: Annotated[str, typer.Option("--subject", help="Nome esatto della materia")],
     chapter: Annotated[str, typer.Option("--chapter", help="Titolo del capitolo")],
     claim: Annotated[str, typer.Option("--claim", help="Affermazione da verificare (testo, non una domanda)")],
+    output_json: Annotated[
+        Path | None,
+        typer.Option("--output-json", help="Salva evidenze complete in JSON UTF-8 ASCII-safe"),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", help="Non stampa gli estratti originali nella console"),
+    ] = False,
 ) -> None:
     """Ricerca prova originale locale per un'affermazione; non certifica la verità."""
     try:
@@ -611,6 +619,39 @@ def courses_inspect_claim(
     except (ValueError, OSError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(2) from exc
+    if quiet and output_json is None:
+        console.print("[red]--quiet richiede --output-json per non perdere i risultati.[/]")
+        raise typer.Exit(2)
+    if output_json is not None:
+        try:
+            target = output_json.expanduser().resolve()
+            source_root = root.expanduser().resolve()
+            live_root = (app_home() / "outputs").resolve()
+            if (
+                target == source_root or target.is_relative_to(source_root)
+                or target == live_root or target.is_relative_to(live_root)
+            ):
+                raise ValueError(
+                    "Il report JSON deve essere fuori dalle fonti e dagli output pubblicati."
+                )
+            if target.exists():
+                raise ValueError("Report JSON già esistente: nessuna sovrascrittura.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            pending = target.with_name(target.name + ".pending")
+            if pending.exists():
+                raise ValueError("File temporaneo già presente: nessuna sovrascrittura.")
+            payload = json.dumps(report, ensure_ascii=True, indent=2) + "\\n"
+            try:
+                with pending.open("x", encoding="ascii") as stream:
+                    stream.write(payload)
+                pending.replace(target)
+            finally:
+                pending.unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Impossibile salvare evidenze JSON: {exc}[/]")
+            raise typer.Exit(2) from exc
+    if quiet:
+        return
     console.print(f"[bold]Affermazione:[/] {report['claim']}")
     console.print(f"[bold]Materia e capitolo:[/] {subject} · {chapter}")
     console.print(f"[bold]Esito ricerca:[/] {report['status']}")
