@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .autonomous_claim_audit import run_claim_audit
 from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
 from .cache import CacheDB
 from .clarity import audit_novice_document
@@ -592,6 +593,151 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("auto-audit-claims")
+def courses_auto_audit_claims(
+    root: Annotated[Path, typer.Argument(help="Cartella radice delle materie")],
+    subject: Annotated[str, typer.Option("--subject", help="Materia esatta")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo esatto del capitolo")],
+    edition: Annotated[
+        str, typer.Option("--edition", help="Completa, Essenziale o Anteprima"),
+    ] = "Completa",
+    max_claims: Annotated[
+        int, typer.Option("--max-claims", help="Affermazioni campione (1-30)"),
+    ] = 8,
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Manifest della bozza se edizione Anteprima"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="Nuovo report isolato"),
+    ] = None,
+) -> None:
+    """Esamina affermazioni con Qwen LOCALE e citazioni originali, senza edit."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    from .evidence_engine import OriginalEvidence
+    from .scientific_patch_drafts import _allowed_documents
+
+    if edition not in {"Completa", "Essenziale", "Anteprima"}:
+        console.print("[red]Edizione non valida.[/]")
+        raise typer.Exit(2)
+    if not 1 <= max_claims <= 30 or not chapter.strip():
+        console.print("[red]Capitolo o quantità di affermazioni non validi.[/]")
+        raise typer.Exit(2)
+    if edition == "Anteprima" and preview_dir is None:
+        console.print("[red]Anteprima richiede --preview-dir.[/]")
+        raise typer.Exit(2)
+
+    config = _config()
+    endpoint = urlsplit(config.ollama_url)
+    if (
+        endpoint.scheme != "http"
+        or endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or endpoint.username is not None or endpoint.password is not None
+    ):
+        console.print("[red]Audit consentito solo con Ollama in localhost.[/]")
+        raise typer.Exit(2)
+    client = OllamaClient(config.ollama_url)
+    if not client.available():
+        console.print("[red]Ollama locale non disponibile. Nessun modello cloud usato.[/]")
+        raise typer.Exit(2)
+    model = config.generation_model
+    try:
+        installed = client.models()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Impossibile controllare Ollama: {exc}[/]")
+        raise typer.Exit(2) from exc
+    if model not in installed and f"{model}:latest" not in installed:
+        console.print(f"[red]Modello locale non installato: {model}[/]")
+        raise typer.Exit(2)
+
+    try:
+        matches = [scan for scan in scan_courses(root) if scan.name == subject]
+        if len(matches) != 1:
+            raise ValueError("Materia non trovata in modo univoco")
+        scan = matches[0]
+        documents = _allowed_documents(root, preview_dir)
+        source = documents.get((subject, edition))
+        if source is None or not source.is_file():
+            raise ValueError("Riassunto non disponibile per questa edizione")
+        document = source.read_text(encoding="utf-8")
+
+        def retrieve(claim: str) -> list[OriginalEvidence]:
+            source_report = inspect_original_evidence(
+                scan, chapter,
+                edition="complete" if edition in {"Completa", "Anteprima"} else "essential",
+                claim=claim,
+            )
+            return [
+                OriginalEvidence(**item) for item in source_report["evidence"]
+            ]
+
+        def query(messages: list[dict[str, str]]) -> str:
+            return client.chat(
+                model, messages,
+                num_ctx=min(config.num_ctx, 8192),
+                num_predict=500, temperature=0.0, think=False,
+            )
+
+        def progress(index: int, total: int, state: str) -> None:
+            console.print(f"[dim]{index}/{total} · {state}[/]")
+
+        report = run_claim_audit(
+            document, chapter, max_claims=max_claims,
+            find_evidence=retrieve, chat=query, progress=progress,
+        )
+        report.update({
+            "subject": subject, "edition": edition, "source_path": str(source),
+            "model": model, "source_kind": "original_course_cache",
+            "independent_scientific_verification": False,
+        })
+        if output_dir is None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+            output_dir = app_home() / "reports" / "autonomous-claims" / stamp
+        target = output_dir.expanduser().resolve()
+        sources = root.expanduser().resolve()
+        live = (app_home() / "outputs").resolve()
+        preview = preview_dir.expanduser().resolve() if preview_dir else None
+        if (
+            target == sources or target.is_relative_to(sources)
+            or sources.is_relative_to(target)
+            or target == live or target.is_relative_to(live)
+            or live.is_relative_to(target)
+            or (preview is not None and (
+                target == preview or target.is_relative_to(preview)
+                or preview.is_relative_to(target)
+            ))
+        ):
+            raise ValueError("La destinazione deve essere esterna a fonti e output live")
+        target.mkdir(parents=True, exist_ok=False)
+        (target / "report.json").write_text(
+            json.dumps(report, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        lines = [
+            "# BC Science — audit autonomo SPERIMENTALE", "",
+            f"Materia: {subject} · {edition} · {chapter}", "",
+            "Verdetti del modello non sono una certificazione scientifica.", "",
+        ]
+        for item in report["claims"]:
+            lines.extend([
+                f"## {item['status']}",
+                f"Affermazione: {item['claim']['text']}",
+                f"Motivo: {item['rationale']}",
+                f"Citazioni validate: {len(item['quotes'])}", "",
+            ])
+        (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        console.print(f"[red]Audit autonomo non completato: {exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(f"[green]Report audit autonomo:[/] {target}")
+    console.print(
+        "[yellow]Nessun riassunto corretto o pubblicato. "
+        "Le prove sono tratte dalle dispense, che possono contenere errori.[/]"
+    )
 
 
 @courses_app.command("draft-scientific-corrections")
