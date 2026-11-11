@@ -520,6 +520,64 @@ def _challenge_incomplete_support(
         return result
 
 
+def _recover_source_candidates(
+    claim: CandidateClaim,
+    evidence: list[OriginalEvidence],
+    response: dict | None,
+) -> list[dict]:
+    """Pick original-text candidates by source ID; NEVER assert they prove a fact.
+
+    This is deliberately separate from quote validation. A model's invented
+    quotation remains INVALID; a source pointer may only initiate a second
+    adversarial logical check of a possible contradiction.
+    """
+    if not isinstance(response, dict) or not isinstance(response.get("quotes"), list):
+        return []
+    original_claim_terms = set(_proof_words(claim.text))
+    results: list[dict] = []
+    seen: set[int] = set()
+    for row in response["quotes"][:3]:
+        if not isinstance(row, dict):
+            continue
+        source_id = row.get("source_id")
+        if (
+            type(source_id) is not int
+            or source_id < 1 or source_id > len(evidence[:5])
+            or source_id in seen
+        ):
+            continue
+        seen.add(source_id)
+        source = evidence[source_id - 1]
+        # Sentences are extracted only from a genuine original excerpt.
+        # Scoring uses overlap for retrieval only, NOT a truth threshold.
+        lines = re.split(r"(?<=[.!?;])\s+|\r?\n+", source.excerpt[:1700])
+        candidates = [
+            piece.strip() for piece in lines if 16 <= len(piece.strip()) <= 500
+        ]
+        if not candidates:
+            continue
+        scored = [
+            (
+                len(original_claim_terms.intersection(_proof_words(piece))),
+                -index,
+                piece,
+            )
+            for index, piece in enumerate(candidates)
+        ]
+        overlap, _, selected = max(scored)
+        if overlap < 2:
+            continue
+        grounded = {
+            "source": source.source_path,
+            "page": source.page,
+            "block": source.block,
+            "quote": selected,
+        }
+        if validate_original_quote(grounded, evidence):
+            results.append(grounded)
+    return results
+
+
 def verify_claim_with_evidence(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -573,6 +631,7 @@ def verify_claim_with_evidence(
             f"ORIGINALI: {json.dumps(excerpts, ensure_ascii=False)}"
         )},
     ]
+    obj: dict | None = None
     try:
         obj = _json_object(chat(messages))
         if obj is None:
@@ -687,9 +746,25 @@ def verify_claim_with_evidence(
             "contradiction_adjudication": adjudication,
         }
     except (ValueError, TypeError, KeyError, IndexError) as exc:
+        raw_label = obj.get("label") if isinstance(obj, dict) else None
+        grounded = _recover_source_candidates(claim, evidence, obj)
+        status = "UNVERIFIED"
+        check = None
+        if raw_label == "CONTRADICTED" and grounded:
+            # An inexact quote is NEVER accepted as source evidence.
+            # A new, separate logical check must locate an incompatibility
+            # in verbatim text selected by the host from the original.
+            check = _adjudicate_reported_contradiction(claim, grounded, chat)
+            if check["valid"] and check["relationship"] == "INCOMPATIBLE":
+                status = "SUSPECTED_CONTRADICTION"
         return {
-            **base, "model_label": "INVALID",
+            **base, "status": status,
+            "model_label": "INVALID",
+            "raw_model_label": raw_label,
             "rationale": f"Risposta del modello rifiutata: {exc}",
+            "source_pointer_candidates": grounded,
+            "source_pointer_review": check,
+            "source_pointer_is_proof": False,
         }
 
 
@@ -732,12 +807,26 @@ def run_claim_audit(
             for outcome in outcomes
         ),
         "raw_model_contradictions": sum(
-            outcome.get("model_label") == "CONTRADICTED"
+            (
+                outcome.get("model_label") == "CONTRADICTED"
+                or outcome.get("raw_model_label") == "CONTRADICTED"
+            )
             for outcome in outcomes
         ),
         "initial_contradictions_rejected": sum(
-            outcome.get("model_label") == "CONTRADICTED"
+            (
+                outcome.get("model_label") == "CONTRADICTED"
+                or outcome.get("raw_model_label") == "CONTRADICTED"
+            )
             and outcome["status"] != "SUSPECTED_CONTRADICTION"
+            for outcome in outcomes
+        ),
+        "source_pointer_candidates": sum(
+            bool(outcome.get("source_pointer_candidates"))
+            for outcome in outcomes
+        ),
+        "source_pointer_contradictions_reviewed": sum(
+            outcome.get("source_pointer_review") is not None
             for outcome in outcomes
         ),
         "complete_scientific_validation": False,
