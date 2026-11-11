@@ -218,10 +218,21 @@ _SUBJECT_IGNORE = frozenset({
 
 
 def _initial_subject_anchor(text: str) -> str | None:
-    """Conservative leading subject anchor, not a grammatical proof."""
-    for term in _SUBJECT_WORDS.findall(text.casefold()):
-        if term not in _SUBJECT_IGNORE and len(term) >= 4:
-            return term
+    """Conservative leading subject anchor; prefer a named entity modifier."""
+    terms = _SUBJECT_WORDS.findall(text)
+    for index, term in enumerate(terms):
+        if term.casefold() in _SUBJECT_IGNORE or len(term) < 4:
+            continue
+        if index + 1 < len(terms):
+            next_term = terms[index + 1]
+            # "Il dispositivo Alfa" must not match "Il dispositivo Beta".
+            if (
+                next_term[:1].isupper()
+                and next_term.casefold() not in {"è", "ha", "sono"}
+                and len(next_term) >= 4
+            ):
+                return next_term.casefold()
+        return term.casefold()
     return None
 
 
