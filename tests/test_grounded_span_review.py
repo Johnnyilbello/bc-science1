@@ -152,3 +152,17 @@ def test_spans_mode_reports_no_publication_and_preserves_original():
     assert result["complete_scientific_validation"] is False
     assert result["claims_total"] == 1
     assert text == old
+
+
+def test_long_unpunctuated_pdf_excerpt_still_offers_verbatim_spans():
+    claim = _claim("Biologia", "La proteina Alfa contiene 200 amminoacidi.")
+    raw = (
+        "discorso generico sulle varie strutture molecolari " * 18
+        + "la proteina Alfa contiene 200 amminoacidi "
+        + "descrizione conclusiva della molecola "
+    )
+    original = _source(raw)
+    spans = evidence_spans(claim, [original])
+    assert spans
+    assert any("200 amminoacidi" in row["quote"] for row in spans)
+    assert all(validate_original_quote(row, [original]) for row in spans)
