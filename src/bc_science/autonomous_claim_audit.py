@@ -776,8 +776,14 @@ def run_claim_audit(
     find_evidence: Callable[[str], list[OriginalEvidence]],
     chat: Callable[[list[dict[str, str]]], str],
     progress: Callable[[int, int, str], None] | None = None,
+    evidence_mode: str = "legacy",
 ) -> dict:
     """Small read-only pilot; no implicit publication or self-certification."""
+    if evidence_mode not in {"legacy", "spans"}:
+        raise ValueError("Modalità delle prove non valida")
+    if evidence_mode == "spans":
+        from .grounded_span_review import review_with_source_ids
+
     claims = extract_claim_candidates(document, chapter, limit=max_claims)
     outcomes = []
     for index, claim in enumerate(claims, 1):
@@ -785,12 +791,16 @@ def run_claim_audit(
             evidence = find_evidence(claim.text)
         except (ValueError, OSError):
             evidence = []
-        verdict = verify_claim_with_evidence(claim, evidence, chat)
+        if evidence_mode == "spans":
+            verdict = review_with_source_ids(claim, evidence, chat)
+        else:
+            verdict = verify_claim_with_evidence(claim, evidence, chat)
         outcomes.append(verdict)
         if progress is not None:
             progress(index, len(claims), verdict["status"])
     return {
         "schema": AUDIT_VERSION,
+        "evidence_mode": evidence_mode,
         "chapter": chapter,
         "document_sha256": _digest(document),
         "claims_total": len(claims),
