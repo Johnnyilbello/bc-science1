@@ -273,6 +273,7 @@ def _challenge_incomplete_support(
             {"role": "user", "content": prompt},
         ])
         result["response_chars"] = len(response)
+        result["diagnostic"] = "RESPONSE_REJECTED"
         obj = _json_object(response)
         if obj is None:
             result["diagnostic"] = "JSON_INVALID"
