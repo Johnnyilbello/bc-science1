@@ -53,17 +53,28 @@ def test_provisional_contradiction_needs_real_source_quote():
         "Alla pressione atmosferica standard l'acqua pura bolle "
         "a circa 100 gradi Celsius.",
     )
-    model = lambda _messages: json.dumps({
-        "label": "CONTRADICTED",
-        "rationale": "80 e 100 gradi non coincidono nello stesso contesto",
-        "quotes": [{
-            "source": ev.source_path,
-            "page": ev.page,
-            "block": ev.block,
-            "quote": "l'acqua pura bolle a circa 100 gradi Celsius",
-        }],
-    })
-    result = verify_claim_with_evidence(claim, [ev], model)
+    answers = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "80 e 100 gradi non coincidono nello stesso contesto",
+            "quotes": [{
+                "source": ev.source_path,
+                "page": ev.page,
+                "block": ev.block,
+                "quote": "l'acqua pura bolle a circa 100 gradi Celsius",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "Il punto di ebollizione diverge nella stessa condizione.",
+            "quote_id": 1,
+            "claim_span": "bolle a 80 gradi Celsius",
+            "counter_span": "l'acqua pura bolle a circa 100 gradi Celsius",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [ev], lambda _messages: next(answers),
+    )
     assert result["status"] == "SUSPECTED_CONTRADICTION"
     assert result["quotes"]
     assert result["claim"]["chapter"] == "Fisica"
@@ -193,15 +204,26 @@ def test_short_evidence_id_is_resolved_to_real_original_provenance():
         name="astro.pdf",
         page=9,
     )
-    response = lambda messages: json.dumps({
-        "label": "CONTRADICTED",
-        "rationale": "Terzo e quarto non coincidono.",
-        "quotes": [{
-            "source_id": 1,
-            "quote": "Marte è il quarto pianeta dal Sole",
-        }],
-    })
-    result = verify_claim_with_evidence(claim, [original], response)
+    answers = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Terzo e quarto non coincidono.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Marte è il quarto pianeta dal Sole",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "Il medesimo pianeta non può avere due ordini orbitali.",
+            "quote_id": 1,
+            "claim_span": "Marte è il terzo pianeta dal Sole",
+            "counter_span": "Marte è il quarto pianeta dal Sole",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [original], lambda _messages: next(answers),
+    )
     assert result["status"] == "SUSPECTED_CONTRADICTION"
     assert result["quotes"] == [{
         "source": "astro.pdf",
@@ -626,3 +648,101 @@ def test_critic_valid_abstention_without_facets_is_diagnosed():
     assert critic["model_challenge_valid"]
     assert not critic["semantic_support_candidate"]
     assert result["status"] == "UNVERIFIED"
+
+
+def test_exclusive_function_does_not_imply_unique_provider():
+    """The other object doing X does not contradict A doing ONLY X."""
+    claim = extract_claim_candidates(
+        _course(
+            "Tecnologia",
+            "Il dispositivo Alfa è destinato esclusivamente alla lettura.",
+        ),
+        "Tecnologia",
+    )[0]
+    passage = _source(
+        "Il dispositivo Beta supporta sia la lettura sia la scrittura.",
+    )
+    outputs = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Anche Beta legge, quindi Alfa non è esclusivo",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il dispositivo Beta supporta sia la lettura sia la scrittura",
+            }],
+        }),
+        json.dumps({
+            "relationship": "COMPATIBLE",
+            "reason": "Alfa può avere soltanto lettura mentre Beta usa entrambe.",
+            "claim_span": "",
+            "quote_id": None,
+            "counter_span": "",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [passage], lambda _messages: next(outputs),
+    )
+    assert result["model_label"] == "CONTRADICTED"
+    assert result["status"] == "UNVERIFIED"
+    assert result["contradiction_adjudication"]["relationship"] == "COMPATIBLE"
+    assert result["contradiction_adjudication"]["valid"]
+
+
+def test_incompatible_counterquote_must_mention_claim_subject():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "L'isola Pianosa si trova a 100 chilometri dalla costa.",
+        ),
+        "Geografia",
+    )[0]
+    passage = _source(
+        "L'isola Capraia si trova a 90 chilometri dalla costa.",
+    )
+    outputs = iter([
+        json.dumps({
+            "label": "CONTRADICTED", "rationale": "Distanze diverse.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'isola Capraia si trova a 90 chilometri dalla costa",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "La seconda distanza è diversa dalla prima.",
+            "claim_span": "si trova a 100 chilometri dalla costa",
+            "quote_id": 1,
+            "counter_span": "L'isola Capraia si trova a 90 chilometri dalla costa",
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [passage], lambda _messages: next(outputs),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["contradiction_adjudication"]["valid"] is False
+    assert verdict["contradiction_adjudication"]["diagnostic"] == (
+        "CLAIM_SUBJECT_NOT_IN_COUNTERQUOTE"
+    )
+
+
+def test_invalid_second_judgment_cannot_validate_contradiction():
+    claim = extract_claim_candidates(
+        _course("Storia", "L'accordo è stato firmato nel 1890."),
+        "Storia",
+    )[0]
+    evidence = [_source("L'accordo è stato firmato nel 1891.")]
+    model = iter([
+        json.dumps({
+            "label": "CONTRADICTED", "rationale": "Anno diverso",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'accordo è stato firmato nel 1891",
+            }],
+        }),
+        "not valid JSON",
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, evidence, lambda _messages: next(model),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["contradiction_adjudication"]["diagnostic"] == "INVALID_JSON"
