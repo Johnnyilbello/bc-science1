@@ -568,3 +568,61 @@ def test_critic_rejects_semantic_evidence_not_in_original():
     critic = verdict["independent_challenge"]
     assert critic["model_challenge_valid"] is False
     assert critic["semantic_support_candidate"] is False
+
+
+def test_critic_diagnostic_for_truncated_json():
+    claim = extract_claim_candidates(
+        _course("Fisica", "La sostanza contiene esattamente 34 grammi di ferro."),
+        "Fisica",
+    )[0]
+    evidence = [_source("La sostanza contiene una percentuale di ferro.")]
+    calls = []
+
+    def local_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "rationale": "ferro presente",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "La sostanza contiene una percentuale di ferro",
+                }],
+            })
+        return '{"assessment":"UNVERIFIED","missing_parts":['
+
+    result = verify_claim_with_evidence(claim, evidence, local_model)
+    critic = result["independent_challenge"]
+    assert len(calls) == 2
+    assert result["status"] == "UNVERIFIED"
+    assert critic["diagnostic"] == "JSON_INVALID"
+    assert critic["response_chars"] > 0
+    assert not critic["model_challenge_valid"]
+
+
+def test_critic_valid_abstention_without_facets_is_diagnosed():
+    claim = extract_claim_candidates(
+        _course("Chimica", "Il sale si scioglie in 44 litri di acqua."),
+        "Chimica",
+    )[0]
+    evidence = [_source("Il sale si scioglie in acqua.")]
+    replies = iter([
+        json.dumps({
+            "label": "SUPPORTED", "rationale": "sale e acqua",
+            "quotes": [{"source_id": 1, "quote": "Il sale si scioglie in acqua"}],
+        }),
+        json.dumps({
+            "assessment": "UNVERIFIED",
+            "missing_parts": ["44 litri"],
+            "facets": [],
+            "counter_quotes": [],
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, evidence, lambda _messages: next(replies),
+    )
+    critic = result["independent_challenge"]
+    assert critic["diagnostic"] == "VALID_WITHOUT_FACETS"
+    assert critic["response_chars"] > 0
+    assert critic["model_challenge_valid"]
+    assert not critic["semantic_support_candidate"]
+    assert result["status"] == "UNVERIFIED"
