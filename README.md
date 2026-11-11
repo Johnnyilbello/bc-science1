@@ -75,6 +75,48 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## MiniCPM5-2B e confronto con Qwen3.5-4B
+
+**MiniCPM5-2B** è disponibile ufficialmente in Ollama con tag
+`openbmb/minicpm5-2b` (GGUF Q4_K_M, circa 1,6 GB).
+Benchmarks diffusi da OpenBMB: media 53,9 contro 51,1 del Qwen3.5-4B;
+tuttavia Qwen mantiene vantaggio su benchmark di conoscenza come
+MMLU-Pro e GPQA Diamond. Questo **non** dimostra la superiorità del
+nuovo modello nella verifica dei fatti scientifici in italiano.
+
+Per installarlo manualmente nel runtime locale:
+
+~~~powershell
+ollama pull openbmb/minicpm5-2b
+ollama list
+~~~
+
+Il comando sperimentale di verifica delle affermazioni ora accetta
+`--model openbmb/minicpm5-2b`, lasciando invariato il modello principale
+delle dispense. Confrontare **stessa materia, capitolo, edizione e numero
+di affermazioni** con `--model qwen3.5:4b`, producendo due report nuovi.
+Misurare i falsi supporti, le astensioni, le contraddizioni, le
+citazioni non valide e la qualità del ragionamento, non solo la quantità
+di `PROVISIONALLY_SUPPORTED`.
+
+È stato inoltre aggiunto `courses dual-agent-autofix`, che usa
+**MiniCPM5-2B locale di default** e Nemotron NVIDIA come revisore
+indipendente per proporre modifiche in cartelle isolate. Il modello
+locale è sostituibile con `--local-model qwen3.5:4b`. L'uso cloud
+**richiede** una chiave tramite variabile d'ambiente `NVIDIA_API_KEY`
+e un consenso esplicito `--allow-cloud-excerpts`: brevi estratti
+didattici vengono inviati a NVIDIA. Non usare per materiale privato o
+sensibile senza autorizzazione. Endpoint di prototipazione con
+disponibilità/limiti da verificare, nessuna promessa di gratuità
+illimitata; nessun fallback a provider a pagamento.
+
+Il coordinatore non lancia comandi, non modifica il codice dell'app e
+non salva PDF o riassunti pubblicati. Crea proposte Markdown, diff,
+hash e report non pubblicati. I modelli possono sbagliare entrambi.
+L'assenza di prove originali verificabili non autorizza correzioni.
+Le iterazioni sono limitate e le richieste cloud non vengono ripetute
+automaticamente. PR di sviluppo lasciata in draft.
+
 ## Audit autonomo sperimentale delle affermazioni — Qwen locale
 
 I quattro errori conosciuti (esofago, vie biliari, palmitato, spirometria)
