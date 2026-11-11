@@ -57,9 +57,7 @@ def evidence_spans(
                 continue
             words = set(_proof_words(piece))
             overlap = len(words & claim_terms)
-            number_overlap = len(_DIGIT.findall(piece) and (
-                claim_numbers & set(_DIGIT.findall(piece))
-            ))
+            number_overlap = len(claim_numbers & set(_DIGIT.findall(piece)))
             if overlap < 2 and number_overlap < 1:
                 continue
             score = overlap + number_overlap * 2
@@ -126,10 +124,10 @@ def review_with_source_ids(
             "Per SUPPORTED/CONTRADICTED indicare 1-3 ID "
             "dei passaggi che provano l'intera affermazione o la negano. "
             f"\nFRASE: {claim.text}\nFONTI: "
-            f"{json.dumps([
-                {'id': row['id'], 'text': row['quote']}
-                for row in spans
-            ], ensure_ascii=False)}"
+            + json.dumps(
+                [{"id": row["id"], "text": row["quote"]} for row in spans],
+                ensure_ascii=False,
+            )
         )},
     ]
     try:
