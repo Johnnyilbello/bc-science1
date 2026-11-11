@@ -676,10 +676,16 @@ def courses_auto_audit_claims(
             ]
 
         def query(messages: list[dict[str, str]]) -> str:
+            is_critic = (
+                bool(messages)
+                and "PAROLE_NON_COPERTE_DALLE_CITAZIONI_PRECEDENTI:"
+                in messages[-1].get("content", "")
+            )
             return client.chat(
                 model, messages,
                 num_ctx=min(config.num_ctx, 8192),
-                num_predict=500, temperature=0.0, think=False,
+                num_predict=1100 if is_critic else 500,
+                temperature=0.0, think=False,
             )
 
         def progress(index: int, total: int, state: str) -> None:
@@ -733,7 +739,10 @@ def courses_auto_audit_claims(
                     "Parafrasi candidata (NON approvata): "
                     f"{bool(critic.get('semantic_support_candidate', False))}"
                 ),
-                f"Componenti semantiche: {len(critic.get('facets', []))}", "",
+                f"Componenti semantiche: {len(critic.get('facets', []))}",
+                f"Revisore diagnostica: {critic.get('diagnostic', 'N/A')}",
+                f"Lunghezza risposta revisore: {critic.get('response_chars', 0)}",
+                "",
             ])
         (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
     except (OSError, ValueError, TypeError, KeyError) as exc:
