@@ -746,3 +746,99 @@ def test_invalid_second_judgment_cannot_validate_contradiction():
     )
     assert verdict["status"] == "UNVERIFIED"
     assert verdict["contradiction_adjudication"]["diagnostic"] == "INVALID_JSON"
+
+
+def test_nonliteral_model_quote_can_trigger_host_grounded_review_but_not_proof():
+    """A fabricated quote is never trusted, even if source ID is plausible."""
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il traghetto va da Genova a Genova."),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il traghetto parte da Genova e raggiunge Livorno.",
+        name="rotte.pdf",
+    )
+    replies = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Partenza e arrivo non coincidono.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il traghetto raggiunge Napoli, non Genova",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "La destinazione Livorno esclude la stessa destinazione Genova.",
+            "quote_id": 1,
+            "claim_span": "va da Genova a Genova",
+            "counter_span": "Il traghetto parte da Genova e raggiunge Livorno",
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [source], lambda _messages: next(replies),
+    )
+    assert verdict["model_label"] == "INVALID"
+    assert verdict["raw_model_label"] == "CONTRADICTED"
+    assert verdict["source_pointer_is_proof"] is False
+    assert verdict["source_pointer_candidates"] == [{
+        "source": "rotte.pdf",
+        "page": 2,
+        "block": None,
+        "quote": "Il traghetto parte da Genova e raggiunge Livorno.",
+    }]
+    assert verdict["status"] == "SUSPECTED_CONTRADICTION"
+    assert verdict["source_pointer_review"]["valid"] is True
+
+
+def test_nonliteral_quote_cannot_support_model_claim_even_with_source_pointer():
+    claim = extract_claim_candidates(
+        _course("Fisica", "Il metallo fonde precisamente a 321 gradi."),
+        "Fisica",
+    )[0]
+    source = _source("Il metallo fonde a circa 300 gradi.")
+    calls = []
+
+    def local(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "La fonte conferma la temperatura.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il metallo fonde a 321 gradi",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local)
+    assert len(calls) == 1
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["source_pointer_is_proof"] is False
+    assert verdict["source_pointer_candidates"]
+    assert verdict["raw_model_label"] == "SUPPORTED"
+
+
+def test_ungrounded_source_pointer_is_not_used_to_rescue_false_contradiction():
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il paesaggio include 22 colline."),
+        "Geografia",
+    )[0]
+    source = _source("I fiumi attraversano numerose valli.")
+    calls = []
+
+    def local(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Sembra esserci un conflitto.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il paesaggio include 18 colline.",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local)
+    assert len(calls) == 1
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["source_pointer_candidates"] == []
+    assert verdict["source_pointer_review"] is None
