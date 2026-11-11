@@ -38,9 +38,20 @@ def evidence_spans(
     ranked: list[tuple[int, int, int, dict]] = []
     seen: set[tuple[str, int | None, int | None, str]] = set()
     for source_index, source in enumerate(evidence[:5]):
-        pieces = _SPLIT.split(source.excerpt[:1700])
-        for position, raw in enumerate(pieces):
-            piece = raw.strip()
+        raw_sentences = _SPLIT.split(source.excerpt[:1700])
+        pieces: list[str] = []
+        for raw in raw_sentences:
+            raw = raw.strip()
+            if len(raw) <= 480:
+                pieces.append(raw)
+            else:
+                # Extract bounded continuous slices even when PDF text has
+                # lost sentence punctuation; preserve literal provenance.
+                pieces.extend(
+                    raw[start:start + 420].strip()
+                    for start in range(0, len(raw), 350)
+                )
+        for position, piece in enumerate(pieces):
             if not 16 <= len(piece) <= 480:
                 continue
             key = (source.source_path, source.page, source.block, piece.casefold())
