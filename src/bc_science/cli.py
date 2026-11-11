@@ -595,6 +595,153 @@ def courses_audit(
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
 
 
+@courses_app.command("dual-agent-autofix")
+def courses_dual_agent_autofix(
+    root: Annotated[Path, typer.Argument(help="Radice dispense originali")],
+    subject: Annotated[str, typer.Option("--subject", help="Materia esatta")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo capitolo esatto")],
+    edition: Annotated[
+        str, typer.Option("--edition", help="Completa, Essenziale o Anteprima"),
+    ] = "Completa",
+    max_claims: Annotated[
+        int, typer.Option("--max-claims", help="Affermazioni da verificare (1-8)"),
+    ] = 4,
+    max_rounds: Annotated[
+        int, typer.Option("--max-rounds", help="Iterazioni per proposta (1 o 2)"),
+    ] = 2,
+    preview_dir: Annotated[
+        Path | None, typer.Option("--preview-dir", help="Manifest anteprime autorizzate"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="NUOVA directory di revisione"),
+    ] = None,
+    allow_cloud_excerpts: Annotated[
+        bool,
+        typer.Option(
+            "--allow-cloud-excerpts",
+            help="Consenti di inviare a Nemotron brevi estratti didattici NVIDIA",
+        ),
+    ] = False,
+) -> None:
+    """Qwen locale + Nemotron NVIDIA: bozze isolate, mai modifiche live."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    from .dual_agent_autofix import (
+        NemotronNvidia,
+        nvidia_key_from_environment,
+        run_dual_repair,
+        save_dual_repair,
+    )
+    from .scientific_patch_drafts import _allowed_documents
+
+    if not allow_cloud_excerpts:
+        console.print(
+            "[red]Non eseguito: --allow-cloud-excerpts è obbligatorio.[/]"
+        )
+        console.print(
+            "[dim]Nemotron riceverà affermazioni ed estratti ridotti delle "
+            "dispense (non PDF completi), dopo consenso esplicito.[/]"
+        )
+        raise typer.Exit(2)
+    if (
+        edition not in {"Completa", "Essenziale", "Anteprima"}
+        or not subject.strip() or not chapter.strip()
+        or not 1 <= max_claims <= 8
+        or max_rounds not in {1, 2}
+        or (edition == "Anteprima" and preview_dir is None)
+    ):
+        console.print("[red]Edizione, materia, capitolo o limiti non validi.[/]")
+        raise typer.Exit(2)
+    config = _config()
+    endpoint = urlsplit(config.ollama_url)
+    if (
+        endpoint.scheme != "http"
+        or endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or endpoint.username is not None or endpoint.password is not None
+    ):
+        console.print("[red]Qwen deve essere eseguito solo via Ollama locale.[/]")
+        raise typer.Exit(2)
+    client = OllamaClient(config.ollama_url)
+    if not client.available():
+        console.print("[red]Ollama non disponibile in localhost.[/]")
+        raise typer.Exit(2)
+    model = config.generation_model
+    try:
+        installed = client.models()
+        if model not in installed and f"{model}:latest" not in installed:
+            raise ValueError("Modello Qwen locale non installato")
+        # Only the fixed NVIDIA Developer Program endpoint is allowed.
+        reviewer = NemotronNvidia(nvidia_key_from_environment(), max_calls=16)
+        scans = [scan for scan in scan_courses(root) if scan.name == subject]
+        if len(scans) != 1:
+            raise ValueError("Materia assente o non univoca")
+        scan = scans[0]
+        documents = _allowed_documents(root, preview_dir)
+        source = documents.get((subject, edition))
+        if source is None or not source.is_file():
+            raise ValueError("Documento della materia non disponibile")
+        document = source.read_text(encoding="utf-8")
+        if output_dir is None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+            output_dir = (
+                app_home() / "reports" / "qwen-nemotron" / stamp
+            )
+
+        def lookup(claim: str) -> list:
+            original = inspect_original_evidence(
+                scan, chapter,
+                edition=(
+                    "essential" if edition == "Essenziale" else "complete"
+                ),
+                claim=claim,
+            )
+            from .evidence_engine import OriginalEvidence
+
+            return [OriginalEvidence(**item) for item in original["evidence"]]
+
+        def local_chat(messages: list[dict[str, str]]) -> str:
+            return client.chat(
+                model, messages, num_ctx=min(config.num_ctx, 8192),
+                num_predict=900, temperature=0.0, think=False,
+            )
+
+        def progress(index: int, total: int, state: str) -> None:
+            console.print(f"[dim]{index}/{total} · {state}[/]")
+
+        report = run_dual_repair(
+            document, chapter, max_claims=max_claims, max_rounds=max_rounds,
+            find_evidence=lookup, local_chat=local_chat, cloud_chat=reviewer,
+            progress=progress,
+        )
+        report.update({
+            "subject": subject,
+            "edition": edition,
+            "model_local": model,
+            "model_reviewer": "nvidia/nemotron-3-super-120b-a12b",
+            "nemotron_requests": reviewer.used_calls,
+            "source_path": str(source),
+            "cloud_consent": allow_cloud_excerpts,
+            "independent_scientific_verification": False,
+        })
+        destination = save_dual_repair(
+            report, document, output_dir,
+            source_root=root,
+            published_root=app_home() / "outputs",
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        console.print(f"[red]Review doppio non completato: {exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(
+        f"[green]Qwen + Nemotron · report:[/] {destination}"
+    )
+    console.print(
+        f"[yellow]Richieste Nemotron: {reviewer.used_calls}. "
+        f"Proposte isolate: {len(report['proposals'])}. "
+        "Nessuna modifica live, nessuna pubblicazione.[/]"
+    )
+
+
 @courses_app.command("auto-audit-claims")
 def courses_auto_audit_claims(
     root: Annotated[Path, typer.Argument(help="Cartella radice delle materie")],
