@@ -767,6 +767,10 @@ def courses_auto_audit_claims(
         str | None,
         typer.Option("--model", help="Modello locale Ollama, es. openbmb/minicpm5-2b"),
     ] = None,
+    evidence_mode: Annotated[
+        str,
+        typer.Option("--evidence-mode", help="legacy oppure spans (ID citazioni originali)"),
+    ] = "legacy",
     preview_dir: Annotated[
         Path | None,
         typer.Option("--preview-dir", help="Manifest della bozza se edizione Anteprima"),
@@ -787,6 +791,9 @@ def courses_auto_audit_claims(
         raise typer.Exit(2)
     if not 1 <= max_claims <= 30 or not chapter.strip():
         console.print("[red]Capitolo o quantità di affermazioni non validi.[/]")
+        raise typer.Exit(2)
+    if evidence_mode not in {"legacy", "spans"}:
+        console.print("[red]--evidence-mode deve essere legacy o spans.[/]")
         raise typer.Exit(2)
     if edition == "Anteprima" and preview_dir is None:
         console.print("[red]Anteprima richiede --preview-dir.[/]")
@@ -861,6 +868,7 @@ def courses_auto_audit_claims(
         report = run_claim_audit(
             document, chapter, max_claims=max_claims,
             find_evidence=retrieve, chat=query, progress=progress,
+            evidence_mode=evidence_mode,
         )
         report.update({
             "subject": subject, "edition": edition, "source_path": str(source),
@@ -894,6 +902,8 @@ def courses_auto_audit_claims(
             "# BC Science — audit autonomo SPERIMENTALE", "",
             f"Materia: {subject} · {edition} · {chapter}", "",
             "Verdetti del modello non sono una certificazione scientifica.", "",
+            f"Modello: {model}",
+            f"Modalità prove: {evidence_mode}", "",
             (
                 "Fonti individuate mediante ID, ma non accettate come prova: "
                 f"{report['source_pointer_candidates']}"
@@ -911,6 +921,8 @@ def courses_auto_audit_claims(
                 f"Affermazione: {item['claim']['text']}",
                 f"Motivo: {item['rationale']}",
                 f"Citazioni validate: {len(item['quotes'])}",
+                f"Diagnostica: {item.get('diagnostic', 'N/A')}",
+                f"Passaggi originali offerti: {item.get('evidence_spans_count', 'N/A')}",
                 f"Etichetta iniziale non verificata: {item.get('raw_model_label', 'N/A')}",
                 (
                     "Fonte originale recuperata da puntatore, non una prova: "
