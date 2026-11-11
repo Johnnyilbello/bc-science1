@@ -16,7 +16,7 @@ from bc_science.evidence_engine import OriginalEvidence
 
 
 def _document(value: str) -> str:
-    return "# Materia\n\n## Geografia\n\n" + value + "\n\n## Altri\n\nNessuna modifica.\n"
+    return ("# Materia\n\n## Indice degli argomenti\n- Geografia\n- Altri\n\n" "---\n\n## Geografia\n\n" + value + "\n\n## Altri\n\nNessuna modifica.\n")
 
 
 def _original(value: str) -> OriginalEvidence:
