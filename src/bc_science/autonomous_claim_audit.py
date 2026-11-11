@@ -210,6 +210,116 @@ def _proof_completeness(
     return accepted, sorted(set(unsupported)), round(ratio, 3)
 
 
+_SUBJECT_WORDS = re.compile(r"[^\W\d_]+", re.UNICODE)
+_SUBJECT_IGNORE = frozenset({
+    "il", "lo", "la", "l", "un", "uno", "una",
+    "questo", "questa", "questi", "queste",
+})
+
+
+def _initial_subject_anchor(text: str) -> str | None:
+    """Conservative leading subject anchor, not a grammatical proof."""
+    for term in _SUBJECT_WORDS.findall(text.casefold()):
+        if term not in _SUBJECT_IGNORE and len(term) >= 4:
+            return term
+    return None
+
+
+def _adjudicate_reported_contradiction(
+    claim: CandidateClaim,
+    quotes: list[dict],
+    chat: Callable[[list[dict[str, str]]], str],
+) -> dict:
+    """Second-pass, source-quoted logical incompatibility check.
+
+    A citation's existence does not establish logical contradiction.
+    Fail closed for invalid responses and citations about other subjects.
+    """
+    result = {
+        "relationship": "UNDECIDABLE",
+        "valid": False,
+        "reason": "Contraddizione non confermata",
+        "diagnostic": "NOT_VALIDATED",
+        "claim_span": None,
+        "counter_quote": None,
+    }
+    instruction = (
+        "Sei un revisore logico INDIPENDENTE. Verifica se l'affermazione "
+        "e la citazione possono essere vere ENTRAMBE nello stesso tempo, "
+        "considerando il medesimo soggetto, predicato, condizioni e valori. "
+        "ATTENZIONE ALL'AMBITO DI SOLO/ESCLUSIVAMENTE: "
+        "'A svolge soltanto X' non significa 'soltanto A svolge X'. "
+        "Un'altra entità che svolge anche X non contraddice la prima frase. "
+        "La semplice presenza di termini in comune non è una controprova. "
+        "Scegli COMPATIBLE se possono essere vere entrambe, "
+        "INCOMPATIBLE solo se una contraddice specificamente l'altra, "
+        "UNDECIDABLE se le prove non bastano. "
+        "Non inventare contesto o citazioni. Rispondi SOLO con JSON: "
+        '{"relationship":"COMPATIBLE|INCOMPATIBLE|UNDECIDABLE",'
+        '"reason":"motivazione logica sintetica",'
+        '"claim_span":"passaggio letterale della frase",'
+        '"quote_id":1,"counter_span":"passaggio letterale della citazione"}. '
+        "Per COMPATIBLE e UNDECIDABLE, claim_span e counter_span possono "
+        "essere stringhe vuote e quote_id puo essere null."
+    )
+    prompt = {
+        "claim": claim.text,
+        "cited_passages": [
+            {"id": index, "quote": item["quote"]}
+            for index, item in enumerate(quotes[:3], 1)
+        ],
+    }
+    try:
+        answer = _json_object(chat([
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+        ]))
+        if answer is None:
+            return {**result, "diagnostic": "INVALID_JSON"}
+        relation = answer.get("relationship")
+        reason = answer.get("reason")
+        if (
+            relation not in {"COMPATIBLE", "INCOMPATIBLE", "UNDECIDABLE"}
+            or not isinstance(reason, str)
+            or not 8 <= len(reason.strip()) <= 400
+        ):
+            return {**result, "diagnostic": "INVALID_SCHEMA"}
+        if relation != "INCOMPATIBLE":
+            return {
+                **result, "relationship": relation,
+                "reason": reason.strip(), "valid": True,
+                "diagnostic": "LOGICAL_REVIEW_COMPLETED",
+            }
+        index = answer.get("quote_id")
+        claim_span = answer.get("claim_span")
+        counter_span = answer.get("counter_span")
+        if (
+            type(index) is not int or not 1 <= index <= len(quotes[:3])
+            or not isinstance(claim_span, str)
+            or not 7 <= len(claim_span.strip()) <= 250
+            or claim_span.casefold() not in claim.text.casefold()
+            or not isinstance(counter_span, str)
+            or not 16 <= len(counter_span.strip()) <= 500
+            or counter_span.casefold() not in quotes[index - 1]["quote"].casefold()
+        ):
+            return {**result, "diagnostic": "COUNTERPROOF_NOT_LITERAL"}
+        # A passage about a different entity must never validate a
+        # contradiction merely because its function/predicate overlaps.
+        subject = _initial_subject_anchor(claim.text)
+        quoted_terms = set(
+            _SUBJECT_WORDS.findall(quotes[index - 1]["quote"].casefold())
+        )
+        if subject is not None and subject not in quoted_terms:
+            return {**result, "diagnostic": "CLAIM_SUBJECT_NOT_IN_COUNTERQUOTE"}
+        return {
+            **result, "relationship": "INCOMPATIBLE", "valid": True,
+            "reason": reason.strip(), "diagnostic": "COUNTERPROOF_VALID",
+            "claim_span": claim_span, "counter_quote": quotes[index - 1],
+        }
+    except (ValueError, TypeError, KeyError, IndexError):
+        return {**result, "diagnostic": "LOGICAL_REVIEW_INVALID"}
+
+
 def _challenge_incomplete_support(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -506,6 +616,25 @@ def verify_claim_with_evidence(
         }[label]
         proof = None
         challenge = None
+        adjudication = None
+        if label == "CONTRADICTED":
+            # The first model can confuse "A is only X" with "only A is X".
+            # Quote authenticity alone cannot certify logical incompatibility.
+            status = "UNVERIFIED"
+            adjudication = _adjudicate_reported_contradiction(
+                claim, verified_quotes, chat,
+            )
+            if (
+                adjudication["valid"]
+                and adjudication["relationship"] == "INCOMPATIBLE"
+            ):
+                status = "SUSPECTED_CONTRADICTION"
+            else:
+                rationale = (
+                    "Contraddizione iniziale non confermata "
+                    f"({adjudication['diagnostic']}): "
+                    + adjudication["reason"] + ". " + rationale
+                )
         if label == "SUPPORTED":
             accepted, missing, coverage = _proof_completeness(
                 claim.text, verified_quotes,
@@ -544,6 +673,7 @@ def verify_claim_with_evidence(
             **base, "status": status, "model_label": label,
             "rationale": rationale[:750], "quotes": verified_quotes,
             "proof_validation": proof, "independent_challenge": challenge,
+            "contradiction_adjudication": adjudication,
         }
     except (ValueError, TypeError, KeyError, IndexError) as exc:
         return {
@@ -588,6 +718,15 @@ def run_claim_audit(
         ),
         "suspected_contradictions": sum(
             outcome["status"] == "SUSPECTED_CONTRADICTION"
+            for outcome in outcomes
+        ),
+        "raw_model_contradictions": sum(
+            outcome.get("model_label") == "CONTRADICTED"
+            for outcome in outcomes
+        ),
+        "initial_contradictions_rejected": sum(
+            outcome.get("model_label") == "CONTRADICTED"
+            and outcome["status"] != "SUSPECTED_CONTRADICTION"
             for outcome in outcomes
         ),
         "complete_scientific_validation": False,
