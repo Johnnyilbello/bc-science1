@@ -100,6 +100,40 @@ Questa verifica resta fallibile, anche se entrambi i turni del modello
 concordano. Le contraddizioni segnalate sono **sospette**, mai certe.
 Non pubblicare o riscrivere materiali senza validazione delle prove.
 
+## Audit originale a ID — esperimento V7 senza citazioni inventate
+
+Il V6 del capitolo **Fisiologia · Capacità polmonari** ha prodotto
+10/12 `UNVERIFIED` con Qwen3.5:4B e 12/12 con MiniCPM5-2B;
+nessuna contraddizione confermata. Le citazioni originali recitate
+dal modello restano frequentemente inesatte o incomplete.
+
+Per isolare questo problema, `auto-audit-claims` dispone ora della
+**modalità sperimentale opzionale** `--evidence-mode spans`.
+BC Science seleziona **passaggi brevi e letterali** dalle dispense
+originali già verificate dal cache SHA256 e li numera. Il modello
+seleziona `source_ids`, anziché inventare o riscrivere citazioni.
+Il codice ricostruisce il testo esatto e la provenienza dell'estratto;
+gli ID non sono prove di verità: la conferma resta provvisoria e passa
+per il filtro conservativo di copertura, mentre le contraddizioni
+richiedono una nuova verifica logica con citazioni testuali.
+Assenza di passaggi, ID sconosciuti, risposta invalida o prove
+insufficienti => `UNVERIFIED`. Nulla viene pubblicato.
+
+Esempio locale (sostituire con il proprio percorso delle dispense):
+
+~~~powershell
+bc-science courses auto-audit-claims "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Apparato digerente (Faringe ed esofago)" --edition Completa --max-claims 12 --model qwen3.5:4b --evidence-mode spans --output-dir "C:\BC-Science1\reports\autonomous-claims\spans-qwen"
+~~~
+
+Ripetere con `--model openbmb/minicpm5-2b` in **un'altra nuova
+directory**. Il vecchio percorso resta disponibile con
+`--evidence-mode legacy`, che è ancora il default. Confrontare
+`report.json`, in particolare `diagnostic`,
+`evidence_spans_count`, `used_span_ids`, `quotes` e
+`independent_logical_review`. La migliore formattazione delle prove
+NON dimostra che il modello rilevi autonomamente più errori scientifici:
+occorre una valutazione indipendente su materiali e capitoli nuovi.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
