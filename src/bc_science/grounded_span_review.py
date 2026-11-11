@@ -24,6 +24,36 @@ _DIGIT = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 _LABELS = frozenset({"SUPPORTED", "CONTRADICTED", "UNVERIFIED"})
 
 
+def _context_windows(raw: str, *, width: int = 640, stride: int = 270) -> list[str]:
+    """Overlapping original-text slices, avoiding cuts through words.
+
+    PDF extraction may remove punctuation entirely. Multiple overlapping
+    windows keep the continuation of a scientific relation available.
+    Never add or change source words: all output is checked against the
+    hash-pinned original excerpt before it can be offered to a model.
+    """
+    if len(raw) <= width:
+        return [raw.strip()] if raw.strip() else []
+    windows: list[str] = []
+    for offset in range(0, len(raw), stride):
+        start = max(0, offset - 90)
+        stop = min(len(raw), start + width)
+        if start > 0:
+            boundary = re.search(r"\s", raw[start:min(len(raw), start + 70)])
+            if boundary:
+                start += boundary.end()
+        if stop < len(raw):
+            boundary = raw.rfind(" ", max(start + 400, stop - 70), stop)
+            if boundary > start:
+                stop = boundary
+        piece = raw[start:stop].strip()
+        if len(piece) >= 16 and (not windows or piece != windows[-1]):
+            windows.append(piece)
+        if stop >= len(raw):
+            break
+    return windows
+
+
 def evidence_spans(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -38,21 +68,25 @@ def evidence_spans(
     ranked: list[tuple[int, int, int, dict]] = []
     seen: set[tuple[str, int | None, int | None, str]] = set()
     for source_index, source in enumerate(evidence[:5]):
-        raw_sentences = _SPLIT.split(source.excerpt[:1700])
+        original = source.excerpt[:2200]
+        raw_sentences = [
+            sentence.strip() for sentence in _SPLIT.split(original)
+            if sentence.strip()
+        ]
         pieces: list[str] = []
-        for raw in raw_sentences:
-            raw = raw.strip()
-            if len(raw) <= 480:
+        for sentence_index, raw in enumerate(raw_sentences):
+            if len(raw) <= 640:
                 pieces.append(raw)
+                # Longer extracted pages often break a related fact over
+                # adjacent fragments. Preserve both as one contextual span.
+                if len(original) > 640 and sentence_index + 1 < len(raw_sentences):
+                    joined = raw + " " + raw_sentences[sentence_index + 1]
+                    if len(joined) <= 640:
+                        pieces.append(joined)
             else:
-                # Extract bounded continuous slices even when PDF text has
-                # lost sentence punctuation; preserve literal provenance.
-                pieces.extend(
-                    raw[start:start + 420].strip()
-                    for start in range(0, len(raw), 350)
-                )
+                pieces.extend(_context_windows(raw))
         for position, piece in enumerate(pieces):
-            if not 16 <= len(piece) <= 480:
+            if not 16 <= len(piece) <= 640:
                 continue
             key = (source.source_path, source.page, source.block, piece.casefold())
             if key in seen:
@@ -109,10 +143,14 @@ def review_with_source_ids(
         "evidence_spans_count": 0,
         "used_span_ids": [], "independent_logical_review": None,
         "verified_scientifically": False,
-        "review_method": "original-span-ids-v1",
+        "review_method": "original-span-ids-v2-context",
+        "span_candidates": [],
     }
     spans = evidence_spans(claim, evidence)
     base["evidence_spans_count"] = len(spans)
+    # Preserve exactly the passages shown to the model even on abstention.
+    # They remain unapproved candidates, not proof of a scientific claim.
+    base["span_candidates"] = [dict(item) for item in spans]
     if not spans:
         return base
     messages = [
