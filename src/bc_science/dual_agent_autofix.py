@@ -194,9 +194,9 @@ class NemotronNvidia:
                 data = response.json()
             content = data["choices"][0]["message"]["content"]
             if not isinstance(content, str):
-                raise ValueError("Contenuto Nemotron non testuale")
+                raise TypeError("Contenuto Nemotron non testuale")
             return content
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
             # Never log the exception's repr: it could contain transport headers.
             raise RuntimeError(
                 "Nemotron non disponibile: richiesta non ripetuta; "
@@ -402,8 +402,11 @@ def save_dual_repair(
         raise ValueError("Directory report già esistente")
     if _hash(document) != report["source_sha256"]:
         raise ValueError("Documento cambiato durante la revisione")
+    staged = report["staged_drafts"]
+    for index, corrected in staged:
+        if _hash(corrected) != report["results"][index - 1]["proposal_sha256"]:
+            raise ValueError("Hash proposta differente dal report")
     target.mkdir(parents=True, exist_ok=False)
-    staged = report.pop("staged_drafts")
     records = []
     for index, corrected in staged:
         if _hash(corrected) != report["results"][index - 1]["proposal_sha256"]:
@@ -424,9 +427,13 @@ def save_dual_repair(
             "diff": str(diff_path), "sha256": _hash(corrected),
         })
     report["proposals"] = records
+    # Never persist full working Markdown twice inside the JSON report.
+    stored = {
+        key: value for key, value in report.items() if key != "staged_drafts"
+    }
     report_path = target / "report.json"
     report_path.write_text(
-        json.dumps(report, ensure_ascii=True, indent=2) + "\n",
+        json.dumps(stored, ensure_ascii=True, indent=2) + "\n",
         encoding="utf-8",
     )
     (target / "report.md").write_text(
