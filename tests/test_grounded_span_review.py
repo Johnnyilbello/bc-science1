@@ -176,7 +176,8 @@ def test_v8_pdf_continuation_stays_in_same_original_span():
     )
     # The relevant clause straddles legacy 420-character fixed slices.
     original = _source(
-        "discorso iniziale sulla fisiologia respiratoria " * 8
+        "materiale didattico sulla ventilazione e sui volumi " * 13
+        + "contenuto qui "
         + "Il volume residuo VR è pari a circa 1200 mL, "
         + "che però non può essere misurato con lo spirometro. "
         + "Si considerano poi le altre capacità respiratorie."
