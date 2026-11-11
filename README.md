@@ -100,6 +100,36 @@ Questa verifica resta fallibile, anche se entrambi i turni del modello
 concordano. Le contraddizioni segnalate sono **sospette**, mai certe.
 Non pubblicare o riscrivere materiali senza validazione delle prove.
 
+## Esito A/B V5 e recupero prudente delle prove
+
+Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
+indicano **12 UNVERIFIED su 12** in entrambe le esecuzioni. Nel report
+che conteneva il falso allarme sulla rinofaringe il controllo logico
+ha riconosciuto che le affermazioni sono compatibili, ma **non** ha
+individuato in modo dimostrato l'errore `dallo stomaco allo stomaco`.
+Molte risposte iniziali sono state scartate perché citavano
+passaggi che **non erano presenti letteralmente** nella dispensa;
+la modalità JSON nativa non risolve l'allucinazione di citazioni.
+
+Il nuovo tentativo di analisi, valido per qualunque materia, **non
+accetta** tali citazioni inventate. Se il modello ha indicato un
+`source_id` realmente recuperato, il codice può estrarre
+automaticamente una breve frase letterale *candidata* dall'estratto
+originale, confrontando genericamente le parole per la selezione.
+Questa operazione **non dimostra alcuna affermazione**:
+`source_pointer_is_proof: false`, `model_label: INVALID`.
+Solo quando l'etichetta iniziale è `CONTRADICTED`, una seconda analisi
+logica può produrre una `SUSPECTED_CONTRADICTION` a condizione di
+confermare l'incompatibilità con passaggi letterali e sul medesimo
+soggetto. Ogni altra risposta rimane `UNVERIFIED`.
+Il report ora espone anche `raw_model_label`,
+`source_pointer_candidates` e `source_pointer_review`, permettendo
+di misurare le citazioni inaccurate senza promuoverle a prove.
+
+Questo è un esperimento diagnostico read-only, non una correzione
+autonoma convalidata. Non viene cambiato alcun riassunto o PDF
+pubblicato, e non viene inviato nulla a Nemotron.
+
 ## MiniCPM5-2B e confronto con Qwen3.5-4B
 
 **MiniCPM5-2B** è disponibile ufficialmente in Ollama con tag
