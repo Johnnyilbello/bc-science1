@@ -220,41 +220,38 @@ def _challenge_incomplete_support(
     passages = [
         {
             "id": index,
-            "text": item.excerpt[:1700],
+            "text": item.excerpt[:1300],
         }
         for index, item in enumerate(evidence[:5], start=1)
     ]
     prompt = (
-        "Analizza da zero, senza vedere giudizi precedenti. "
-        "Scomponi questa frase in tutte le sue componenti verificabili "
-        "(soggetto, predicato, relazioni, origine/destinazione, numeri, "
-        "negazioni, modificatori). Controlla che OGNI componente sia "
-        "sostenuta da fonti originali, non solo le parole in comune. "
-        "Cerca esplicitamente un'evidenza che contraddica una componente. "
-        "Se la fonte NON dice una componente, indica NOT_SHOWN: "
-        "assenza di prova non significa contraddizione. "
-        "Se una parafrasi descrive lo stesso fatto, puoi indicare SUPPORTED, "
-        "ma solo decomponendo la frase in componenti verificabili. "
-        "Per OGNI componente dichiarata supportata indica una parte "
-        "letterale della AFFERMAZIONE e una citazione letterale "
-        "che la dimostra. Una citazione di un oggetto non basta "
-        "a dimostrare anche la relazione, quantità o direzione. "
-        "NON forzare numeri o negazioni dove non ci sono. "
-        "Rispondi SOLO JSON: "
+        "Esamina questa frase come revisore INDIPENDENTE. "
+        "Non dare per vera la frase: controlla ogni relazione, luogo, "
+        "quantità, negazione, causa ed eccezione. "
+        "Cerca anche prove CONTRARIE. "
+        "Una fonte che nomina il soggetto NON conferma automaticamente "
+        "tutto ciò che il soggetto farebbe. "
+        "Una parafrasi corretta può essere supportata, ma devi citare "
+        "il passaggio originale che dimostra il medesimo fatto. "
+        "Non inventare numeri, fonti, elementi o citazioni. "
+        "Se manca una prova, scrivi UNVERIFIED, NON CONTRADICTED. "
+        "Non elencare categorie astratte: nomina soltanto le parti "
+        "specifiche della frase che non sono dimostrate. "
+        "Per ogni parte supportata, copia in claim_part le parole "
+        "esatte della frase e in quote le parole esatte della fonte. "
+        "Rispondi SOLTANTO con un oggetto JSON compatto, senza Markdown: "
         '{"assessment":"SUPPORTED|CONTRADICTED|UNVERIFIED",'
-        '"missing_parts":["parte non dimostrata"],'
-        '"facets":[{"claim_part":"parte copiata letteralmente dal claim",'
+        '"missing_parts":[],'
+        '"facets":[{"claim_part":"testo dalla frase",'
         '"state":"SUPPORTED|CONTRADICTED|NOT_SHOWN",'
-        '"source_id":1,"quote":"testo letterale dalla fonte"}],'
-        '"counter_quotes":[{"source_id":1,'
-        '"quote":"citazione originale continua di almeno 16 caratteri"}]}. '
-        "Per CONTRADICTED serve una controcitazione valida. "
-        "Per SUPPORTED ogni componente deve avere prova esplicita; "
-        "per UNVERIFIED puoi lasciare counter_quotes vuoto. "
-        f"\nAFFERMAZIONE: {claim.text}\n"
-        f"INDIZI_LESSICALI_NON_RISOLTI: "
-        f"{json.dumps(missing_anchors or [], ensure_ascii=False)}\n"
-        f"ESTRATTI: {json.dumps(passages, ensure_ascii=False)}"
+        '"source_id":1,"quote":"citazione della fonte"}],'
+        '"counter_quotes":[]}. '
+        "CONTRADICTED richiede counter_quotes con source_id e quote. "
+        "Massimo 4 facets, ognuna deve rappresentare un fatto distinto. "
+        f"\nFRASE: {claim.text}"
+        f"\nPAROLE_NON_COPERTE_DALLE_CITAZIONI_PRECEDENTI: "
+        f"{json.dumps(missing_anchors or [], ensure_ascii=False)}"
+        f"\nFONTI: {json.dumps(passages, ensure_ascii=False)}"
     )
     result = {
         "assessment": "UNVERIFIED",
@@ -263,6 +260,8 @@ def _challenge_incomplete_support(
         "facets": [],
         "semantic_support_candidate": False,
         "model_challenge_valid": False,
+        "diagnostic": "NOT_EXECUTED",
+        "response_chars": 0,
     }
     try:
         response = chat([
@@ -273,8 +272,10 @@ def _challenge_incomplete_support(
             )},
             {"role": "user", "content": prompt},
         ])
+        result["response_chars"] = len(response)
         obj = _json_object(response)
         if obj is None:
+            result["diagnostic"] = "JSON_INVALID"
             return result
         assessment = obj.get("assessment")
         missing_parts = obj.get("missing_parts")
@@ -293,6 +294,7 @@ def _challenge_incomplete_support(
             or not isinstance(facets, list)
             or len(facets) > 8
         ):
+            result["diagnostic"] = "SCHEMA_INVALID"
             return result
         canonical_quotes = []
         for quote in counter_quotes:
@@ -385,8 +387,14 @@ def _challenge_incomplete_support(
             "facet_coverage": round(facet_coverage, 3),
             "semantic_support_candidate": semantic_candidate,
             "model_challenge_valid": True,
+            "diagnostic": (
+                "VALID_WITH_FACETS" if validated_facets
+                else "VALID_WITHOUT_FACETS"
+            ),
+            "response_chars": len(response),
         }
     except (ValueError, TypeError, KeyError, IndexError):
+        result["diagnostic"] = "MODEL_RESULT_INVALID"
         return result
 
 
