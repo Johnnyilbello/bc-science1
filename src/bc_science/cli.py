@@ -713,6 +713,7 @@ def courses_dual_agent_autofix(
             return client.chat(
                 model, messages, num_ctx=min(config.num_ctx, 8192),
                 num_predict=900, temperature=0.0, think=False,
+                format_json=True,
             )
 
         def progress(index: int, total: int, state: str) -> None:
@@ -851,7 +852,7 @@ def courses_auto_audit_claims(
                 model, messages,
                 num_ctx=min(config.num_ctx, 8192),
                 num_predict=1100 if is_critic else 500,
-                temperature=0.0, think=False,
+                temperature=0.0, think=False, format_json=True,
             )
 
         def progress(index: int, total: int, state: str) -> None:
