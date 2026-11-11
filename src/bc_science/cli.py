@@ -606,6 +606,9 @@ def courses_dual_agent_autofix(
     max_claims: Annotated[
         int, typer.Option("--max-claims", help="Affermazioni da verificare (1-8)"),
     ] = 4,
+    local_model: Annotated[
+        str, typer.Option("--local-model", help="Diagnostico locale; MiniCPM5-2B di default"),
+    ] = "openbmb/minicpm5-2b",
     max_rounds: Annotated[
         int, typer.Option("--max-rounds", help="Iterazioni per proposta (1 o 2)"),
     ] = 2,
@@ -623,7 +626,7 @@ def courses_dual_agent_autofix(
         ),
     ] = False,
 ) -> None:
-    """Qwen locale + Nemotron NVIDIA: bozze isolate, mai modifiche live."""
+    """MiniCPM/Qwen locale + Nemotron NVIDIA, proposte isolate non pubblicate."""
     from datetime import datetime, timezone
     from urllib.parse import urlsplit
 
@@ -660,17 +663,23 @@ def courses_dual_agent_autofix(
         or endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
         or endpoint.username is not None or endpoint.password is not None
     ):
-        console.print("[red]Qwen deve essere eseguito solo via Ollama locale.[/]")
+        console.print("[red]Il modello deve essere eseguito solo via Ollama locale.[/]")
         raise typer.Exit(2)
     client = OllamaClient(config.ollama_url)
     if not client.available():
         console.print("[red]Ollama non disponibile in localhost.[/]")
         raise typer.Exit(2)
-    model = config.generation_model
+    model = local_model
+    if not model or len(model) > 128 or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/"
+        for char in model
+    ):
+        console.print("[red]Modello locale non valido.[/]")
+        raise typer.Exit(2)
     try:
         installed = client.models()
         if model not in installed and f"{model}:latest" not in installed:
-            raise ValueError("Modello Qwen locale non installato")
+            raise ValueError(f"Modello locale non installato: {model}; usare ollama pull")
         # Only the fixed NVIDIA Developer Program endpoint is allowed.
         reviewer = NemotronNvidia(nvidia_key_from_environment(), max_calls=16)
         scans = [scan for scan in scan_courses(root) if scan.name == subject]
@@ -685,7 +694,7 @@ def courses_dual_agent_autofix(
         if output_dir is None:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
             output_dir = (
-                app_home() / "reports" / "qwen-nemotron" / stamp
+                app_home() / "reports" / "local-nemotron" / stamp
             )
 
         def lookup(claim: str) -> list:
@@ -753,6 +762,10 @@ def courses_auto_audit_claims(
     max_claims: Annotated[
         int, typer.Option("--max-claims", help="Affermazioni campione (1-30)"),
     ] = 8,
+    model_override: Annotated[
+        str | None,
+        typer.Option("--model", help="Modello locale Ollama, es. openbmb/minicpm5-2b"),
+    ] = None,
     preview_dir: Annotated[
         Path | None,
         typer.Option("--preview-dir", help="Manifest della bozza se edizione Anteprima"),
@@ -761,7 +774,7 @@ def courses_auto_audit_claims(
         Path | None, typer.Option("--output-dir", help="Nuovo report isolato"),
     ] = None,
 ) -> None:
-    """Esamina affermazioni con Qwen LOCALE e citazioni originali, senza edit."""
+    """Esamina le affermazioni con un modello Ollama locale configurabile."""
     from datetime import datetime, timezone
     from urllib.parse import urlsplit
 
@@ -791,7 +804,13 @@ def courses_auto_audit_claims(
     if not client.available():
         console.print("[red]Ollama locale non disponibile. Nessun modello cloud usato.[/]")
         raise typer.Exit(2)
-    model = config.generation_model
+    model = model_override or config.generation_model
+    if not model or len(model) > 128 or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/"
+        for char in model
+    ):
+        console.print("[red]Modello locale non valido.[/]")
+        raise typer.Exit(2)
     try:
         installed = client.models()
     except (OSError, ValueError) as exc:
