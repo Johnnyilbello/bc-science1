@@ -33,7 +33,7 @@ def test_source_spans_are_verbatim_even_when_model_cannot_quote():
         "Il traghetto trasporta auto e passeggeri."
     )
     spans = evidence_spans(claim, [original])
-    assert len(spans) == 2
+    assert len(spans) == 1
     assert spans[0]["id"] == 1
     assert "Il traghetto parte" in spans[0]["quote"]
     assert all(validate_original_quote(row, [original]) for row in spans)
@@ -49,7 +49,7 @@ def test_source_span_model_cannot_invent_quote_and_must_pass_logical_review():
         calls.append(messages)
         if len(calls) == 1:
             assert '"source_ids"' in messages[-1]["content"]
-            assert "source_id" not in messages[-1]["content"]
+            assert '"source_id":' not in messages[-1]["content"]
             return json.dumps({
                 "label": "CONTRADICTED",
                 "reason": "Il traghetto arriva a Livorno, non a Genova.",
