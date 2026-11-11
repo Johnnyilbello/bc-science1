@@ -894,14 +894,32 @@ def courses_auto_audit_claims(
             "# BC Science — audit autonomo SPERIMENTALE", "",
             f"Materia: {subject} · {edition} · {chapter}", "",
             "Verdetti del modello non sono una certificazione scientifica.", "",
+            (
+                "Fonti individuate mediante ID, ma non accettate come prova: "
+                f"{report['source_pointer_candidates']}"
+            ),
+            (
+                "Controprove con secondo controllo logico: "
+                f"{report['source_pointer_contradictions_reviewed']}"
+            ), "",
         ]
         for item in report["claims"]:
             critic = item.get("independent_challenge") or {}
+            pointer_check = item.get("source_pointer_review") or {}
             lines.extend([
                 f"## {item['status']}",
                 f"Affermazione: {item['claim']['text']}",
                 f"Motivo: {item['rationale']}",
                 f"Citazioni validate: {len(item['quotes'])}",
+                f"Etichetta iniziale non verificata: {item.get('raw_model_label', 'N/A')}",
+                (
+                    "Fonte originale recuperata da puntatore, non una prova: "
+                    f"{len(item.get('source_pointer_candidates', []))}"
+                ),
+                (
+                    "Controllo logico sul puntatore: "
+                    f"{pointer_check.get('relationship', 'N/A')}"
+                ),
                 (
                     "Parafrasi candidata (NON approvata): "
                     f"{bool(critic.get('semantic_support_candidate', False))}"
