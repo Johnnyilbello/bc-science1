@@ -75,6 +75,31 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Confronto reale MiniCPM — falsi positivi logici e JSON
+
+Primo test locale, **stesso capitolo di Anatomia, 12 affermazioni**:
+Qwen3.5:4B → 12 `UNVERIFIED`, nessuna contraddizione.
+MiniCPM5-2B → 11 `UNVERIFIED`, una `SUSPECTED_CONTRADICTION`.
+La singola segnalazione MiniCPM riguardava una **falsa contraddizione
+logica**: «A serve esclusivamente per X» non significa «solo A serve
+per X»; l'uso di X da parte di B non nega la funzione esclusiva di A.
+Nessuno dei due modelli ha quindi dimostrato di individuare gli errori
+scientifici nuovi in questo test. Le citazioni non letterali e il JSON
+incompleto causano molte astensioni.
+
+Per proteggere i futuri audit il programma usa **JSON mode nativo di
+Ollama** (solo per i verificatori, non per le generazioni di studio),
+conforme alla documentazione ufficiale Ollama. Ogni prima etichetta
+`CONTRADICTED` passa a un **secondo controllo logico separato**:
+deve decidere se entrambe le proposizioni possono essere vere nello
+stesso contesto, citare letteralmente una controprova sul medesimo
+soggetto ed esplicitare la parte incompatibile. Un disaccordo, un
+modello non verificabile o una citazione su un soggetto diverso
+lasciano lo stato `UNVERIFIED`; i campi diagnostici spiegano lo scarto.
+Questa verifica resta fallibile, anche se entrambi i turni del modello
+concordano. Le contraddizioni segnalate sono **sospette**, mai certe.
+Non pubblicare o riscrivere materiali senza validazione delle prove.
+
 ## MiniCPM5-2B e confronto con Qwen3.5-4B
 
 **MiniCPM5-2B** è disponibile ufficialmente in Ollama con tag
