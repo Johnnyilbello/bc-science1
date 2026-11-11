@@ -86,9 +86,11 @@ try {
     if (Test-Path -LiteralPath $python) {
         $null = Invoke-Stage "install-dev" $python @("-m", "pip", "install", "--disable-pip-version-check", "-e", ".[dev]")
         $lintCode = Invoke-Stage "ruff" $python @("-m", "ruff", "check", ".")
-        $testCode = Invoke-Stage "pytest" $python @("-m", "pytest", "-q")
+        $testCode = Invoke-Stage "pytest" $python @("-m", "pytest", "-q", "--basetemp", (Join-Path $reportDir "pytest-temp"))
         if (Test-Path -LiteralPath $cli) {
             $null = Invoke-Stage "verify-cli-help" $cli @("courses", "verify", "--help")
+            $null = Invoke-Stage "agents-list" $cli @("agents", "list")
+            $null = Invoke-Stage "agents-plan" $cli @("agents", "plan", "--task", "study", "--limit", "24")
             $null = Invoke-Stage "doctor" $cli @("doctor")
         }
         else {
@@ -163,6 +165,11 @@ try {
                 "courses", "verify", $CourseRoot, "--strict",
                 "--output-dir", (Join-Path $reportDir "corpus")
             )
+            $null = Invoke-Stage "agent-mesh-all" $cli @(
+                "agents", "run", $CourseRoot, "--task", "publish", "--all",
+                "--output-dir", (Join-Path $reportDir "agent-mesh")
+            )
+            Write-Host "Gli SKIP e INCOMPLETE degli agenti sono visibili nel report; non equivalgono a PASS."
         }
         else {
             Add-Skipped "corpus-reale" "Impostare -CourseRoot con la cartella delle materie"

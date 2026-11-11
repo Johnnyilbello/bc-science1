@@ -75,6 +75,357 @@ Dalla **0.9.1**, se la sola modifica consiste nell'aggiunta di nuovi documenti, 
 
 File già esistenti **modificati** o **rimossi** continuano volutamente a usare il rebuild completo della materia: un aggiornamento puramente additivo non può sapere quali informazioni della vecchia versione debbano essere eliminate.
 
+## Confronto reale MiniCPM — falsi positivi logici e JSON
+
+Primo test locale, **stesso capitolo di Anatomia, 12 affermazioni**:
+Qwen3.5:4B → 12 `UNVERIFIED`, nessuna contraddizione.
+MiniCPM5-2B → 11 `UNVERIFIED`, una `SUSPECTED_CONTRADICTION`.
+La singola segnalazione MiniCPM riguardava una **falsa contraddizione
+logica**: «A serve esclusivamente per X» non significa «solo A serve
+per X»; l'uso di X da parte di B non nega la funzione esclusiva di A.
+Nessuno dei due modelli ha quindi dimostrato di individuare gli errori
+scientifici nuovi in questo test. Le citazioni non letterali e il JSON
+incompleto causano molte astensioni.
+
+Per proteggere i futuri audit il programma usa **JSON mode nativo di
+Ollama** (solo per i verificatori, non per le generazioni di studio),
+conforme alla documentazione ufficiale Ollama. Ogni prima etichetta
+`CONTRADICTED` passa a un **secondo controllo logico separato**:
+deve decidere se entrambe le proposizioni possono essere vere nello
+stesso contesto, citare letteralmente una controprova sul medesimo
+soggetto ed esplicitare la parte incompatibile. Un disaccordo, un
+modello non verificabile o una citazione su un soggetto diverso
+lasciano lo stato `UNVERIFIED`; i campi diagnostici spiegano lo scarto.
+Questa verifica resta fallibile, anche se entrambi i turni del modello
+concordano. Le contraddizioni segnalate sono **sospette**, mai certe.
+Non pubblicare o riscrivere materiali senza validazione delle prove.
+
+## Audit originale a ID — esperimento V7 senza citazioni inventate
+
+Il V6 del capitolo **Fisiologia · Capacità polmonari** ha prodotto
+10/12 `UNVERIFIED` con Qwen3.5:4B e 12/12 con MiniCPM5-2B;
+nessuna contraddizione confermata. Le citazioni originali recitate
+dal modello restano frequentemente inesatte o incomplete.
+
+Per isolare questo problema, `auto-audit-claims` dispone ora della
+**modalità sperimentale opzionale** `--evidence-mode spans`.
+BC Science seleziona **passaggi brevi e letterali** dalle dispense
+originali già verificate dal cache SHA256 e li numera. Il modello
+seleziona `source_ids`, anziché inventare o riscrivere citazioni.
+Il codice ricostruisce il testo esatto e la provenienza dell'estratto;
+gli ID non sono prove di verità: la conferma resta provvisoria e passa
+per il filtro conservativo di copertura, mentre le contraddizioni
+richiedono una nuova verifica logica con citazioni testuali.
+Assenza di passaggi, ID sconosciuti, risposta invalida o prove
+insufficienti => `UNVERIFIED`. Nulla viene pubblicato.
+
+Esempio locale (sostituire con il proprio percorso delle dispense):
+
+~~~powershell
+bc-science courses auto-audit-claims "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Apparato digerente (Faringe ed esofago)" --edition Completa --max-claims 12 --model qwen3.5:4b --evidence-mode spans --output-dir "C:\BC-Science1\reports\autonomous-claims\spans-qwen"
+~~~
+
+Ripetere con `--model openbmb/minicpm5-2b` in **un'altra nuova
+directory**. Il vecchio percorso resta disponibile con
+`--evidence-mode legacy`, che è ancora il default. Confrontare
+`report.json`, in particolare `diagnostic`,
+`evidence_spans_count`, `used_span_ids`, `quotes` e
+`independent_logical_review`. La migliore formattazione delle prove
+NON dimostra che il modello rilevi autonomamente più errori scientifici:
+occorre una valutazione indipendente su materiali e capitoli nuovi.
+
+## Esito A/B V5 e recupero prudente delle prove
+
+Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
+indicano **12 UNVERIFIED su 12** in entrambe le esecuzioni. Nel report
+che conteneva il falso allarme sulla rinofaringe il controllo logico
+ha riconosciuto che le affermazioni sono compatibili, ma **non** ha
+individuato in modo dimostrato l'errore `dallo stomaco allo stomaco`.
+Molte risposte iniziali sono state scartate perché citavano
+passaggi che **non erano presenti letteralmente** nella dispensa;
+la modalità JSON nativa non risolve l'allucinazione di citazioni.
+
+Il nuovo tentativo di analisi, valido per qualunque materia, **non
+accetta** tali citazioni inventate. Se il modello ha indicato un
+`source_id` realmente recuperato, il codice può estrarre
+automaticamente una breve frase letterale *candidata* dall'estratto
+originale, confrontando genericamente le parole per la selezione.
+Questa operazione **non dimostra alcuna affermazione**:
+`source_pointer_is_proof: false`, `model_label: INVALID`.
+Solo quando l'etichetta iniziale è `CONTRADICTED`, una seconda analisi
+logica può produrre una `SUSPECTED_CONTRADICTION` a condizione di
+confermare l'incompatibilità con passaggi letterali e sul medesimo
+soggetto. Ogni altra risposta rimane `UNVERIFIED`.
+Il report ora espone anche `raw_model_label`,
+`source_pointer_candidates` e `source_pointer_review`, permettendo
+di misurare le citazioni inaccurate senza promuoverle a prove.
+
+Questo è un esperimento diagnostico read-only, non una correzione
+autonoma convalidata. Non viene cambiato alcun riassunto o PDF
+pubblicato, e non viene inviato nulla a Nemotron.
+
+## MiniCPM5-2B e confronto con Qwen3.5-4B
+
+**MiniCPM5-2B** è disponibile ufficialmente in Ollama con tag
+`openbmb/minicpm5-2b` (GGUF Q4_K_M, circa 1,6 GB).
+Benchmarks diffusi da OpenBMB: media 53,9 contro 51,1 del Qwen3.5-4B;
+tuttavia Qwen mantiene vantaggio su benchmark di conoscenza come
+MMLU-Pro e GPQA Diamond. Questo **non** dimostra la superiorità del
+nuovo modello nella verifica dei fatti scientifici in italiano.
+
+Per installarlo manualmente nel runtime locale:
+
+~~~powershell
+ollama pull openbmb/minicpm5-2b
+ollama list
+~~~
+
+Il comando sperimentale di verifica delle affermazioni ora accetta
+`--model openbmb/minicpm5-2b`, lasciando invariato il modello principale
+delle dispense. Confrontare **stessa materia, capitolo, edizione e numero
+di affermazioni** con `--model qwen3.5:4b`, producendo due report nuovi.
+Misurare i falsi supporti, le astensioni, le contraddizioni, le
+citazioni non valide e la qualità del ragionamento, non solo la quantità
+di `PROVISIONALLY_SUPPORTED`.
+
+È stato inoltre aggiunto `courses dual-agent-autofix`, che usa
+**MiniCPM5-2B locale di default** e Nemotron NVIDIA come revisore
+indipendente per proporre modifiche in cartelle isolate. Il modello
+locale è sostituibile con `--local-model qwen3.5:4b`. L'uso cloud
+**richiede** una chiave tramite variabile d'ambiente `NVIDIA_API_KEY`
+e un consenso esplicito `--allow-cloud-excerpts`: brevi estratti
+didattici vengono inviati a NVIDIA. Non usare per materiale privato o
+sensibile senza autorizzazione. Endpoint di prototipazione con
+disponibilità/limiti da verificare, nessuna promessa di gratuità
+illimitata; nessun fallback a provider a pagamento.
+
+Il coordinatore non lancia comandi, non modifica il codice dell'app e
+non salva PDF o riassunti pubblicati. Crea proposte Markdown, diff,
+hash e report non pubblicati. I modelli possono sbagliare entrambi.
+L'assenza di prove originali verificabili non autorizza correzioni.
+Le iterazioni sono limitate e le richieste cloud non vengono ripetute
+automaticamente. PR di sviluppo lasciata in draft.
+
+## Audit autonomo sperimentale delle affermazioni — Qwen locale
+
+I quattro errori conosciuti (esofago, vie biliari, palmitato, spirometria)
+hanno evidenziato il limite delle regole statiche: non insegnano al
+sistema a riconoscere contraddizioni nuove in altre materie.
+
+Il comando seguente è un **pilota generico offline**. Campiona
+affermazioni del capitolo senza hardcodare risposte scientifiche,
+con rappresentanza di quantità, negazioni e relazioni; recupera estratti
+dalle dispense originali nel cache SHA256; Qwen 4B confronta affermazione
+e fonti e deve motivare ogni giudizio con citazioni letterali. Il codice
+verifica che testo, percorso e pagina/blocco citati esistano davvero.
+
+**Correzione dopo il primo collaudo reale:** Qwen aveva etichettato come
+`SUPPORTED` una frase di Anatomia con un percorso assurdo, citando solo
+che l'organo era un tubo muscolare. Una citazione letterale non è di per sé
+una prova del significato dell'intera affermazione. Adesso ogni risposta
+`SUPPORTED` supera anche un controllo prudente e generico di copertura
+delle ancore fattuali (valori, parole importanti, negazioni). Se mancano
+elementi, è declassata a `UNVERIFIED` e viene avviata una seconda
+verifica critica autonoma sul modello locale. Questa cerca componenti
+non dimostrate e, solo con una controcitazione letterale verificata,
+può registrare una `SUSPECTED_CONTRADICTION`. Anche i possibili percorsi
+circolari vengono segnalati come indizio da rivedere, non come errore
+scientifico certo. Il controllo prudente può produrre falsi negativi
+quando la fonte usa sinonimi: non va interpretato come verifica semantica
+completa, né può autorizzare pubblicazione o correzioni automatiche.
+
+
+~~~powershell
+bc-science courses auto-audit-claims "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Apparato digerente (Faringe ed esofago)" --edition Completa --max-claims 8 --output-dir "C:\BC-Science1\reports\autonomous-claims\pilot-anatomia"
+~~~
+
+Per analizzare una bozza non pubblicata, aggiungere
+`--edition Anteprima --preview-dir "C:\BC-Science1\reports\essential-preview\sessione"`.
+
+`PROVISIONALLY_SUPPORTED` indica solo sostegno nella fonte locale,
+non verità scientifica. `SUSPECTED_CONTRADICTION` è una possibile
+contraddizione da rivedere. `SOURCE_CONFLICT` significa che passaggi
+originali sono discordanti. `UNVERIFIED` significa prove insufficienti,
+citazioni inventate o risposta non validabile.
+
+I PDF originali possono contenere errori: NON è validazione scientifica
+indipendente né una soluzione generale per correggere le dispense.
+Ollama deve girare solo su localhost con `qwen3.5:4b` già installato.
+Nessuna chiamata cloud o API a pagamento, nessun modello scaricato.
+Produce `report.json` e `report.md` in una directory nuova e isolata.
+Il campione è limitato a 1–30 affermazioni per esecuzione. L'assenza di
+flag in un campione **non** permette la pubblicazione. Per integrare
+l'audit nella generazione occorre prima misurare sul corpus reale
+richiamo degli errori, falsi positivi e qualità delle citazioni.
+
+**Collaudo V2:** 12 affermazioni, due `PROVISIONALLY_SUPPORTED` e dieci
+`UNVERIFIED`. Il caso di esofago è bloccato, ma molte parafrasi
+legittime sono respinte dalla copertura lessicale (`dietro` vs
+`posteriore`, `cm` vs `centimetri`). Il secondo revisore è stato
+esteso a una lista di **componenti semantiche** (`facets`) con prove
+attribuite e citazioni verificabili. L'eventuale
+`semantic_support_candidate` è soltanto un'indicazione sperimentale:
+non muta lo stato `UNVERIFIED` e non autorizza nuove pubblicazioni.
+
+## Bozze di correzione scientifica con controllo SHA256 — NON pubblicate
+
+Dopo aver prodotto il report `inspect-scientific-flags` sulle tre
+edizioni, creare proposte **isolate** per le formulazioni errate documentate:
+
+```powershell
+bc-science courses draft-scientific-corrections "C:\Studio\SCIENZE MOTORIE" --audit-json "C:\BC-Science1\reports\scientific-flags\audit-con-anteprime.json" --preview-dir "C:\BC-Science1\reports\essential-preview\sessione" --output-dir "C:\BC-Science1\reports\scientific-correction-drafts\sessione"
+```
+
+Per ogni documento interessato il comando ricava il percorso dalla cartella
+materie, non da un percorso arbitrario indicato nel report; verifica che SHA256
+e testo corrente corrispondano all'audit e limita ogni sostituzione al **capitolo
+indicato dall'audit**. Consente da una a cinque ripetizioni identiche dell'errore
+nello stesso capitolo, non interviene negli altri capitoli e blocca i casi
+ambigui o non riconoscibili.
+Prepara file `proposta-NN.md`, `proposta-NN.diff`,
+`review-report.md` e `review-report.json` in una cartella nuova.
+
+Le proposte trattano soltanto quattro formulazioni accertate su questo
+corpus (esofago, vie biliari, palmitato e volume corrente). Il caso di
+spirometria sostituisce **l'intera frase errata**, senza lasciare in coda
+un frammento di testo che ne contraddice il significato. Non sono una
+correzione generica di tutta la fisiologia, anatomia e biochimica. Se il
+documento è cambiato o il passaggio non è univoco, lo stato è `BLOCKED`.
+Lo stato `REVIEW` significa **proposta da confrontare** con la dispensa
+originale e una fonte scientifica indipendente, non validazione.
+
+Il comando **non** scrive sopra riassunti, PDF, indici, manifest, cache,
+né sulle fonti originali. Non elimina i warning degli audit esistenti.
+Nessuna proposta può essere pubblicata automaticamente da questa CLI.
+
+## Segnalazione di affermazioni scientifiche sospette (read-only)
+
+Dopo un confronto tra i riassunti pubblicati e le dispense originali
+è emerso che un'affermazione numerica errata può essere introdotta nella
+**Completa** e propagata nell'**Essenziale** conservando tutti i numeri.
+I gate di copertura numerica non possono certificarne la correttezza.
+
+La CLI include un controllo prudente, offline e **non esaustivo** per un
+piccolo elenco di errori già verificati con fonti scientifiche:
+
+```powershell
+bc-science courses inspect-scientific-flags "C:\Studio\SCIENZE MOTORIE" --output-json "C:\BC-Science1\reports\scientific-flags\manual-review.json"
+```
+
+Per includere anche **bozze non pubblicate** generate dal comando
+`courses preview-essential`, indicare la directory che contiene il
+`preview-report.json` originale:
+
+```powershell
+bc-science courses inspect-scientific-flags "C:\Studio\SCIENZE MOTORIE" --preview-dir "C:\BC-Science1\reports\essential-preview\20261110-155540" --output-json "C:\BC-Science1\reports\scientific-flags\complete-and-preview.json"
+```
+
+I risultati delle bozze sono etichettati `Anteprima` e **non vengono
+confusi** con `Completa` o `Essenziale`. La CLI rifiuta anteprime esterne
+alla cartella del report e manifest riferiti ad altri corsi. In particolare,
+l'errore di spirometria riscontrato nella bozza di Fisiologia non era
+nell'elenco precedente perché quel controllo leggeva soltanto i sei
+documenti pubblicati: non equivale necessariamente a un falso negativo.
+
+Il report contiene materia, edizione, capitolo, stringa sospetta, hash del
+documento, regola e fonte esterna quando disponibile. Nessuna modifica a
+`riassunto-unico.md`, `riassunto-studio.md`, ai PDF, alle dispense o al manifest.
+L'assenza di segnalazioni **non** significa che un riassunto sia corretto.
+Un alert richiede riscontro manuale, non è una correzione automatica.
+
+Esempio scientifico: la sintesi del palmitato impiega **1 acetil-CoA
+iniziale + 7 malonil-CoA + 14 NADPH** nella reazione FAS; includendo
+la produzione dei malonil-CoA, il totale è **8 acetil-CoA + 7 ATP
++ 14 NADPH**. Riferimenti:
+[Reactome](https://reactome.org/content/detail/R-HSA-75872),
+[Lipid Metabolism (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC8411952/).
+La discrepanza nella Completa è un caso da risolvere dopo aver confrontato
+gli originali, la bibliografia scientifica e le modifiche proposte.
+Non cambiare direttamente i documenti originari eCampus.
+
+## Controllo di un'affermazione nelle dispense originali
+
+Per verificare una possibile inesattezza presente nell'Essenziale o nella
+Completa si può recuperare l'evidenza originale con la CLI:
+
+```powershell
+bc-science courses inspect-claim "C:\\Studio\\SCIENZE MOTORIE" --subject "ANATOMIA" --chapter "Midollo spinale" --claim "Dal midollo spinale si originano 31 paia di nervi spinali."
+```
+
+La ricerca riutilizza la cache delle fonti originali con i relativi SHA256
+convalidati (FTS5/BM25 o fallback lessicale), restituendo nome del documento,
+pagina se disponibile, oppure blocco e passaggio pertinente. Nessuna
+chiamata a modelli o rete; non rigenera dispense, riassunti o PDF. La cache
+dell'indice delle prove può essere popolata localmente.
+
+Una corrispondenza lessicale **non** prova la verità scientifica del testo
+recuperato, né certifica che la frase sia correttamente giustificata. Se non
+emerge una corrispondenza, questo non dimostra che il fatto manchi nei PDF:
+potrebbe essere espresso diversamente, oppure non disponibile nella cache.
+
+## Anteprima Essenziale non distruttiva — audit del corpus reale
+
+Quando una versione Essenziale è troppo lunga oppure non copre fatti critici,
+non utilizzare subito `courses build` (può elaborare l'intero corso).
+Usa la funzione **read-only rispetto ai materiali pubblicati**:
+
+```powershell
+bc-science courses preview-essential "C:\Studio\SCIENZE MOTORIE" --output-dir "C:\BC-Science1\reports\essenziale-preview-01"
+bc-science courses preview-essential "C:\Studio\SCIENZE MOTORIE" --subject "ANATOMIA" --output-dir "C:\BC-Science1\reports\anteprima-anatomia-01"
+```
+
+Il comando confronta le bozze estrattive generate offline con i file
+esistenti, riutilizza i capitoli della Completa **solo se gli hash e il
+manifest risultano verificati**, segnala eventuali fatti numerici e punti
+d'esame non coperti, e produce `preview-report.md`, `preview-report.json`
+e `*-anteprima.md` in una directory di report **nuova e isolata**.
+
+Le anteprime **non** sostituiscono `riassunto-studio.md` o i PDF, non
+ricreano indicizzazioni/OCR, non attivano Ollama, e non modificano il manifest
+né gli audit persistenti. `REVIEW` significa soltanto `da esaminare`, non
+un'approvazione scientifica; `BLOCKED` significa che il materiale non ha
+superato un gate tecnico. Una compressione maggiore non prova che tutte le
+nozioni essenziali siano preservate: confrontare i passaggi segnalati con
+la Completa e con i documenti originali prima di pubblicare.
+
+## BC Science Agent Mesh — 100 ruoli di verifica (0.9.19)
+
+Il registro `bc-science agents list` contiene **100 agenti verificatori diversi**,
+organizzati in dieci aree: fonti, manifest, mappa, Completa, PDF, Essenziale,
+PDF Essenziale, audit, ricerca e sicurezza. Sono verificatori deterministici,
+NON 100 istanze di LLM: niente chiamate cloud, nessun modello aggiuntivo,
+nessun costo di inferenza per questi controlli.
+
+```powershell
+bc-science agents list
+bc-science agents plan --task study --limit 24
+bc-science agents run "C:\\Studio\\SCIENZE MOTORIE" --task study
+bc-science agents run "C:\\Studio\\SCIENZE MOTORIE" --task publish --all --strict
+```
+
+Il coordinatore seleziona per task `ingest`, `summarize`, `study` o
+`publish`, dando priorità ai controlli di integrità. Lo stato per ciascuna
+regola è `PASS`, `WARN`, `FAIL`, `SKIP` (non verificabile)
+oppure `N/A` (controllo facoltativo esplicitamente disattivato).
+I controlli opzionali disattivati non vengono conteggiati come PASS e non
+penalizzano da soli gli obbligatori. Le anomalie `FAIL/WARN` vengono mostrate
+nella console con i fatti numerici mancanti, le motivazioni dell'audit e
+i primi nomi dei file identici per SHA256.
+Un controllo obbligatorio mancante impedisce di dichiarare un PASS aggregato;
+una selezione parziale non viene spacciata per una verifica completa.
+Ogni esecuzione produce `agent-report.json` e `agent-report.md` sotto
+`%LOCALAPPDATA%\\BCScience\\reports\\agent-mesh\\<TASK>`,
+oppure nella directory passata con `--output-dir`.
+
+Tutti i controlli sono **read-only**: non modificano le dispense o i riassunti.
+Il catalogo offre un livello aggiuntivo di diagnostica, non certifica
+scientificamente le spiegazioni. La modalità `--strict` termina con
+codice diverso da zero per `FAIL` o `INCOMPLETE`.
+
+L'architettura è costruita per introdurre in una fase successiva
+solo quando necessario agenti ragionatori Qwen locali, checkpoint e
+consenso umano per modifiche alle dispense.
+
 ## Verifica multi-materia offline — 0.9.18
 
 Il nuovo audit strutturale è indipendente dalla disciplina: funziona anche

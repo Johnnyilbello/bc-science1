@@ -9,10 +9,18 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .agent_mesh import available_agents, plan_agents, run_agents, write_agent_reports
+from .autonomous_claim_audit import run_claim_audit
 from .cache import CacheDB
 from .clarity import audit_novice_document
 from .config import AppConfig, app_home, resolve_ask_profile
-from .courses import audit_course, build_course, course_state, scan_courses
+from .courses import (
+    audit_course,
+    build_course,
+    course_state,
+    inspect_original_evidence,
+    scan_courses,
+)
 from .documents import iter_source_files
 from .finalizer import finalize_course_bundle, finalize_file
 from .hardware import detect_hardware, select_model_plan
@@ -22,11 +30,14 @@ from .model_manager import ensure_model_with_progress
 from .ollama_client import ChatResult, OllamaClient
 from .qa import answer
 from .retrieval_audit import DEFAULT_RETRIEVAL_CASES, evaluate_retrieval
+from .scientific_claim_flags import inspect_scientific_claims
+from .scientific_patch_drafts import prepare_scientific_correction_drafts
 from .scientific_research import (
     ResearchError,
     ScientificResearchBuilder,
     research_state,
 )
+from .study_preview import preview_essential_editions
 from .summarizer import Summarizer
 from .universal_audit import verify_courses, write_verification_reports
 
@@ -38,9 +49,11 @@ app = typer.Typer(
 models_app = typer.Typer(help="Gestione modelli locali.")
 courses_app = typer.Typer(help="Gestione multi-materia da una cartella radice.")
 research_app = typer.Typer(help="Approfondimenti scientifici separati oltre eCampus.")
+agents_app = typer.Typer(help="Orchestrazione offline di 100 agenti verificatori specializzati.")
 app.add_typer(models_app, name="models")
 app.add_typer(courses_app, name="courses")
 app.add_typer(research_app, name="research")
+app.add_typer(agents_app, name="agents")
 console = Console()
 
 
@@ -256,6 +269,103 @@ def research_build(
         "[green]Ricerca scientifica completata.[/] "
         f"{created} create/aggiornate · {reused} riutilizzate · {missing} senza riassunto"
     )
+
+
+@agents_app.command("list")
+def agents_list() -> None:
+    """Elenca i 100 agenti registrati, senza modelli o connessione."""
+    table = Table(title="BC Science — 100 verificatori specializzati")
+    table.add_column("ID")
+    table.add_column("Gruppo")
+    table.add_column("Fase")
+    table.add_column("Controllo")
+    for item in available_agents():
+        table.add_row(item.id, item.group, item.phase, item.title)
+    console.print(table)
+
+
+@agents_app.command("plan")
+def agents_plan(
+    task: Annotated[str, typer.Option("--task", help="ingest, summarize, study o publish")] = "study",
+    limit: Annotated[int, typer.Option("--limit", help="Massimo agenti nella selezione")] = 24,
+    all_agents: Annotated[bool, typer.Option("--all", help="Seleziona tutti i 100 agenti")] = False,
+) -> None:
+    """Mostra quali agenti verrebbero eseguiti senza avviarli."""
+    try:
+        selected = plan_agents(task, limit=limit, all_agents=all_agents)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(f"[bold]{len(selected)}/100 agenti[/] per '{task}'")
+    for item in selected:
+        console.print(f"[dim]{item.id}[/] · {item.title}")
+
+
+@agents_app.command("run")
+def agents_run(
+    root: Annotated[Path, typer.Argument(help="Cartella radice contenente le materie")],
+    task: Annotated[str, typer.Option("--task", help="ingest, summarize, study o publish")] = "study",
+    limit: Annotated[int, typer.Option("--limit", help="Numero di verificatori selezionati")] = 24,
+    all_agents: Annotated[bool, typer.Option("--all", help="Esegui tutti i 100 verificatori")] = False,
+    strict: Annotated[bool, typer.Option("--strict", help="Codice di errore se non PASS")] = False,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Directory per report JSON e Markdown"),
+    ] = None,
+) -> None:
+    """Esegue verifiche offline read-only con report e stato INCOMPLETE."""
+    try:
+        report = run_agents(root, task=task, limit=limit, all_agents=all_agents)
+        markdown_path, json_path = write_agent_reports(report, output_dir=output_dir)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    table = Table(title=f"BC Science — Agent Mesh · {report.status}")
+    table.add_column("Materia")
+    table.add_column("Esito")
+    table.add_column("PASS", justify="right")
+    table.add_column("WARN", justify="right")
+    table.add_column("FAIL", justify="right")
+    table.add_column("SKIP", justify="right")
+    table.add_column("N/A", justify="right")
+    for subject in report.subjects:
+        counts = {
+            status: sum(item.status == status for item in subject.results)
+            for status in ("PASS", "WARN", "FAIL", "SKIP", "N/A")
+        }
+        table.add_row(
+            subject.subject, subject.status,
+            *(str(counts[status]) for status in ("PASS", "WARN", "FAIL", "SKIP", "N/A")),
+        )
+    console.print(table)
+    findings = [
+        (subject.subject, item)
+        for subject in report.subjects
+        for item in subject.results
+        if item.status in {"FAIL", "WARN"}
+    ]
+    if findings:
+        console.print("[bold]Anomalie da verificare (nessun dato modificato):[/]")
+        for subject_name, item in findings[:15]:
+            console.print(
+                f"  {subject_name} · {item.agent_id} [{item.status}] "
+                f"{item.evidence}"
+            )
+        if len(findings) > 15:
+            console.print(
+                f"[dim]Altre {len(findings) - 15} anomalie nel report Markdown/JSON.[/]"
+            )
+    console.print(
+        f"[dim]{report.selected_agents}/{report.registered_agents} agenti selezionati; "
+        f"report: {markdown_path} · {json_path}[/]"
+    )
+    console.print(
+        "[dim]Controlli strutturali: nessuna certificazione scientifica;"
+        " SKIP non equivale a PASS.[/]"
+    )
+    if strict and report.status != "PASS":
+        raise typer.Exit(1)
 
 
 @courses_app.command("list")
@@ -483,6 +593,695 @@ def courses_audit(
         raise typer.Exit(1)
     if missing:
         console.print(f"[yellow]{missing} materie senza output auditabile.[/]")
+
+
+@courses_app.command("dual-agent-autofix")
+def courses_dual_agent_autofix(
+    root: Annotated[Path, typer.Argument(help="Radice dispense originali")],
+    subject: Annotated[str, typer.Option("--subject", help="Materia esatta")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo capitolo esatto")],
+    edition: Annotated[
+        str, typer.Option("--edition", help="Completa, Essenziale o Anteprima"),
+    ] = "Completa",
+    max_claims: Annotated[
+        int, typer.Option("--max-claims", help="Affermazioni da verificare (1-8)"),
+    ] = 4,
+    local_model: Annotated[
+        str, typer.Option("--local-model", help="Diagnostico locale; MiniCPM5-2B di default"),
+    ] = "openbmb/minicpm5-2b",
+    max_rounds: Annotated[
+        int, typer.Option("--max-rounds", help="Iterazioni per proposta (1 o 2)"),
+    ] = 2,
+    preview_dir: Annotated[
+        Path | None, typer.Option("--preview-dir", help="Manifest anteprime autorizzate"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="NUOVA directory di revisione"),
+    ] = None,
+    allow_cloud_excerpts: Annotated[
+        bool,
+        typer.Option(
+            "--allow-cloud-excerpts",
+            help="Consenti di inviare a Nemotron brevi estratti didattici NVIDIA",
+        ),
+    ] = False,
+) -> None:
+    """MiniCPM/Qwen locale + Nemotron NVIDIA, proposte isolate non pubblicate."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    from .dual_agent_autofix import (
+        NemotronNvidia,
+        nvidia_key_from_environment,
+        run_dual_repair,
+        save_dual_repair,
+    )
+    from .scientific_patch_drafts import _allowed_documents
+
+    if not allow_cloud_excerpts:
+        console.print(
+            "[red]Non eseguito: --allow-cloud-excerpts è obbligatorio.[/]"
+        )
+        console.print(
+            "[dim]Nemotron riceverà affermazioni ed estratti ridotti delle "
+            "dispense (non PDF completi), dopo consenso esplicito.[/]"
+        )
+        raise typer.Exit(2)
+    if (
+        edition not in {"Completa", "Essenziale", "Anteprima"}
+        or not subject.strip() or not chapter.strip()
+        or not 1 <= max_claims <= 8
+        or max_rounds not in {1, 2}
+        or (edition == "Anteprima" and preview_dir is None)
+    ):
+        console.print("[red]Edizione, materia, capitolo o limiti non validi.[/]")
+        raise typer.Exit(2)
+    config = _config()
+    endpoint = urlsplit(config.ollama_url)
+    if (
+        endpoint.scheme != "http"
+        or endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or endpoint.username is not None or endpoint.password is not None
+    ):
+        console.print("[red]Il modello deve essere eseguito solo via Ollama locale.[/]")
+        raise typer.Exit(2)
+    client = OllamaClient(config.ollama_url)
+    if not client.available():
+        console.print("[red]Ollama non disponibile in localhost.[/]")
+        raise typer.Exit(2)
+    model = local_model
+    if not model or len(model) > 128 or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/"
+        for char in model
+    ):
+        console.print("[red]Modello locale non valido.[/]")
+        raise typer.Exit(2)
+    try:
+        installed = client.models()
+        if model not in installed and f"{model}:latest" not in installed:
+            raise ValueError(f"Modello locale non installato: {model}; usare ollama pull")
+        # Only the fixed NVIDIA Developer Program endpoint is allowed.
+        reviewer = NemotronNvidia(nvidia_key_from_environment(), max_calls=16)
+        scans = [scan for scan in scan_courses(root) if scan.name == subject]
+        if len(scans) != 1:
+            raise ValueError("Materia assente o non univoca")
+        scan = scans[0]
+        documents = _allowed_documents(root, preview_dir)
+        source = documents.get((subject, edition))
+        if source is None or not source.is_file():
+            raise ValueError("Documento della materia non disponibile")
+        document = source.read_text(encoding="utf-8")
+        if output_dir is None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+            output_dir = (
+                app_home() / "reports" / "local-nemotron" / stamp
+            )
+
+        def lookup(claim: str) -> list:
+            original = inspect_original_evidence(
+                scan, chapter,
+                edition=(
+                    "essential" if edition == "Essenziale" else "complete"
+                ),
+                claim=claim,
+            )
+            from .evidence_engine import OriginalEvidence
+
+            return [OriginalEvidence(**item) for item in original["evidence"]]
+
+        def local_chat(messages: list[dict[str, str]]) -> str:
+            return client.chat(
+                model, messages, num_ctx=min(config.num_ctx, 8192),
+                num_predict=900, temperature=0.0, think=False,
+                format_json=True,
+            )
+
+        def progress(index: int, total: int, state: str) -> None:
+            console.print(f"[dim]{index}/{total} · {state}[/]")
+
+        report = run_dual_repair(
+            document, chapter, max_claims=max_claims, max_rounds=max_rounds,
+            find_evidence=lookup, local_chat=local_chat, cloud_chat=reviewer,
+            progress=progress,
+        )
+        report.update({
+            "subject": subject,
+            "edition": edition,
+            "model_local": model,
+            "model_reviewer": "nvidia/nemotron-3-super-120b-a12b",
+            "nemotron_requests": reviewer.used_calls,
+            "source_path": str(source),
+            "cloud_consent": allow_cloud_excerpts,
+            "independent_scientific_verification": False,
+        })
+        destination = save_dual_repair(
+            report, document, output_dir,
+            source_root=root,
+            published_root=app_home() / "outputs",
+        )
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+        console.print(f"[red]Review doppio non completato: {exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(
+        f"[green]Qwen + Nemotron · report:[/] {destination}"
+    )
+    console.print(
+        f"[yellow]Richieste Nemotron: {reviewer.used_calls}. "
+        f"Proposte isolate: {len(report['proposals'])}. "
+        "Nessuna modifica live, nessuna pubblicazione.[/]"
+    )
+
+
+@courses_app.command("auto-audit-claims")
+def courses_auto_audit_claims(
+    root: Annotated[Path, typer.Argument(help="Cartella radice delle materie")],
+    subject: Annotated[str, typer.Option("--subject", help="Materia esatta")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo esatto del capitolo")],
+    edition: Annotated[
+        str, typer.Option("--edition", help="Completa, Essenziale o Anteprima"),
+    ] = "Completa",
+    max_claims: Annotated[
+        int, typer.Option("--max-claims", help="Affermazioni campione (1-30)"),
+    ] = 8,
+    model_override: Annotated[
+        str | None,
+        typer.Option("--model", help="Modello locale Ollama, es. openbmb/minicpm5-2b"),
+    ] = None,
+    evidence_mode: Annotated[
+        str,
+        typer.Option("--evidence-mode", help="legacy oppure spans (ID citazioni originali)"),
+    ] = "legacy",
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Manifest della bozza se edizione Anteprima"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="Nuovo report isolato"),
+    ] = None,
+) -> None:
+    """Esamina le affermazioni con un modello Ollama locale configurabile."""
+    from datetime import datetime, timezone
+    from urllib.parse import urlsplit
+
+    from .evidence_engine import OriginalEvidence
+    from .scientific_patch_drafts import _allowed_documents
+
+    if edition not in {"Completa", "Essenziale", "Anteprima"}:
+        console.print("[red]Edizione non valida.[/]")
+        raise typer.Exit(2)
+    if not 1 <= max_claims <= 30 or not chapter.strip():
+        console.print("[red]Capitolo o quantità di affermazioni non validi.[/]")
+        raise typer.Exit(2)
+    if evidence_mode not in {"legacy", "spans"}:
+        console.print("[red]--evidence-mode deve essere legacy o spans.[/]")
+        raise typer.Exit(2)
+    if edition == "Anteprima" and preview_dir is None:
+        console.print("[red]Anteprima richiede --preview-dir.[/]")
+        raise typer.Exit(2)
+
+    config = _config()
+    endpoint = urlsplit(config.ollama_url)
+    if (
+        endpoint.scheme != "http"
+        or endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}
+        or endpoint.username is not None or endpoint.password is not None
+    ):
+        console.print("[red]Audit consentito solo con Ollama in localhost.[/]")
+        raise typer.Exit(2)
+    client = OllamaClient(config.ollama_url)
+    if not client.available():
+        console.print("[red]Ollama locale non disponibile. Nessun modello cloud usato.[/]")
+        raise typer.Exit(2)
+    model = model_override or config.generation_model
+    if not model or len(model) > 128 or any(
+        char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/"
+        for char in model
+    ):
+        console.print("[red]Modello locale non valido.[/]")
+        raise typer.Exit(2)
+    try:
+        installed = client.models()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Impossibile controllare Ollama: {exc}[/]")
+        raise typer.Exit(2) from exc
+    if model not in installed and f"{model}:latest" not in installed:
+        console.print(f"[red]Modello locale non installato: {model}[/]")
+        raise typer.Exit(2)
+
+    try:
+        matches = [scan for scan in scan_courses(root) if scan.name == subject]
+        if len(matches) != 1:
+            raise ValueError("Materia non trovata in modo univoco")
+        scan = matches[0]
+        documents = _allowed_documents(root, preview_dir)
+        source = documents.get((subject, edition))
+        if source is None or not source.is_file():
+            raise ValueError("Riassunto non disponibile per questa edizione")
+        document = source.read_text(encoding="utf-8")
+
+        def retrieve(claim: str) -> list[OriginalEvidence]:
+            source_report = inspect_original_evidence(
+                scan, chapter,
+                edition="complete" if edition in {"Completa", "Anteprima"} else "essential",
+                claim=claim,
+            )
+            return [
+                OriginalEvidence(**item) for item in source_report["evidence"]
+            ]
+
+        def query(messages: list[dict[str, str]]) -> str:
+            is_critic = (
+                bool(messages)
+                and "PAROLE_NON_COPERTE_DALLE_CITAZIONI_PRECEDENTI:"
+                in messages[-1].get("content", "")
+            )
+            return client.chat(
+                model, messages,
+                num_ctx=min(config.num_ctx, 8192),
+                num_predict=1100 if is_critic else 500,
+                temperature=0.0, think=False, format_json=True,
+            )
+
+        def progress(index: int, total: int, state: str) -> None:
+            console.print(f"[dim]{index}/{total} · {state}[/]")
+
+        report = run_claim_audit(
+            document, chapter, max_claims=max_claims,
+            find_evidence=retrieve, chat=query, progress=progress,
+            evidence_mode=evidence_mode,
+        )
+        report.update({
+            "subject": subject, "edition": edition, "source_path": str(source),
+            "model": model, "source_kind": "original_course_cache",
+            "independent_scientific_verification": False,
+        })
+        if output_dir is None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+            output_dir = app_home() / "reports" / "autonomous-claims" / stamp
+        target = output_dir.expanduser().resolve()
+        sources = root.expanduser().resolve()
+        live = (app_home() / "outputs").resolve()
+        preview = preview_dir.expanduser().resolve() if preview_dir else None
+        if (
+            target == sources or target.is_relative_to(sources)
+            or sources.is_relative_to(target)
+            or target == live or target.is_relative_to(live)
+            or live.is_relative_to(target)
+            or (preview is not None and (
+                target == preview or target.is_relative_to(preview)
+                or preview.is_relative_to(target)
+            ))
+        ):
+            raise ValueError("La destinazione deve essere esterna a fonti e output live")
+        target.mkdir(parents=True, exist_ok=False)
+        (target / "report.json").write_text(
+            json.dumps(report, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        lines = [
+            "# BC Science — audit autonomo SPERIMENTALE", "",
+            f"Materia: {subject} · {edition} · {chapter}", "",
+            "Verdetti del modello non sono una certificazione scientifica.", "",
+            f"Modello: {model}",
+            f"Modalità prove: {evidence_mode}", "",
+            (
+                "Fonti individuate mediante ID, ma non accettate come prova: "
+                f"{report['source_pointer_candidates']}"
+            ),
+            (
+                "Controprove con secondo controllo logico: "
+                f"{report['source_pointer_contradictions_reviewed']}"
+            ), "",
+        ]
+        for item in report["claims"]:
+            critic = item.get("independent_challenge") or {}
+            pointer_check = item.get("source_pointer_review") or {}
+            lines.extend([
+                f"## {item['status']}",
+                f"Affermazione: {item['claim']['text']}",
+                f"Motivo: {item['rationale']}",
+                f"Citazioni validate: {len(item['quotes'])}",
+                f"Diagnostica: {item.get('diagnostic', 'N/A')}",
+                f"Passaggi originali offerti: {item.get('evidence_spans_count', 'N/A')}",
+                f"Etichetta iniziale non verificata: {item.get('raw_model_label', 'N/A')}",
+                (
+                    "Fonte originale recuperata da puntatore, non una prova: "
+                    f"{len(item.get('source_pointer_candidates', []))}"
+                ),
+                (
+                    "Controllo logico sul puntatore: "
+                    f"{pointer_check.get('relationship', 'N/A')}"
+                ),
+                (
+                    "Parafrasi candidata (NON approvata): "
+                    f"{bool(critic.get('semantic_support_candidate', False))}"
+                ),
+                f"Componenti semantiche: {len(critic.get('facets', []))}",
+                f"Revisore diagnostica: {critic.get('diagnostic', 'N/A')}",
+                f"Lunghezza risposta revisore: {critic.get('response_chars', 0)}",
+                "",
+            ])
+        (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        console.print(f"[red]Audit autonomo non completato: {exc}[/]")
+        raise typer.Exit(2) from exc
+    console.print(
+        f"[dim]Parafrasi semantiche candidate, non approvate: "
+        f"{report['semantic_support_candidates']}[/]"
+    )
+    console.print(f"[green]Report audit autonomo:[/] {target}")
+    console.print(
+        "[yellow]Nessun riassunto corretto o pubblicato. "
+        "Le prove sono tratte dalle dispense, che possono contenere errori.[/]"
+    )
+
+
+@courses_app.command("draft-scientific-corrections")
+def courses_draft_scientific_corrections(
+    root: Annotated[Path, typer.Argument(help="Radice delle materie")],
+    audit_json: Annotated[
+        Path, typer.Option("--audit-json", help="Report inspect-scientific-flags esistente"),
+    ],
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", help="Nuova cartella revisioni isolata"),
+    ] = None,
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Cartella anteprime autorizzate dal manifest"),
+    ] = None,
+) -> None:
+    """Crea bozze scientifiche con SHA256 verificato; non pubblica nulla."""
+    from datetime import datetime, timezone
+
+    if output_dir is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_dir = app_home() / "reports" / "scientific-correction-drafts" / stamp
+    try:
+        report = prepare_scientific_correction_drafts(
+            root, audit_json, output_dir, preview_dir=preview_dir,
+        )
+    except (OSError, ValueError, TypeError, UnicodeError) as exc:
+        console.print(f"[red]Impossibile creare bozze: {exc}[/]")
+        raise typer.Exit(2) from exc
+    counts: dict[str, int] = {}
+    for item in report["proposals"]:
+        counts[item["state"]] = counts.get(item["state"], 0) + 1
+        console.print(
+            f"  {item['subject']} · {item['edition']}: "
+            f"{item['state']} ({item['reason']})"
+        )
+    console.print(
+        f"[yellow]Bozze da controllare: {counts.get('REVIEW', 0)} · "
+        f"Bloccate: {counts.get('BLOCKED', 0)}[/]"
+    )
+    console.print(f"[green]Report e differenze:[/] {report['report_dir']}")
+    console.print(
+        "[dim]Nessuna modifica alle dispense, alle due versioni pubblicate, "
+        "ai PDF o ai manifest. Non equivale a verifica scientifica.[/]"
+    )
+
+
+@courses_app.command("inspect-scientific-flags")
+def courses_inspect_scientific_flags(
+    root: Annotated[Path, typer.Argument(help="Cartella con le materie")],
+    output_json: Annotated[
+        Path | None,
+        typer.Option("--output-json", help="Nuovo report JSON ASCII-safe, fuori dagli output live"),
+    ] = None,
+    preview_dir: Annotated[
+        Path | None,
+        typer.Option("--preview-dir", help="Includi le bozze da un preview-report.json esistente"),
+    ] = None,
+) -> None:
+    """Segnala un piccolo insieme di anomalie scientifiche note; non corregge."""
+    import hashlib
+    from dataclasses import asdict
+    from datetime import datetime, timezone
+
+    from .courses import course_output_path, course_study_output_path
+
+    records = []
+    total_files = 0
+    try:
+        scans = scan_courses(root)
+        preview_paths: dict[str, Path] = {}
+        if preview_dir is not None:
+            base = preview_dir.expanduser().resolve()
+            source = base / "preview-report.json"
+            preview_report = json.loads(source.read_text(encoding="utf-8"))
+            if (
+                not isinstance(preview_report, dict)
+                or preview_report.get("schema") != "bc-science-essential-preview-v1"
+                or not isinstance(preview_report.get("root"), str)
+                or Path(preview_report["root"]).resolve() != root.expanduser().resolve()
+                or not isinstance(preview_report.get("report_dir"), str)
+                or Path(preview_report["report_dir"]).resolve() != base
+                or not isinstance(preview_report.get("subjects"), list)
+            ):
+                raise ValueError("Manifest anteprime non valido o relativo a materie diverse.")
+            subjects = {scan.name.casefold() for scan in scans}
+            for item in preview_report["subjects"]:
+                if not isinstance(item, dict):
+                    raise TypeError("Riga anteprima non valida.")
+                subject = item.get("subject")
+                filename = item.get("preview_path")
+                if not isinstance(subject, str) or subject.casefold() not in subjects:
+                    raise ValueError("Materia anteprima sconosciuta.")
+                if not filename:
+                    continue  # Materia senza bozza: BLOCKED senza file
+                if not isinstance(filename, str):
+                    raise TypeError("Percorso bozza non valido.")
+                draft = Path(filename).resolve()
+                if (
+                    not draft.is_relative_to(base)
+                    or draft.suffix.casefold() != ".md"
+                    or not draft.is_file()
+                ):
+                    raise ValueError("Bozza esterna o mancante: lettura non consentita.")
+                if subject.casefold() in preview_paths:
+                    raise ValueError("Materia duplicata nel manifest anteprime.")
+                preview_paths[subject.casefold()] = draft
+
+        for scan in scans:
+            editions = [
+                ("Completa", course_output_path(scan)),
+                ("Essenziale", course_study_output_path(scan)),
+            ]
+            draft = preview_paths.get(scan.name.casefold())
+            if draft is not None:
+                editions.append(("Anteprima", draft))
+            for edition, path in editions:
+                if not path.is_file():
+                    continue
+                content = path.read_text(encoding="utf-8")
+                total_files += 1
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                for finding in inspect_scientific_claims(content):
+                    records.append({
+                        "subject": scan.name,
+                        "edition": edition,
+                        "path": str(path),
+                        "document_sha256": digest,
+                        **asdict(finding),
+                    })
+    except (ValueError, OSError, UnicodeError, TypeError) as exc:
+        console.print(f"[red]Analisi non eseguibile: {exc}[/]")
+        raise typer.Exit(2) from exc
+
+    if output_json is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_json = app_home() / "reports" / "scientific-flags" / (
+            stamp + ".json"
+        )
+    try:
+        target = output_json.expanduser().resolve()
+        source_root = root.expanduser().resolve()
+        live_root = (app_home() / "outputs").resolve()
+        if (
+            target == source_root or target.is_relative_to(source_root)
+            or target == live_root or target.is_relative_to(live_root)
+        ):
+            raise ValueError("Il report deve essere fuori dalle dispense e dagli output live.")
+        if target.exists():
+            raise ValueError("Il report esiste già: sovrascrittura vietata.")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "bc-science-known-scientific-flags-v1",
+            "scope": "regole note documentate, nessuna certificazione completa",
+            "scanned_files": total_files,
+            "flags": records,
+        }
+        with target.open("x", encoding="ascii") as stream:
+            stream.write(json.dumps(payload, ensure_ascii=True, indent=2))
+            stream.write("\n")
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Impossibile salvare report: {exc}[/]")
+        raise typer.Exit(2) from exc
+
+    console.print(
+        f"[yellow]Possibili anomalie scientifiche documentate: {len(records)}[/]"
+        f" · documenti esaminati: {total_files}"
+    )
+    counts: dict[tuple[str, str], int] = {}
+    for row in records:
+        key = (row["subject"], row["edition"])
+        counts[key] = counts.get(key, 0) + 1
+    for (subject, edition), count in sorted(counts.items()):
+        console.print(f"  {subject} · {edition}: {count}")
+    console.print(f"[green]Report JSON:[/] {target}")
+    console.print(
+        "[dim]Un risultato senza anomalie non equivale a correttezza scientifica. "
+        "Queste sono soltanto regole mirate e documentate. Nessun testo modificato.[/]"
+    )
+
+
+@courses_app.command("inspect-claim")
+def courses_inspect_claim(
+    root: Annotated[Path, typer.Argument(help="Cartella con le materie")],
+    subject: Annotated[str, typer.Option("--subject", help="Nome esatto della materia")],
+    chapter: Annotated[str, typer.Option("--chapter", help="Titolo del capitolo")],
+    claim: Annotated[str, typer.Option("--claim", help="Affermazione da verificare (testo, non una domanda)")],
+    output_json: Annotated[
+        Path | None,
+        typer.Option("--output-json", help="Salva evidenze complete in JSON UTF-8 ASCII-safe"),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", help="Non stampa gli estratti originali nella console"),
+    ] = False,
+) -> None:
+    """Ricerca prova originale locale per un'affermazione; non certifica la verità."""
+    try:
+        scans = scan_courses(root)
+        matches = [scan for scan in scans if scan.name.casefold() == subject.casefold()]
+        if len(matches) != 1:
+            raise ValueError(f"Materia non trovata univocamente: {subject}")
+        report = inspect_original_evidence(
+            matches[0], chapter, edition="complete", claim=claim,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+    if quiet and output_json is None:
+        console.print("[red]--quiet richiede --output-json per non perdere i risultati.[/]")
+        raise typer.Exit(2)
+    if output_json is not None:
+        try:
+            target = output_json.expanduser().resolve()
+            source_root = root.expanduser().resolve()
+            live_root = (app_home() / "outputs").resolve()
+            if (
+                target == source_root or target.is_relative_to(source_root)
+                or target == live_root or target.is_relative_to(live_root)
+            ):
+                raise ValueError(
+                    "Il report JSON deve essere fuori dalle fonti e dagli output pubblicati."
+                )
+            if target.exists():
+                raise ValueError("Report JSON già esistente: nessuna sovrascrittura.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            pending = target.with_name(target.name + ".pending")
+            if pending.exists():
+                raise ValueError("File temporaneo già presente: nessuna sovrascrittura.")
+            payload = json.dumps(report, ensure_ascii=True, indent=2) + "\n"
+            try:
+                with pending.open("x", encoding="ascii") as stream:
+                    stream.write(payload)
+                pending.replace(target)
+            finally:
+                pending.unlink(missing_ok=True)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Impossibile salvare evidenze JSON: {exc}[/]")
+            raise typer.Exit(2) from exc
+    if quiet:
+        return
+    console.print(f"[bold]Affermazione:[/] {report['claim']}")
+    console.print(f"[bold]Materia e capitolo:[/] {subject} · {chapter}")
+    console.print(f"[bold]Esito ricerca:[/] {report['status']}")
+    evidence = report["evidence"]
+    if not evidence:
+        console.print(
+            "[yellow]Nessun passaggio trovato nella cache originale: "
+            "non equivale a prova dell'assenza né a conferma dell'errore.[/]"
+        )
+    for item in evidence:
+        place = (
+            f"pagina {item['page']}" if item.get("page") is not None
+            else f"blocco {item['block']}" if item.get("block") is not None
+            else "posizione non disponibile"
+        )
+        console.print(f"\\n[bold]{Path(item['source_path']).name} · {place}[/]")
+        console.print(item["excerpt"])
+    console.print(
+        "[dim]Risultato di recupero lessicale dalle fonti originali con "
+        "hash verificato. Un passaggio simile NON valida la sua correttezza "
+        "scientifica né dimostra che supporti l'affermazione.[/]"
+    )
+
+
+@courses_app.command("preview-essential")
+def courses_preview_essential(
+    root: Annotated[
+        Path,
+        typer.Argument(help="Cartella radice con le materie"),
+    ],
+    subject: Annotated[
+        str | None,
+        typer.Option("--subject", help="Materia singola; omettere per tutte"),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Cartella isolata anteprime; mai output live"),
+    ] = None,
+) -> None:
+    """Crea solo bozze estrattive, senza alterare gli output pubblicati."""
+    from datetime import datetime, timezone
+
+    if output_dir is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        output_dir = app_home() / "reports" / "essential-preview" / stamp
+    try:
+        result = preview_essential_editions(
+            root, output_dir, subject=subject,
+        )
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    table = Table(title="BC Science — Anteprime Essenziali NON PUBBLICATE")
+    table.add_column("Materia")
+    table.add_column("Stato")
+    table.add_column("Parole oggi", justify="right")
+    table.add_column("Parole bozza", justify="right")
+    table.add_column("Compress.", justify="right")
+    table.add_column("Numerici?", justify="right")
+    table.add_column("Esame?", justify="right")
+    for item in result.subjects:
+        table.add_row(
+            item.subject, item.state,
+            str(item.existing_essential_words or "—"),
+            str(item.candidate_words or "—"),
+            (
+                f"{item.candidate_compression_percent:.1f}%"
+                if item.candidate_compression_percent is not None else "—"
+            ),
+            (
+                str(item.candidate_missing_numeric)
+                if item.candidate_missing_numeric is not None else "—"
+            ),
+            (
+                str(item.candidate_missing_exam)
+                if item.candidate_missing_exam is not None else "—"
+            ),
+        )
+    console.print(table)
+    console.print(
+        f"[dim]Anteprime e diagnostica: {result.report_dir}[/]"
+    )
+    console.print(
+        "[yellow]NON pubblicate. Nessun file live modificato. "
+        "Fatti e comprensione da validare manualmente sulle dispense.[/]"
+    )
 
 
 @courses_app.command("build")

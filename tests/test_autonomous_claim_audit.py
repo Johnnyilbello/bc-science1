@@ -1,0 +1,844 @@
+"""Generic claim-verification mechanics, not a claim of LLM scientific accuracy."""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from bc_science.autonomous_claim_audit import (
+    extract_claim_candidates,
+    run_claim_audit,
+    verify_claim_with_evidence,
+)
+from bc_science.evidence_engine import OriginalEvidence
+
+
+def _course(title: str, text: str) -> str:
+    return (
+        "# Materia\n\n## Indice degli argomenti\n"
+        "- " + title + "\n\n---\n\n## " + title + "\n\n" + text
+    )
+
+
+def _source(text: str, *, name: str = "source.pdf", page: int = 2):
+    return OriginalEvidence(
+        source_path=name,
+        page=page,
+        block=None,
+        excerpt=text,
+        provenance="cached_page",
+        rank=1,
+    )
+
+
+def test_candidate_extraction_is_independent_of_four_hardcoded_errors():
+    content = _course(
+        "Fisica generale",
+        "L'acqua pura bolle a 80 gradi Celsius alla pressione di 1 atmosfera. "
+        "Il magnete esercita una forza su alcuni materiali ferromagnetici. "
+        "Non tutte le forze hanno uguale direzione.",
+    )
+    candidates = extract_claim_candidates(content, "Fisica generale", limit=8)
+    assert len(candidates) == 3
+    assert candidates[0].category == "quantity"
+    assert any("80 gradi Celsius" in c.text for c in candidates)
+    assert all(len(c.claim_sha256) == 64 for c in candidates)
+
+
+def test_provisional_contradiction_needs_real_source_quote():
+    claim = extract_claim_candidates(_course(
+        "Fisica", "L'acqua pura bolle a 80 gradi Celsius a 1 atmosfera."
+    ), "Fisica")[0]
+    ev = _source(
+        "Alla pressione atmosferica standard l'acqua pura bolle "
+        "a circa 100 gradi Celsius.",
+    )
+    answers = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "80 e 100 gradi non coincidono nello stesso contesto",
+            "quotes": [{
+                "source": ev.source_path,
+                "page": ev.page,
+                "block": ev.block,
+                "quote": "l'acqua pura bolle a circa 100 gradi Celsius",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "Il punto di ebollizione diverge nella stessa condizione.",
+            "quote_id": 1,
+            "claim_span": "bolle a 80 gradi Celsius",
+            "counter_span": "l'acqua pura bolle a circa 100 gradi Celsius",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [ev], lambda _messages: next(answers),
+    )
+    assert result["status"] == "SUSPECTED_CONTRADICTION"
+    assert result["quotes"]
+    assert result["claim"]["chapter"] == "Fisica"
+
+
+def test_hallucinated_quote_is_refused_not_approved():
+    claim = extract_claim_candidates(
+        _course("Storia", "La battaglia si concluse nell'anno 1540."),
+        "Storia",
+    )[0]
+    ev = _source("La battaglia si concluse nell'anno 1541.")
+    response = json.dumps({
+        "label": "CONTRADICTED", "rationale": "Anno errato",
+        "quotes": [{
+            "source": ev.source_path, "page": ev.page, "block": ev.block,
+            "quote": "La battaglia si concluse nell'anno 1540.",
+        }],
+    })
+    verdict = verify_claim_with_evidence(claim, [ev], lambda _m: response)
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["model_label"] == "INVALID"
+
+
+def test_supported_label_is_provisional_and_source_can_be_wrong():
+    claim = extract_claim_candidates(
+        _course("Biologia", "L'esempio attribuisce 14 ATP alla sintesi del palmitato."),
+        "Biologia",
+    )[0]
+    ev = _source("Nel testo di lezione si riportano 14 ATP per la sintesi del palmitato.")
+    result = verify_claim_with_evidence(
+        claim, [ev],
+        lambda _m: json.dumps({
+            "label": "SUPPORTED", "rationale": "Presente nella dispensa",
+            "quotes": [{
+                "source": ev.source_path, "page": ev.page, "block": ev.block,
+                "quote": "14 ATP per la sintesi del palmitato",
+            }],
+        }),
+    )
+    assert result["status"] == "PROVISIONALLY_SUPPORTED"
+    assert result["limitations"].startswith("Giudizio locale fallibile")
+
+
+def test_source_conflict_requires_two_verifiable_distinct_passages():
+    claim = extract_claim_candidates(
+        _course("Biologia", "Le riduzioni richiedono NADPH nella sintesi dei lipidi."),
+        "Biologia",
+    )[0]
+    ev1 = _source("La sintesi degli acidi grassi richiede NADPH per le riduzioni.")
+    ev2 = _source(
+        "La seconda riduzione usa NADH come donatore di elettroni.",
+        name="other.pdf",
+    )
+    response = lambda _messages: json.dumps({
+        "label": "SOURCE_CONFLICT", "rationale": "NADPH oppure NADH",
+        "quotes": [
+            {"source": ev1.source_path, "page": ev1.page, "block": ev1.block,
+             "quote": "La sintesi degli acidi grassi richiede NADPH"},
+            {"source": ev2.source_path, "page": ev2.page, "block": ev2.block,
+             "quote": "La seconda riduzione usa NADH"},
+        ],
+    })
+    verdict = verify_claim_with_evidence(claim, [ev1, ev2], response)
+    assert verdict["status"] == "SOURCE_CONFLICT"
+
+
+def test_no_evidence_does_not_call_model_or_claim_success():
+    content = _course("Diritto", "Il diritto si divide in due rami fondamentali.")
+    calls = []
+    result = run_claim_audit(
+        content, "Diritto", max_claims=8,
+        find_evidence=lambda _claim: [],
+        chat=lambda m: calls.append(m) or '{"label":"SUPPORTED"}',
+    )
+    assert calls == []
+    assert result["claims_total"] == 1
+    assert result["claims"][0]["status"] == "UNVERIFIED"
+    assert result["complete_scientific_validation"] is False
+    assert result["published_modified"] is False
+
+
+def test_invalid_sample_size_and_invalid_chapter_fail_closed():
+    text = _course("Storia", "La storia umana comprende molti eventi.")
+    with pytest.raises(ValueError, match="limit"):
+        extract_claim_candidates(text, "Storia", limit=31)
+    with pytest.raises(ValueError, match="assente"):
+        extract_claim_candidates(text, "Fisica")
+
+
+def test_generic_selection_includes_self_loop_despite_many_numbers():
+    text = _course(
+        "Geografia",
+        "La capitale del paese A ha 10 milioni di abitanti. "
+        "Il paese B ha 20 milioni di abitanti. "
+        "Il lago è profondo 300 metri. "
+        "Il fiume è lungo 250 chilometri. "
+        "La rotta percorre la tratta da Torino a Torino. "
+        "Il percorso non può essere completato per mancanza di ponti.",
+    )
+    claims = extract_claim_candidates(text, "Geografia", limit=3)
+    assert len(claims) == 3
+    assert any("Torino a Torino" in x.text for x in claims)
+    assert any(x.category == "quantity" for x in claims)
+    assert any(x.category == "negation" for x in claims)
+
+
+def test_generic_risk_detects_multiple_quantities_with_no_subject_specific_rule():
+    text = _course(
+        "Economia",
+        "Il bilancio richiede 7 unità di riserva, 14 di spesa, "
+        "22 di investimento e 6 di accantonamento. "
+        "Un trimestre dura 3 mesi.",
+    )
+    claims = extract_claim_candidates(text, "Economia", limit=1)
+    assert len(claims) == 1
+    assert "7 unità" in claims[0].text
+    assert claims[0].priority == 5
+
+
+def test_short_evidence_id_is_resolved_to_real_original_provenance():
+    claim = extract_claim_candidates(
+        _course("Astronomia", "Marte è il terzo pianeta dal Sole."),
+        "Astronomia",
+    )[0]
+    original = _source(
+        "Nella classificazione astronomica Marte è il quarto pianeta dal Sole.",
+        name="astro.pdf",
+        page=9,
+    )
+    answers = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Terzo e quarto non coincidono.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Marte è il quarto pianeta dal Sole",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "Il medesimo pianeta non può avere due ordini orbitali.",
+            "quote_id": 1,
+            "claim_span": "Marte è il terzo pianeta dal Sole",
+            "counter_span": "Marte è il quarto pianeta dal Sole",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [original], lambda _messages: next(answers),
+    )
+    assert result["status"] == "SUSPECTED_CONTRADICTION"
+    assert result["quotes"] == [{
+        "source": "astro.pdf",
+        "page": 9,
+        "block": None,
+        "quote": "Marte è il quarto pianeta dal Sole",
+    }]
+
+
+def test_out_of_range_source_id_fails_closed():
+    claim = extract_claim_candidates(
+        _course("Fisica", "La massa è una proprietà dei corpi."),
+        "Fisica",
+    )[0]
+    original = _source("La massa è una proprietà dei corpi materiali.")
+    response = lambda _messages: json.dumps({
+        "label": "SUPPORTED", "rationale": "Fonte",
+        "quotes": [{"source_id": 99, "quote": "La massa è una proprietà dei corpi"}],
+    })
+    verdict = verify_claim_with_evidence(claim, [original], response)
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["model_label"] == "INVALID"
+
+def test_partial_source_quote_cannot_approve_unsupported_relation():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "Il traghetto trasporta i passeggeri da Napoli a Napoli.",
+        ),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il traghetto è una grande nave passeggeri con ponte principale.",
+    )
+    response = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "La nave è un traghetto per passeggeri.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il traghetto è una grande nave passeggeri",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: response,
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert result["model_label"] == "SUPPORTED"
+    assert "POSSIBLE_DIRECTION_SELF_LOOP" in result["review_signals"]
+    assert "napoli" in result["proof_validation"]["unsupported_anchors"]
+    assert not result["proof_validation"]["all_material_claim_parts_checked"]
+
+
+def test_partial_quote_cannot_approve_multiple_unproven_facets():
+    claim = extract_claim_candidates(
+        _course(
+            "Tecnologia",
+            "Il motore produce corrente elettrica senza combustibile "
+            "e opera esclusivamente sott'acqua.",
+        ),
+        "Tecnologia",
+    )[0]
+    source = _source(
+        "Il motore produce corrente elettrica durante l'uso normale.",
+    )
+    answer = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "Il motore produce corrente elettrica.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il motore produce corrente elettrica durante l'uso normale",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: answer,
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert "combustibile" in result["proof_validation"]["unsupported_anchors"]
+    assert "sott" in ",".join(result["proof_validation"]["unsupported_anchors"])
+
+
+def test_fully_quoted_claim_is_still_only_provisionally_supported():
+    claim = extract_claim_candidates(
+        _course(
+            "Storia",
+            "Il documento riporta 14 delegati presenti alla seduta.",
+        ),
+        "Storia",
+    )[0]
+    source = _source(
+        "Il documento riporta 14 delegati presenti alla seduta.",
+    )
+    response = json.dumps({
+        "label": "SUPPORTED",
+        "rationale": "Testo presente nella fonte.",
+        "quotes": [{
+            "source_id": 1,
+            "quote": "Il documento riporta 14 delegati presenti alla seduta",
+        }],
+    })
+    result = verify_claim_with_evidence(
+        claim, [source], lambda _messages: response,
+    )
+    assert result["status"] == "PROVISIONALLY_SUPPORTED"
+    assert result["proof_validation"]["all_material_claim_parts_checked"]
+
+
+def test_missing_numeric_quantity_blocks_supported_label():
+    claim = extract_claim_candidates(
+        _course("Scienze", "Il laboratorio contiene 23 strumenti di misura."),
+        "Scienze",
+    )[0]
+    source = _source("Il laboratorio contiene strumenti di misura.")
+    result = verify_claim_with_evidence(
+        claim, [source],
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "Sono presenti strumenti",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il laboratorio contiene strumenti di misura",
+            }],
+        }),
+    )
+    assert result["status"] == "UNVERIFIED"
+    assert "23" in result["proof_validation"]["unsupported_anchors"]
+
+
+def test_chapter_title_is_not_a_factual_claim():
+    doc = _course(
+        "APPARATO DIGERENTE (Faringe ed esofago)",
+        "APPARATO DIGERENTE (Faringe ed esofago)\n"
+        "L'esofago è un organo che collega la faringe allo stomaco.",
+    )
+    claims = extract_claim_candidates(
+        doc, "APPARATO DIGERENTE (Faringe ed esofago)",
+    )
+    assert len(claims) == 1
+    assert "collega" in claims[0].text
+
+
+def test_critical_second_pass_can_identify_counterevidence_without_known_answer():
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il fiume trasporta acqua dal mare al mare."),
+        "Geografia",
+    )[0]
+    original = [
+        _source(
+            "Un fiume è un corso d'acqua che percorre il territorio.",
+            name="corso.pdf",
+        ),
+        _source(
+            "Il fiume nasce in montagna e sfocia nel mare.",
+            name="geografia.pdf",
+        ),
+    ]
+    calls = []
+
+    def fake_local_model(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "La fonte descrive il fiume.",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "Un fiume è un corso d'acqua che percorre il territorio",
+                }],
+            })
+        return json.dumps({
+            "assessment": "CONTRADICTED",
+            "missing_parts": ["Origine dal mare non dimostrata"],
+            "counter_quotes": [{
+                "source_id": 2,
+                "quote": "Il fiume nasce in montagna e sfocia nel mare",
+            }],
+        })
+
+    result = verify_claim_with_evidence(claim, original, fake_local_model)
+    assert len(calls) == 2
+    assert result["model_label"] == "SUPPORTED"
+    assert result["status"] == "SUSPECTED_CONTRADICTION"
+    critic = result["independent_challenge"]
+    assert critic["model_challenge_valid"] is True
+    assert critic["counter_quotes"][0]["source"] == "geografia.pdf"
+    assert "Origine dal mare" in critic["missing_parts"][0]
+
+
+def test_critic_hallucinated_counterquote_keeps_unverified_status():
+    claim = extract_claim_candidates(
+        _course("Scienze", "La soluzione contiene 21 grammi di sale."),
+        "Scienze",
+    )[0]
+    original = _source(
+        "La soluzione contiene sale e acqua in proporzioni variabili.",
+    )
+    calls = []
+
+    def fake_local_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "La soluzione contiene sale.",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "La soluzione contiene sale e acqua",
+                }],
+            })
+        return json.dumps({
+            "assessment": "CONTRADICTED",
+            "missing_parts": ["Massa del sale"],
+            "counter_quotes": [{
+                "source_id": 1,
+                "quote": "La soluzione contiene 90 grammi di sale",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [original], fake_local_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["independent_challenge"]["model_challenge_valid"] is False
+
+
+def test_full_source_quote_does_not_trigger_unnecessary_second_call():
+    claim = extract_claim_candidates(
+        _course("Astronomia", "Marte orbita intorno al Sole."),
+        "Astronomia",
+    )[0]
+    source = _source("Marte orbita intorno al Sole.")
+    called = []
+
+    def local_model(_messages):
+        called.append(1)
+        return json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "Confermato nel testo originale",
+            "quotes": [{
+                "source_id": 1, "quote": "Marte orbita intorno al Sole",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local_model)
+    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+    assert len(called) == 1
+    assert verdict["independent_challenge"] is None
+
+
+def test_critic_can_collect_semantic_paraphrase_without_auto_approval():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "Il rilievo è posizionato dietro la città e misura 25 cm.",
+        ),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il rilievo, posteriore alla città, ha lunghezza di 25 cm.",
+    )
+    calls = []
+
+    def fake_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED",
+                "rationale": "Fonte descrive il rilievo",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "Il rilievo, posteriore alla città, ha lunghezza di 25 cm",
+                }],
+            })
+        return json.dumps({
+            "assessment": "SUPPORTED",
+            "missing_parts": [],
+            "counter_quotes": [],
+            "facets": [{
+                "claim_part": (
+                    "Il rilievo è posizionato dietro la città e misura 25 cm"
+                ),
+                "state": "SUPPORTED",
+                "source_id": 1,
+                "quote": "Il rilievo, posteriore alla città, ha lunghezza di 25 cm",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], fake_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    critic = verdict["independent_challenge"]
+    assert critic["assessment"] == "SUPPORTED"
+    assert critic["model_challenge_valid"]
+    assert critic["semantic_support_candidate"]
+    assert critic["facet_coverage"] == 1.0
+    assert critic["facets"][0]["source_quote"]["source"] == "source.pdf"
+
+
+def test_critic_cannot_approve_self_loop_even_with_literal_facets():
+    claim = extract_claim_candidates(
+        _course(
+            "Storia",
+            "L'ambasciatore viaggia da Roma a Roma per la missione.",
+        ),
+        "Storia",
+    )[0]
+    source = _source(
+        "L'ambasciatore viaggia da Roma a Roma per la missione.",
+    )
+    responses = iter([
+        json.dumps({
+            "label": "SUPPORTED", "rationale": "citazione letterale",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'ambasciatore viaggia da Roma a Roma per la missione",
+            }],
+        }),
+        json.dumps({
+            "assessment": "UNVERIFIED",
+            "missing_parts": ["Il percorso potrebbe essere circolare"],
+            "facets": [],
+            "counter_quotes": [],
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [source], lambda _messages: next(responses),
+    )
+    assert "POSSIBLE_DIRECTION_SELF_LOOP" in verdict["review_signals"]
+    # A repeated place name is not proof of an error, but requires review.
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["independent_challenge"] is not None
+
+
+def test_critic_rejects_semantic_evidence_not_in_original():
+    claim = extract_claim_candidates(
+        _course("Fisica", "Il campo agisce a 15 km di distanza."),
+        "Fisica",
+    )[0]
+    source = _source("Il campo agisce a grandi distanze.")
+    calls = []
+
+    def fake_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "rationale": "Il campo agisce",
+                "quotes": [{
+                    "source_id": 1, "quote": "Il campo agisce a grandi distanze",
+                }],
+            })
+        return json.dumps({
+            "assessment": "SUPPORTED",
+            "missing_parts": [],
+            "counter_quotes": [],
+            "facets": [{
+                "claim_part": "Il campo agisce a 15 km di distanza",
+                "state": "SUPPORTED",
+                "source_id": 1,
+                "quote": "Il campo agisce a 15 km di distanza",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], fake_model)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    critic = verdict["independent_challenge"]
+    assert critic["model_challenge_valid"] is False
+    assert critic["semantic_support_candidate"] is False
+
+
+def test_critic_diagnostic_for_truncated_json():
+    claim = extract_claim_candidates(
+        _course("Fisica", "La sostanza contiene esattamente 34 grammi di ferro."),
+        "Fisica",
+    )[0]
+    evidence = [_source("La sostanza contiene una percentuale di ferro.")]
+    calls = []
+
+    def local_model(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "rationale": "ferro presente",
+                "quotes": [{
+                    "source_id": 1,
+                    "quote": "La sostanza contiene una percentuale di ferro",
+                }],
+            })
+        return '{"assessment":"UNVERIFIED","missing_parts":['
+
+    result = verify_claim_with_evidence(claim, evidence, local_model)
+    critic = result["independent_challenge"]
+    assert len(calls) == 2
+    assert result["status"] == "UNVERIFIED"
+    assert critic["diagnostic"] == "JSON_INVALID"
+    assert critic["response_chars"] > 0
+    assert not critic["model_challenge_valid"]
+
+
+def test_critic_valid_abstention_without_facets_is_diagnosed():
+    claim = extract_claim_candidates(
+        _course("Chimica", "Il sale si scioglie in 44 litri di acqua."),
+        "Chimica",
+    )[0]
+    evidence = [_source("Il sale si scioglie in acqua.")]
+    replies = iter([
+        json.dumps({
+            "label": "SUPPORTED", "rationale": "sale e acqua",
+            "quotes": [{"source_id": 1, "quote": "Il sale si scioglie in acqua"}],
+        }),
+        json.dumps({
+            "assessment": "UNVERIFIED",
+            "missing_parts": ["44 litri"],
+            "facets": [],
+            "counter_quotes": [],
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, evidence, lambda _messages: next(replies),
+    )
+    critic = result["independent_challenge"]
+    assert critic["diagnostic"] == "VALID_WITHOUT_FACETS"
+    assert critic["response_chars"] > 0
+    assert critic["model_challenge_valid"]
+    assert not critic["semantic_support_candidate"]
+    assert result["status"] == "UNVERIFIED"
+
+
+def test_exclusive_function_does_not_imply_unique_provider():
+    """The other object doing X does not contradict A doing ONLY X."""
+    claim = extract_claim_candidates(
+        _course(
+            "Tecnologia",
+            "Il dispositivo Alfa è destinato esclusivamente alla lettura.",
+        ),
+        "Tecnologia",
+    )[0]
+    passage = _source(
+        "Il dispositivo Beta supporta sia la lettura sia la scrittura.",
+    )
+    outputs = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Anche Beta legge, quindi Alfa non è esclusivo",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il dispositivo Beta supporta sia la lettura sia la scrittura",
+            }],
+        }),
+        json.dumps({
+            "relationship": "COMPATIBLE",
+            "reason": "Alfa può avere soltanto lettura mentre Beta usa entrambe.",
+            "claim_span": "",
+            "quote_id": None,
+            "counter_span": "",
+        }),
+    ])
+    result = verify_claim_with_evidence(
+        claim, [passage], lambda _messages: next(outputs),
+    )
+    assert result["model_label"] == "CONTRADICTED"
+    assert result["status"] == "UNVERIFIED"
+    assert result["contradiction_adjudication"]["relationship"] == "COMPATIBLE"
+    assert result["contradiction_adjudication"]["valid"]
+
+
+def test_incompatible_counterquote_must_mention_claim_subject():
+    claim = extract_claim_candidates(
+        _course(
+            "Geografia",
+            "L'isola Pianosa si trova a 100 chilometri dalla costa.",
+        ),
+        "Geografia",
+    )[0]
+    passage = _source(
+        "L'isola Capraia si trova a 90 chilometri dalla costa.",
+    )
+    outputs = iter([
+        json.dumps({
+            "label": "CONTRADICTED", "rationale": "Distanze diverse.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'isola Capraia si trova a 90 chilometri dalla costa",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "La seconda distanza è diversa dalla prima.",
+            "claim_span": "si trova a 100 chilometri dalla costa",
+            "quote_id": 1,
+            "counter_span": "L'isola Capraia si trova a 90 chilometri dalla costa",
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [passage], lambda _messages: next(outputs),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["contradiction_adjudication"]["valid"] is False
+    assert verdict["contradiction_adjudication"]["diagnostic"] == (
+        "CLAIM_SUBJECT_NOT_IN_COUNTERQUOTE"
+    )
+
+
+def test_invalid_second_judgment_cannot_validate_contradiction():
+    claim = extract_claim_candidates(
+        _course("Storia", "L'accordo è stato firmato nel 1890."),
+        "Storia",
+    )[0]
+    evidence = [_source("L'accordo è stato firmato nel 1891.")]
+    model = iter([
+        json.dumps({
+            "label": "CONTRADICTED", "rationale": "Anno diverso",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "L'accordo è stato firmato nel 1891",
+            }],
+        }),
+        "not valid JSON",
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, evidence, lambda _messages: next(model),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["contradiction_adjudication"]["diagnostic"] == "INVALID_JSON"
+
+
+def test_nonliteral_model_quote_can_trigger_host_grounded_review_but_not_proof():
+    """A fabricated quote is never trusted, even if source ID is plausible."""
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il traghetto va da Genova a Genova."),
+        "Geografia",
+    )[0]
+    source = _source(
+        "Il traghetto parte da Genova e raggiunge Livorno.",
+        name="rotte.pdf",
+    )
+    replies = iter([
+        json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Partenza e arrivo non coincidono.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il traghetto raggiunge Napoli, non Genova",
+            }],
+        }),
+        json.dumps({
+            "relationship": "INCOMPATIBLE",
+            "reason": "La destinazione Livorno esclude la stessa destinazione Genova.",
+            "quote_id": 1,
+            "claim_span": "va da Genova a Genova",
+            "counter_span": "Il traghetto parte da Genova e raggiunge Livorno",
+        }),
+    ])
+    verdict = verify_claim_with_evidence(
+        claim, [source], lambda _messages: next(replies),
+    )
+    assert verdict["model_label"] == "INVALID"
+    assert verdict["raw_model_label"] == "CONTRADICTED"
+    assert verdict["source_pointer_is_proof"] is False
+    assert verdict["source_pointer_candidates"] == [{
+        "source": "rotte.pdf",
+        "page": 2,
+        "block": None,
+        "quote": "Il traghetto parte da Genova e raggiunge Livorno.",
+    }]
+    assert verdict["status"] == "SUSPECTED_CONTRADICTION"
+    assert verdict["source_pointer_review"]["valid"] is True
+
+
+def test_nonliteral_quote_cannot_support_model_claim_even_with_source_pointer():
+    claim = extract_claim_candidates(
+        _course("Fisica", "Il metallo fonde precisamente a 321 gradi."),
+        "Fisica",
+    )[0]
+    source = _source("Il metallo fonde a circa 300 gradi.")
+    calls = []
+
+    def local(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "SUPPORTED",
+            "rationale": "La fonte conferma la temperatura.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il metallo fonde a 321 gradi",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local)
+    assert len(calls) == 1
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["source_pointer_is_proof"] is False
+    assert verdict["source_pointer_candidates"]
+    assert verdict["raw_model_label"] == "SUPPORTED"
+
+
+def test_ungrounded_source_pointer_is_not_used_to_rescue_false_contradiction():
+    claim = extract_claim_candidates(
+        _course("Geografia", "Il paesaggio include 22 colline."),
+        "Geografia",
+    )[0]
+    source = _source("I fiumi attraversano numerose valli.")
+    calls = []
+
+    def local(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "CONTRADICTED",
+            "rationale": "Sembra esserci un conflitto.",
+            "quotes": [{
+                "source_id": 1,
+                "quote": "Il paesaggio include 18 colline.",
+            }],
+        })
+
+    verdict = verify_claim_with_evidence(claim, [source], local)
+    assert len(calls) == 1
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["source_pointer_candidates"] == []
+    assert verdict["source_pointer_review"] is None

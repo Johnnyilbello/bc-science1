@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,3 +422,37 @@ def audit_novice_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]
         results.append((title, audit))
 
     return all(audit.passed for _, audit in results), results
+
+
+def audit_narrative_document(text: str) -> tuple[bool, list[tuple[str, NoviceAudit]]]:
+    """Score narrative chapters without requiring retired worksheet headings."""
+    from .summarizer import _extract_summary_chapters
+
+    chapters = _extract_summary_chapters(text)
+    if not chapters:
+        audit = NoviceAudit(
+            readability_metrics(text),
+            ("nessun capitolo individuato",),
+        )
+        return False, [("documento", audit)]
+
+    rows: list[tuple[str, NoviceAudit]] = []
+    for title, chapter in chapters:
+        previous = novice_audit(chapter)
+        metrics = previous.metrics
+        score = round(
+            (metrics.score - (30 if metrics.has_simple_intro else 0)) / 70 * 100
+        )
+        metrics = replace(metrics, score=score)
+        ignored = (
+            "In parole semplici", "Parole chiave",
+            "Da ricordare", "punteggio di chiarezza",
+        )
+        issues = tuple(
+            issue for issue in previous.issues
+            if not any(marker in issue for marker in ignored)
+        )
+        if score < 80 and not issues:
+            issues = (f"punteggio di chiarezza insufficiente ({score}/100)",)
+        rows.append((title, NoviceAudit(metrics, issues)))
+    return all(audit.passed for _, audit in rows), rows

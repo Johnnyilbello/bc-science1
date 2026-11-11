@@ -226,6 +226,116 @@ Obiettivo: misurare ciò che oggi viene controllato principalmente tramite audit
 
 Criterio di uscita: nessuna finalizzazione quando esistono FAIL di copertura o struttura.
 
+## 0.9.19 patch — Preservazione delle versioni verificate e test Windows
+
+- Evita rebuild completo se i documenti, il fingerprint del manifest e la
+  matrice capitoli sono ancora verificati, anche se il prompt corrente cambia.
+- Mantiene nel manifest la **versione reale** della pipeline che ha creato il
+  riassunto esistente, senza dichiararlo falsamente rigenerato da prompt nuovi.
+- File aggiunti/modificati/rimossi continuano a seguire la pipeline sicura
+  con invalidazione e rebuild.
+- Il runner Windows colloca i file temporanei pytest nella propria cartella
+  report, evitando di dipendere dalla cartella temporanea di sistema che nel
+  collaudo locale ha prodotto un WinError 5 durante la pulizia.
+
+La modifica non si applica a una generazione già avviata nella sessione
+Windows: richiede un successivo avvio del codice aggiornato. Il PASS del codice
+non sostituisce la verifica su tutte le dispense reali.
+
+## 0.9.19 — Anteprime Essenziali non pubblicate per le anomalie reali
+
+Dopo la lettura del report sul PC:
+- Anatomia: Completa 61.884 parole, Essenziale 26.669, copertura lessicale
+  stimata 31,3%, 309 possibili omissioni d'esame e 3 fatti numerici da
+  confrontare sulle fonti. Non assumere che 31,3% corrisponda alla completezza
+  scientifica: una sintesi breve omette intenzionalmente contenuti.
+- Fisiologia: Completa 70.396 parole, Essenziale 73.809;
+  Biologia/Chimica: Completa 59.239, Essenziale 61.978.
+  Le versioni “Essenziali” attuali devono diventare realmente più concise.
+
+Aggiunta `courses preview-essential` come **alternativa a una rigenerazione
+in-place**: recupera la Completa solo con SHA256/manifest/copertura validi;
+genera una bozza estrattiva offline da `study_editions`, confronta tecnicamente
+capitoli e numeri d'esame, conta possibili lacune numeriche con l'audit v2 e
+scrive un report in un percorso isolato, senza toccare output, PDF, manifest o
+fonti. Le proposte restano in `REVIEW` o `BLOCKED` e non vengono mai
+promosse automaticamente a documenti di studio validati.
+
+Prossime fasi: revisione delle affermazioni sui documenti eCampus originali,
+verifica semantica delle lacune (con attenzione ai falsi positivi), revisione
+editoriale dei capitoli prima della pubblicazione dietro approvazione umana.
+
+## 0.9.19 — Allineamento audit v2 già presenti (non distruttivo)
+
+- Recuperato da `feat/spark-v10-4-didactic-polish-20261104` il motore
+  `atomic-fact-v2-source-qualifiers` realmente usato dagli audit locali.
+- I report v2 con hash correnti di Completa ed Essenziale sono ora
+  compatibili; non vengono dichiarati obsoleti soltanto perché il branch
+  precedente usava `atomic-fact-v1`.
+- Ripristinati il controllo delle affermazioni qualificate, il gate sulla
+  compressione troppo bassa e la rubrica narrativa dell'Essenziale.
+- Mantenuta la versione del motore *fast* `audit-fast-essential-v4-original-evidence`
+  fino a un suo aggiornamento distinto e testato; nessuna falsa migrazione.
+- `STD-10/AUD-09` mostrano separatamente esempi `numero` ed `esame`:
+  un'affermazione d'esame priva di numeri non è un esempio numerico.
+- La compatibilità dei report non cambia i loro esiti sostanziali: 309
+  possibili omissioni d'esame di Anatomia e compressione 0% nelle altre due
+  materie restano da esaminare sui documenti.
+- Evitare `courses build --Full` per questo controllo: il problema è
+  attualmente sull'Essenziale e sull'audit, non sulle 617 fonti originali.
+
+## 0.9.19 — Diagnostica agentica basata sul corpus reale
+
+Raffinamento della prima esecuzione su 617 documenti di tre materie:
+
+- `STD-10` e `AUD-09`: mostra contatori e fino a tre esempi
+  fonte-completa → essenziale dei fatti numerici o d'esame non coperti.
+  I due controlli possono descrivere lo stesso difetto, quindi non sommarli.
+- `AUD-10`: rispetta `FAIL` del report audit sottostante (fail-closed);
+  un `WARN` resta `WARN`, con fino a tre motivazioni leggibili.
+- `AUD-03`: le versioni d'audit obsolete sono `WARN` e richiedono
+  un ricalcolo mirato, non la rigenerazione delle dispense.
+- `SRC-07`: elenca i primi gruppi di file identici per SHA256, senza
+  eliminare file potenzialmente necessari.
+- `RES-01..10` e `SEC-09` (ricerca opzionale disabilitata):
+  stato `N/A` distinto da `SKIP`. I controlli N/A non sono mai conteggiati
+  come PASS, ma non impediscono il PASS degli obbligatori.
+- CLI e Markdown evidenziano soltanto i FAIL/WARN con motivazioni, e
+  mantengono la matrice completa dei 100 controlli per l'audit.
+- Nessuna modifica automatica alle fonti o alla versione Essenziale.
+  Le lacune numeriche devono essere riviste sul testo effettivo.
+
+## 0.9.19 — Agent Mesh V1: 100 verificatori specializzati
+
+Obiettivo: dare a BC Science una struttura agentica modulare anziché
+avviare 100 processi Qwen in parallelo sulla GPU locale.
+
+Implementazione:
+- 100 ruoli univoci, 10 aree con 10 regole ognuna;
+- orchestrazione deterministica per `ingest`, `summarize`, `study`, `publish`;
+- router a budget con priorità sull'integrità dei dati e possibilità `--all`;
+- report riproducibili JSON/Markdown, senza scritture sul corpus;
+- stati PASS / WARN / FAIL / SKIP per ogni agente, aggregato INCOMPLETE;
+- fail-closed su errori operativi e su fonti/materiale assente;
+- suite di regressione multi-materia e CLI, nessuna API esterna.
+
+Questi 100 agenti sono **verificatori software**, non 100 modelli indipendenti.
+Il loro superamento non è prova di correttezza scientifica né assenza totale
+di errori: servono a individuare anomalie e rendere visibile ciò che manca.
+
+Ricerca GitHub verificata per le evoluzioni:
+- Pydantic AI + Ollama locale per ruoli LLM a output strutturato;
+- LangGraph per checkpoint e ripresa dell'esecuzione;
+- Microsoft Agent Framework per parallelismi/consenso avanzati.
+Nessuna di queste dipendenze è obbligatoria oggi: prima misurare latenza,
+consumo di RAM e qualità sul corpus reale.
+
+**Fase successiva (non ancora completata):** introdurre agenti generativi
+mirati a verifica fonte→affermazione e review indipendente, con
+limiti token/timeout, approvazione umana e checkpoint persistenti;
+integrare i gate nei percorsi di pubblicazione soltanto dopo validazione
+end-to-end e confronto con una baseline umana.
+
 ## 0.9.18 — Verifica strutturale multi-materia (incremento 0.10) ✅
 
 Nuovo comando `bc-science courses verify <RADICE> [--strict] [--output-dir DIR]`.

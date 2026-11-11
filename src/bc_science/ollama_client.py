@@ -128,6 +128,7 @@ class OllamaClient:
         keep_alive: str = "20m",
         think: bool = False,
         temperature: float = 0.1,
+        format_json: bool = False,
     ) -> str:
         payload = self._chat_payload(
             model,
@@ -139,6 +140,8 @@ class OllamaClient:
             think=think,
             temperature=temperature,
         )
+        if format_json:
+            payload["format"] = "json"
         try:
             with httpx.Client(timeout=None) as client:
                 response = client.post(f"{self.base_url}/api/chat", json=payload)

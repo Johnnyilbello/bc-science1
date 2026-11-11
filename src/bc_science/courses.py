@@ -1053,7 +1053,6 @@ def build_course(
         if (
             manifest is not None
             and manifest.get("fingerprint") == fingerprint
-            and manifest.get("summary_pipeline") == PROMPT_VERSION
             and existing_coverage.complete
         ):
             pdf, pages, pdf_generated = _ensure_pdf(
@@ -1077,6 +1076,14 @@ def build_course(
                 manifest=manifest,
                 progress=progress,
             )
+            study_pipeline = STUDY_PROMPT_VERSION
+            previous_study = manifest.get("study")
+            if (
+                not study_generated
+                and isinstance(previous_study, dict)
+                and isinstance(previous_study.get("pipeline"), str)
+            ):
+                study_pipeline = previous_study["pipeline"]
             _write_manifest(
                 scan,
                 snapshot,
@@ -1089,6 +1096,8 @@ def build_course(
                 study_text=study_text,
                 study_pdf_path=study_pdf,
                 study_pdf_pages=study_pages,
+                summary_pipeline=str(manifest.get("summary_pipeline") or PROMPT_VERSION),
+                study_pipeline=study_pipeline,
             )
             if study_text is not None:
                 audit_status, audit_path = _ensure_course_audit_status(
@@ -1589,6 +1598,7 @@ def inspect_original_evidence(
     chapter_title: str,
     *,
     edition: str = "essential",
+    claim: str | None = None,
     semantic_query_vector: list[float] | None = None,
 ) -> dict:
     """Read-only, local evidence inspection for one selected study chapter.
@@ -1602,6 +1612,8 @@ def inspect_original_evidence(
 
     if edition not in {"complete", "essential"}:
         raise ValueError("Edizione non riconosciuta.")
+    if claim is not None and (not claim.strip() or len(claim) > 500):
+        raise ValueError("Affermazione da cercare non valida (1-500 caratteri).")
     manifest = _load_manifest(scan)
     complete_path = course_output_path(scan)
     study_path = course_study_output_path(scan)
@@ -1635,11 +1647,14 @@ def inspect_original_evidence(
     signals = assess_chapter(chapter_title, original, short)
     grammar = list(grammar_findings(short, limit=8))
     structural = list(find_structural_issues(short, limit=8))
-    questions = [issue.quote for issue in structural[:2]]
-    questions += [issue.quote for issue in grammar[:2]]
-    questions += [fact.quote for fact in signals.possible_missing[:2]]
-    if not questions:
-        questions = [chapter_title]
+    if claim is not None:
+        questions = [claim.strip()]
+    else:
+        questions = [issue.quote for issue in structural[:2]]
+        questions += [issue.quote for issue in grammar[:2]]
+        questions += [fact.quote for fact in signals.possible_missing[:2]]
+        if not questions:
+            questions = [chapter_title]
 
     # Manifest hashes are re-checked against current bytes by the course
     # audit above. Never index another subject or stale source file.
@@ -1685,6 +1700,7 @@ def inspect_original_evidence(
     return {
         "title": chapter_title,
         "edition": edition,
+        "claim": claim.strip() if claim is not None else None,
         "status": (
             "PROVE_ORIGINALI_RECUPERATE_DA_VERIFICARE"
             if found else "NESSUNA_PROVA_ORIGINALE_IN_CACHE"
