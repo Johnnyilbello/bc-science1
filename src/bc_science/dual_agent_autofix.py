@@ -17,7 +17,11 @@ from pathlib import Path
 
 import httpx
 
-from .autonomous_claim_audit import _json_object, extract_claim_candidates
+from .autonomous_claim_audit import (
+    _json_object,
+    _proof_completeness,
+    extract_claim_candidates,
+)
 from .evidence_engine import OriginalEvidence, validate_original_quote
 
 NEMOTRON_MODEL = "nvidia/nemotron-3-super-120b-a12b"
@@ -89,8 +93,8 @@ def _normalise_judgment(response: str, evidence: list[OriginalEvidence]) -> dict
         if not validate_original_quote(canonical, evidence):
             return {**default, "diagnostic": "NON_LITERAL_SOURCE_QUOTE"}
         citations.append(canonical)
-    if label == "SUSPECT" and not citations:
-        return {**default, "diagnostic": "MISSING_SUSPECT_PROOF"}
+    if label in {"SUSPECT", "SUPPORTED"} and not citations:
+        return {**default, "diagnostic": "MISSING_SOURCE_PROOF"}
     if label == "SUSPECT" and replacement.strip() and (
         "\n" in replacement or "\r" in replacement
         or replacement.strip().startswith(("#", "- ", "* "))
@@ -309,6 +313,16 @@ def run_dual_repair(
                         "round": round_number, **reviewer,
                     })
                     if reviewer["valid"] and reviewer["verdict"] == "SUPPORTED":
+                        supported, missing, _coverage = _proof_completeness(
+                            replacement, reviewer["quotes"],
+                        )
+                        if not supported:
+                            row["reason"] = (
+                                "La citazione non copre tutta la proposta: "
+                                + ", ".join(missing[:6])
+                            )
+                            row["status"] = "NEEDS_RESEARCH"
+                            break
                         if not _number_guard(
                             claim.text, replacement, reviewer["quotes"],
                         ):
