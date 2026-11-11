@@ -166,3 +166,82 @@ def test_long_unpunctuated_pdf_excerpt_still_offers_verbatim_spans():
     assert spans
     assert any("200 amminoacidi" in row["quote"] for row in spans)
     assert all(validate_original_quote(row, [original]) for row in spans)
+
+
+def test_v8_pdf_continuation_stays_in_same_original_span():
+    claim = _claim(
+        "Fisiologia",
+        "Il volume residuo VR è pari a circa 1200 mL e non può essere "
+        "misurato con lo spirometro.",
+    )
+    # The relevant clause straddles legacy 420-character fixed slices.
+    original = _source(
+        "materiale didattico sulla ventilazione e sui volumi " * 13
+        + "contenuto qui "
+        + "Il volume residuo VR è pari a circa 1200 mL, "
+        + "che però non può essere misurato con lo spirometro. "
+        + "Si considerano poi le altre capacità respiratorie."
+    )
+    spans = evidence_spans(claim, [original])
+    assert spans
+    assert any(
+        "1200 mL" in row["quote"]
+        and "spirometro" in row["quote"]
+        and "non può essere misurato" in row["quote"]
+        for row in spans
+    )
+    assert all(validate_original_quote(row, [original]) for row in spans)
+    assert all(len(row["quote"]) <= 640 for row in spans)
+
+
+def test_v8_abstention_exposes_unapproved_offered_spans():
+    claim = _claim(
+        "Fisiologia",
+        "La capacità polmonare dipende dal contesto respiratorio.",
+    )
+    evidence = [_source(
+        "La capacità polmonare comprende diversi volumi respiratori."
+    )]
+    verdict = review_with_source_ids(
+        claim, evidence,
+        lambda _messages: json.dumps({
+            "label": "UNVERIFIED",
+            "source_ids": [],
+            "reason": "La relazione richiesta non è dimostrata.",
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "VALID_ABSTENTION"
+    assert verdict["quotes"] == []
+    assert len(verdict["span_candidates"]) == verdict["evidence_spans_count"]
+    assert verdict["span_candidates"]
+    assert all(
+        validate_original_quote(row, evidence)
+        for row in verdict["span_candidates"]
+    )
+    assert verdict["verified_scientifically"] is False
+
+
+def test_v8_offered_spans_cannot_approve_missing_large_quantities():
+    claim = _claim(
+        "Fisiologia",
+        "Il volume corrente VT oscilla fra 2200 e 2700 mL "
+        "ma a riposo equivale a 500 mL.",
+    )
+    evidence = [_source(
+        "Il volume corrente VT a riposo è circa 500 mL per atto respiratorio."
+    )]
+    verdict = review_with_source_ids(
+        claim, evidence,
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED",
+            "source_ids": [1],
+            "reason": "Il valore di riposo è menzionato dalla fonte.",
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "PARTIAL_EVIDENCE"
+    assert {"2200", "2700"}.issubset(
+        set(verdict["proof_validation"]["unsupported_anchors"])
+    )
+    assert verdict["verified_scientifically"] is False

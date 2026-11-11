@@ -134,6 +134,34 @@ directory**. Il vecchio percorso resta disponibile con
 NON dimostra che il modello rilevi autonomamente più errori scientifici:
 occorre una valutazione indipendente su materiali e capitoli nuovi.
 
+## Audit V8 — passaggi contestuali e diagnosi delle astensioni
+
+La prima fase sperimentale V8 migliora soltanto **la presentazione delle prove**:
+se il testo PDF estratto non contiene punteggiatura, il selettore usa finestre
+sovrapposte fino a 640 caratteri con confini tra parole, anziché tagliare
+la spiegazione in frammenti di 420 caratteri. Per testi lunghi suddivisi
+in frasi, tenta anche di offrire due frasi contigue senza riscriverle.
+Ogni candidato deve comunque superare `validate_original_quote`.
+
+In `report.json`, ogni affermazione contiene ora `span_candidates`,
+ossia gli estratti **effettivamente offerti al modello**. Sono visibili
+anche quando il modello risponde `UNVERIFIED` con `quotes: []`.
+Questa aggiunta serve a distinguere fonti non pertinenti da astensioni
+prudenziali; gli span proposti **non sono prove approvate**.
+
+Il filtro lessicale conservativo e il secondo controllo sulle
+contraddizioni non sono stati allentati. Continuano a essere necessarie
+la verifica delle quantità, delle unità, del soggetto, delle condizioni
+temporali e della relazione logica; il sistema può ancora non riconoscere
+parafrasi vere o accettare un supporto solo provvisorio. I report restano
+isolati e non modificano né pubblicano riassunti.
+
+Per confrontare V7 e V8, eseguire nuovamente `courses auto-audit-claims`
+con `--evidence-mode spans`, **lo stesso capitolo e lo stesso modello**,
+sempre con una nuova `--output-dir`; valutare anche quali candidati
+siano realmente completi e se eventuali supporti siano scientificamente
+giustificati, non soltanto il numero di etichette positive.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
