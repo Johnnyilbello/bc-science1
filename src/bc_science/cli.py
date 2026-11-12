@@ -788,6 +788,7 @@ def courses_auto_audit_claims(
     from urllib.parse import urlsplit
 
     from .audit_checkpoint import AuditCheckpoint
+    from .courses import _fingerprint, _snapshot
     from .evidence_engine import OriginalEvidence
     from .ollama_client import OllamaError
     from .scientific_patch_drafts import _allowed_documents
@@ -874,6 +875,7 @@ def courses_auto_audit_claims(
                 "document_sha256": hashlib.sha256(
                     document.encode("utf-8")
                 ).hexdigest(),
+                "original_sources_fingerprint": _fingerprint(_snapshot(scan)),
                 "preview_dir": str(preview) if preview else None,
                 "model": model, "evidence_mode": evidence_mode,
                 "max_claims": max_claims,
