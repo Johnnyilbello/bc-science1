@@ -178,12 +178,16 @@ def evidence_spans(
             ranked.append((-score, source_index, position, exact))
     ranked.sort(key=lambda row: row[:3])
     chosen: list[tuple[int, int, int, dict]] = []
-    used_sources: set[int] = set()
-    # Reserve one high-ranked excerpt per original source before filling.
+    used_sources: set[tuple[str, int | None, int | None]] = set()
+    # Different excerpt windows from one PDF page/chunk are NOT independent
+    # sources. Prioritize the highest-ranked version of each provenance.
     for row in ranked:
-        if row[1] not in used_sources:
+        source_key = (
+            row[3]["source"], row[3]["page"], row[3]["block"],
+        )
+        if source_key not in used_sources:
             chosen.append(row)
-            used_sources.add(row[1])
+            used_sources.add(source_key)
             if len(chosen) == limit:
                 break
     chosen_keys = {(row[1], row[2]) for row in chosen}
