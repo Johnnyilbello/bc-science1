@@ -245,3 +245,113 @@ def test_v8_offered_spans_cannot_approve_missing_large_quantities():
         set(verdict["proof_validation"]["unsupported_anchors"])
     )
     assert verdict["verified_scientifically"] is False
+
+
+def test_v82_support_requires_second_pass():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte indica soggetto e misura.",
+            })
+        return json.dumps({
+            "assessment": "PARTIAL",
+            "reason": "La prova potrebbe riferirsi a una condizione differente.",
+            "missing_parts": ["condizione di misura"],
+            "evidence_ids": [1],
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "SECOND_PASS_NOT_CONFIRMED"
+    assert verdict["proof_validation"]["lexical_coverage_passed"] is True
+    assert verdict["support_challenge"]["assessment"] == "PARTIAL"
+
+
+def test_v82_complete_second_pass_is_only_provisional():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte indica soggetto e misura.",
+            })
+        return json.dumps({
+            "assessment": "COMPLETE",
+            "reason": "La citazione copre soggetto, misura e unita.",
+            "missing_parts": [], "evidence_ids": [1],
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+    assert verdict["diagnostic"] == "SECOND_PASS_SUPPORT_PROVISIONAL"
+    assert verdict["support_challenge"]["valid"] is True
+    assert verdict["verified_scientifically"] is False
+
+
+def test_v82_supported_reason_with_explicit_doubt_is_blocked():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "SUPPORTED", "source_ids": [1],
+            "reason": (
+                "Le prove non contraddicono il dato, tuttavia "
+                "necessiterebbe di un'analisi piu approfondita."
+            ),
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 1
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "MODEL_REASON_INCONSISTENT"
+
+
+def test_v82_schema_errors_explain_invalid_source_id():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    verdict = review_with_source_ids(
+        claim, evidence, lambda _messages: json.dumps({
+            "label": "SUPPORTED",
+            "reason": "La fonte indica soggetto e misura.",
+            "source_ids": [99],
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "MODEL_SCHEMA_INVALID"
+    assert "INVALID_SOURCE_ID" in verdict["model_schema_errors"]
+    assert "source_ids" in verdict["model_response_fields"]
+
+
+def test_v82_invalid_second_pass_fails_closed():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte indica soggetto e misura.",
+            })
+        return "invalid json"
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["support_challenge"]["diagnostic"] == "CHALLENGE_JSON_INVALID"
