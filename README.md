@@ -214,6 +214,34 @@ necessariamente la precisione scientifica; consente soltanto di
 distinguere l'errore di formato dal giudizio sui contenuti. Il tempo
 di esecuzione può aumentare per i casi che richiedono il nuovo tentativo.
 
+## V8.4 — controllo contestuale delle condizioni esplicite
+
+Nei report reali V8.3, entrambi i modelli hanno selezionato una
+citazione interrotta in `... non può essere misurato con la`,
+malgrado fosse disponibile un passaggio originale completo.
+V8.4 penalizza estratti che terminano con connettivi/articoli
+pendenti e deduplica le finestre per provenienza canonica
+(`source`, `page`, `block`), anziché attribuire a ogni finestra
+lo status di fonte indipendente. Non completa né inventa testo.
+
+Quando il modello propone `SUPPORTED`, un filtro deterministico
+verifica anche alcune condizioni esplicite: `dopo una normale X`,
+`in un secondo` e oggetti di strumenti in locuzioni come
+`misurato dallo spirometro`. Se manca la condizione nella
+citazione selezionata, la frase rimane `UNVERIFIED` e il
+report mostra `material_condition_gaps`. Questo filtro ha
+copertura limitata, non certifica equivalenze né diagnosi.
+
+Il controllo delle motivazioni corregge inoltre il falso dubbio
+in frasi negative come `Non sono presenti parti non dimostrate`.
+Un giudizio `COMPLETE` del secondo modello resta comunque
+**provvisorio**, senza pubblicazione, e non sostituisce prove
+scientifiche verificate da un revisore indipendente.
+
+Prima del merge verificare CI, rivedere tutte le affermazioni dei
+report V8.4 e misurare falsi positivi e falsi negativi su un set
+annotato che includa anche materie diverse dalla Fisiologia.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
