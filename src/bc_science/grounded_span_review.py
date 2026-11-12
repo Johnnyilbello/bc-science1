@@ -130,6 +130,118 @@ def evidence_spans(
     ]
 
 
+_EXPLICIT_EVIDENCE_DOUBT = re.compile(
+    r"\b(?:non\s+(?:bast\w*|suffic\w*|dimostr\w*|conferm\w*|prov\w*)"
+    r"|(?:necessit\w*|richied\w*|serv\w*).{0,90}(?:analisi|verific\w*|approfondiment\w*)"
+    r"|(?:prove|evidenze)\s+insufficienti)\b",
+    re.IGNORECASE,
+)
+
+
+def _model_schema_issues(response: dict, span_count: int) -> list[str]:
+    """Expose precise failure classes without trusting malformed model fields."""
+    issues: list[str] = []
+    if response.get("label") not in _LABELS:
+        issues.append("INVALID_LABEL")
+    reason = response.get("reason")
+    if not isinstance(reason, str) or not 4 <= len(reason.strip()) <= 700:
+        issues.append("INVALID_REASON")
+    ids = response.get("source_ids")
+    if not isinstance(ids, list):
+        issues.append("SOURCE_IDS_NOT_ARRAY")
+    else:
+        if len(ids) > 3:
+            issues.append("TOO_MANY_SOURCE_IDS")
+        if any(type(i) is not int or not 1 <= i <= span_count for i in ids):
+            issues.append("INVALID_SOURCE_ID")
+        if any(type(i) is not int for i in ids):
+            issues.append("NON_INTEGER_SOURCE_ID")
+        if len({str(i) for i in ids}) != len(ids):
+            issues.append("DUPLICATE_SOURCE_IDS")
+    return issues
+
+
+def _challenge_supported_claim(
+    claim: CandidateClaim,
+    quotes: list[dict],
+    chat: Callable[[list[dict[str, str]]], str],
+) -> dict:
+    """A second, fail-closed local semantic check; never scientific approval.
+
+    This uses the same model, so it is not independent scientific evidence.
+    It can reject incomplete relations that a lexical score overlooks.
+    """
+    result = {
+        "assessment": "UNVERIFIED", "valid": False,
+        "diagnostic": "CHALLENGE_NOT_VALIDATED",
+        "reason": "", "missing_parts": [], "evidence_ids": [],
+    }
+    messages = [
+        {"role": "system", "content": (
+            "Sei un secondo revisore severo, NON devi confermare per concordanza "
+            "di parole o numeri. Controlla TUTTE le componenti della frase: "
+            "soggetto, relazione, direzione, grandezza, unità, condizioni, "
+            "tempi, negazioni, cause ed eccezioni. "
+            "Una fonte può parlare di un fatto diverso pur usando gli stessi "
+            "numeri: in tal caso scegli PARTIAL. "
+            "Se la frase introduce un vincolo non presente nelle fonti scegli "
+            "PARTIAL e indica esattamente quale parte manca. "
+            "Completa solo se ogni proposizione è dimostrata dalle fonti "
+            "NUMERATE fornite. Nessuna conoscenza esterna. SOLO JSON."
+        )},
+        {"role": "user", "content": (
+            'Formato JSON: {"assessment":"COMPLETE|PARTIAL|UNVERIFIED",'
+            '"reason":"spiegazione specifica",'
+            '"missing_parts":["frase mancante"],"evidence_ids":[1]}. '
+            "Per COMPLETE: missing_parts [] e 1-3 ID delle prove "
+            "che sostengono TUTTA la frase. "
+            "Per PARTIAL o UNVERIFIED elenca le parti non dimostrate; "
+            "evidence_ids [] è consentito. "
+            f"\nFRASE: {claim.text}\nCITAZIONI: "
+            + json.dumps(
+                [{"id": index, "text": quote["quote"]}
+                 for index, quote in enumerate(quotes, 1)],
+                ensure_ascii=False,
+            )
+        )},
+    ]
+    try:
+        obj = _json_object(chat(messages))
+    except (ValueError, TypeError, KeyError, IndexError):
+        return {**result, "diagnostic": "CHALLENGE_CALL_INVALID"}
+    if obj is None:
+        return {**result, "diagnostic": "CHALLENGE_JSON_INVALID"}
+    assessment = obj.get("assessment")
+    reason = obj.get("reason")
+    missing = obj.get("missing_parts")
+    ids = obj.get("evidence_ids")
+    if (
+        assessment not in {"COMPLETE", "PARTIAL", "UNVERIFIED"}
+        or not isinstance(reason, str)
+        or not 8 <= len(reason.strip()) <= 700
+        or not isinstance(missing, list) or len(missing) > 8
+        or any(not isinstance(part, str) or not 1 <= len(part.strip()) <= 250
+               for part in missing)
+        or not isinstance(ids, list) or len(ids) > 3
+        or any(type(i) is not int or not 1 <= i <= len(quotes) for i in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        return {**result, "diagnostic": "CHALLENGE_SCHEMA_INVALID"}
+    valid = (
+        assessment == "COMPLETE" and len(missing) == 0 and len(ids) > 0
+        and not _EXPLICIT_EVIDENCE_DOUBT.search(reason)
+    )
+    return {
+        "assessment": assessment, "valid": valid,
+        "reason": reason.strip(), "missing_parts": missing,
+        "evidence_ids": ids,
+        "diagnostic": (
+            "CHALLENGE_COMPLETE_PROVISIONAL" if valid
+            else "CHALLENGE_INCOMPLETE"
+        ),
+    }
+
+
 def review_with_source_ids(
     claim: CandidateClaim,
     evidence: list[OriginalEvidence],
@@ -188,14 +300,13 @@ def review_with_source_ids(
     label = response.get("label")
     reason = response.get("reason")
     ids = response.get("source_ids")
-    if (
-        label not in _LABELS or not isinstance(reason, str)
-        or not 4 <= len(reason.strip()) <= 700
-        or not isinstance(ids, list) or len(ids) > 3
-        or any(type(i) is not int or i < 1 or i > len(spans) for i in ids)
-        or len(set(ids)) != len(ids)
-    ):
-        return {**base, "diagnostic": "MODEL_SCHEMA_INVALID"}
+    schema_issues = _model_schema_issues(response, len(spans))
+    if schema_issues:
+        return {
+            **base, "diagnostic": "MODEL_SCHEMA_INVALID",
+            "model_schema_errors": schema_issues,
+            "model_response_fields": sorted(str(key) for key in response),
+        }
     chosen = [spans[i - 1] for i in ids]
     quotes = [
         {k: row[k] for k in ("source", "page", "block", "quote")}
@@ -228,15 +339,30 @@ def review_with_source_ids(
                  claim.text, re.IGNORECASE):
         complete = False
         missing.append("possible_circular_direction")
+    reason_doubt = bool(_EXPLICIT_EVIDENCE_DOUBT.search(reason))
+    challenge = (
+        _challenge_supported_claim(claim, quotes, chat)
+        if complete and not reason_doubt else None
+    )
+    accepted = (
+        complete and not reason_doubt
+        and challenge is not None and challenge["valid"]
+    )
+    diagnostic = (
+        "PARTIAL_EVIDENCE" if not complete
+        else "MODEL_REASON_INCONSISTENT" if reason_doubt
+        else "SECOND_PASS_SUPPORT_PROVISIONAL" if accepted
+        else "SECOND_PASS_NOT_CONFIRMED"
+    )
     return {
         **details,
-        "status": "PROVISIONALLY_SUPPORTED" if complete else "UNVERIFIED",
-        "diagnostic": (
-            "TEXTUAL_SUPPORT_PROVISIONAL" if complete else "PARTIAL_EVIDENCE"
-        ),
+        "status": "PROVISIONALLY_SUPPORTED" if accepted else "UNVERIFIED",
+        "diagnostic": diagnostic,
+        "support_challenge": challenge,
         "proof_validation": {
             "anchor_coverage": coverage,
             "unsupported_anchors": sorted(set(missing)),
-            "all_material_claim_parts_checked": complete,
+            "lexical_coverage_passed": complete,
+            "all_material_claim_parts_checked": accepted,
         },
     }
