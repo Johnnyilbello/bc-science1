@@ -16,12 +16,75 @@ from .autonomous_claim_audit import (
     _json_object,
     _proof_completeness,
     _proof_words,
+    _matched_proof_token,
 )
 from .evidence_engine import OriginalEvidence, validate_original_quote
 
 _SPLIT = re.compile(r"(?<=[.!?;])\s+|\r?\n+")
 _DIGIT = re.compile(r"(?<!\w)\d+(?:[.,]\d+)?")
 _LABELS = frozenset({"SUPPORTED", "CONTRADICTED", "UNVERIFIED"})
+_TRAILING_CONNECTOR = re.compile(
+    r"\b(?:con|di|da|dal|dallo|della|al|alla|a|il|lo|la|un|una|che|per|e|ma)\s*$",
+    re.IGNORECASE,
+)
+_AFTER_CONDITION = re.compile(
+    r"\bdopo\s+un(?:a)?\s+(normale|massimale)\s+([^\W\d_]{4,})\b",
+    re.IGNORECASE,
+)
+_TIME_CONDITION = re.compile(
+    r"\b(?:in|entro)\s+un(?:a)?\s+(secondo|minuto|ora|giorno|mese|anno)\b",
+    re.IGNORECASE,
+)
+_MEASUREMENT_OBJECT = re.compile(
+    r"\bmisur\w*\s+(?:dal|dallo|dalla|con\s+(?:lo|la|il|l['’]))\s+"
+    r"([^\W\d_]{4,})\b",
+    re.IGNORECASE,
+)
+_DENIED_UNSUPPORTED_PARTS = re.compile(
+    r"\bnon\s+(?:sono|risultano)\s+(?:presenti|indicate)\s+"
+    r"(?:parti|componenti|affermazioni)\s+non\s+(?:dimostrate|supportate)\b",
+    re.IGNORECASE,
+)
+
+
+def _unresolved_evidence_doubt(reason: str) -> bool:
+    """Distinguish an admission of missing evidence from its explicit denial.
+
+    Not a truth check: an overconfident explanation still needs source gates.
+    """
+    cleaned = _DENIED_UNSUPPORTED_PARTS.sub("nessuna lacuna dichiarata", reason)
+    return bool(_EXPLICIT_EVIDENCE_DOUBT.search(cleaned))
+
+
+def _material_condition_gaps(claim_text: str, quotes: list[dict]) -> list[str]:
+    """Fail closed on a few explicit, verifiable claim qualifiers.
+
+    Evidence absence is not contradiction. These rules are intentionally
+    generic and narrow; scientific equivalence remains a model/human task.
+    """
+    cited = " ".join(str(item["quote"]) for item in quotes).casefold()
+    claim = claim_text.casefold()
+    gaps: list[str] = []
+    for match in _AFTER_CONDITION.finditer(claim):
+        qualifier, noun = match.groups()
+        adjacency = (
+            rf"\b(?:{re.escape(qualifier)}\s+{re.escape(noun)}"
+            rf"|{re.escape(noun)}\s+{re.escape(qualifier)})\b"
+        )
+        if not re.search(adjacency, cited):
+            gaps.append("condizione_dopo:" + qualifier + "_" + noun)
+    for match in _TIME_CONDITION.finditer(claim):
+        unit = match.group(1)
+        if not re.search(r"\b" + re.escape(unit) + r"\b", cited):
+            gaps.append("condizione_temporale:" + unit)
+    cited_terms = _proof_words(cited)
+    for match in _MEASUREMENT_OBJECT.finditer(claim):
+        instrument = match.group(1)
+        if not _matched_proof_token(instrument, cited_terms):
+            gaps.append("strumento_misura:" + instrument)
+    return sorted(set(gaps))
+
+
 
 
 def _context_windows(raw: str, *, width: int = 640, stride: int = 270) -> list[str]:
@@ -105,7 +168,13 @@ def evidence_spans(
             number_overlap = len(claim_numbers & set(_DIGIT.findall(piece)))
             if overlap < 2 and number_overlap < 1:
                 continue
+            # Do not rank a clause ending in "con la" above a complete
+            # citation just because it repeats more claim keywords.
             score = overlap + number_overlap * 2
+            if _TRAILING_CONNECTOR.search(piece):
+                score -= 10
+            elif re.search(r"[.!?;]$", piece):
+                score += 1
             ranked.append((-score, source_index, position, exact))
     ranked.sort(key=lambda row: row[:3])
     chosen: list[tuple[int, int, int, dict]] = []
@@ -229,7 +298,7 @@ def _challenge_supported_claim(
         return {**result, "diagnostic": "CHALLENGE_SCHEMA_INVALID"}
     valid = (
         assessment == "COMPLETE" and len(missing) == 0 and len(ids) > 0
-        and not _EXPLICIT_EVIDENCE_DOUBT.search(reason)
+        and not _unresolved_evidence_doubt(reason)
     )
     return {
         "assessment": assessment, "valid": valid,
@@ -385,7 +454,11 @@ def review_with_source_ids(
                  claim.text, re.IGNORECASE):
         complete = False
         missing.append("possible_circular_direction")
-    reason_doubt = bool(_EXPLICIT_EVIDENCE_DOUBT.search(reason))
+    condition_gaps = _material_condition_gaps(claim.text, quotes)
+    if condition_gaps:
+        complete = False
+        missing.extend(condition_gaps)
+    reason_doubt = _unresolved_evidence_doubt(reason)
     challenge = (
         _challenge_supported_claim(claim, quotes, chat)
         if complete and not reason_doubt else None
@@ -410,5 +483,6 @@ def review_with_source_ids(
             "unsupported_anchors": sorted(set(missing)),
             "lexical_coverage_passed": complete,
             "all_material_claim_parts_checked": accepted,
+            "material_condition_gaps": condition_gaps,
         },
     }
