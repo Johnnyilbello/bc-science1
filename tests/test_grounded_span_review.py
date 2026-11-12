@@ -434,3 +434,157 @@ def test_v83_failed_retry_keeps_invalid_schema_and_no_auto_approval():
     assert verdict["schema_retry"]["attempted"]
     assert verdict["schema_retry"]["recovered"] is False
     assert "INVALID_REASON" in verdict["schema_retry"]["retry_errors"]
+
+
+def test_v84_prefers_completed_original_span_over_dangling_window():
+    claim = _claim(
+        "Fisiologia",
+        "Il volume residuo VR di 1200 mL non può essere misurato "
+        "dallo spirometro ed è rappresentato nei grafici.",
+    )
+    incomplete = OriginalEvidence(
+        source_path="capacitapolmonari.pdf", page=None, block=1,
+        excerpt=(
+            "In questo grafico è rappresentato anche il volume residuo VR "
+            "pari a circa 1200 mL, che però abbiamo detto non può "
+            "essere misurato con la"
+        ),
+        rank=1, provenance="indexed_chunk",
+    )
+    complete = OriginalEvidence(
+        source_path="capacitapolmonari.pdf", page=None, block=1,
+        excerpt=(
+            "residuo VR pari a circa 1200 mL, che però abbiamo detto "
+            "non può essere misurato con la spirometria."
+        ),
+        rank=2, provenance="indexed_chunk",
+    )
+    spans = evidence_spans(claim, [incomplete, complete])
+    assert spans
+    assert "spirometria" in spans[0]["quote"]
+    assert all(validate_original_quote(s, [incomplete, complete]) for s in spans)
+
+
+def test_v84_missing_instrument_cannot_be_claimed_from_incomplete_quote():
+    claim = _claim(
+        "Fisiologia",
+        "Il volume residuo VR non può essere misurato dallo spirometro "
+        "e vale circa 1200 mL.",
+    )
+    evidence = [_source(
+        "Il volume residuo VR non può essere misurato con la "
+        "pari a circa 1200 mL."
+    )]
+    verdict = review_with_source_ids(
+        claim, evidence,
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED", "source_ids": [1],
+            "reason": "La citazione riprende la descrizione del volume residuo.",
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert "strumento_misura:spirometro" in (
+        verdict["proof_validation"]["material_condition_gaps"]
+    )
+
+
+def test_v84_rejects_maximal_breath_as_proof_of_normal_start():
+    claim = _claim(
+        "Fisiologia",
+        "Volume di riserva espiratoria VRE: quantità massima di aria "
+        "espirata dopo una normale espirazione, pari a circa 1000 mL.",
+    )
+    evidence = [_source(
+        "Il volume di riserva espiratoria VRE è la quantità massima "
+        "di aria espirata, pari a circa 1000 mL, il cui picco "
+        "appare al termine di una espirazione massimale. "
+        "Il soggetto normale respira a riposo."
+    )]
+    verdict = review_with_source_ids(
+        claim, evidence,
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED", "source_ids": [1],
+            "reason": "Il volume e il momento finale sono nella citazione.",
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert "condizione_dopo:normale_espirazione" in (
+        verdict["proof_validation"]["material_condition_gaps"]
+    )
+
+
+def test_v84_rejects_missing_explicit_one_second_condition():
+    claim = _claim(
+        "Fisiologia",
+        "Il volume espirato forzato FEV è 80% della capacità vitale "
+        "forzata CVF in un secondo.",
+    )
+    evidence = [_source(
+        "Il volume espirato forzato FEV è 80% della capacità vitale "
+        "forzata CVF."
+    )]
+    verdict = review_with_source_ids(
+        claim, evidence,
+        lambda _messages: json.dumps({
+            "label": "SUPPORTED", "source_ids": [1],
+            "reason": "La formula e il valore sono riportati dalla fonte.",
+        }),
+    )
+    assert verdict["status"] == "UNVERIFIED"
+    assert "condizione_temporale:secondo" in (
+        verdict["proof_validation"]["material_condition_gaps"]
+    )
+
+
+def test_v84_double_negative_does_not_negate_a_complete_model_verdict():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte conferma la misura di 200 centimetri.",
+            })
+        return json.dumps({
+            "assessment": "COMPLETE",
+            "reason": (
+                "Tutta la frase è dimostrata dalla citazione. "
+                "Non sono presenti parti non dimostrate."
+            ),
+            "missing_parts": [], "evidence_ids": [1],
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "PROVISIONALLY_SUPPORTED"
+    assert verdict["support_challenge"]["valid"] is True
+    assert verdict["verified_scientifically"] is False
+
+
+def test_v84_explicit_uncertainty_still_fails_closed():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte conferma la misura di 200 centimetri.",
+            })
+        return json.dumps({
+            "assessment": "COMPLETE",
+            "reason": (
+                "La citazione non dimostra tutto il contesto della misura."
+            ),
+            "missing_parts": [], "evidence_ids": [1],
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["support_challenge"]["valid"] is False
