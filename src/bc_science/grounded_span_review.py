@@ -297,16 +297,61 @@ def review_with_source_ids(
         return {**base, "diagnostic": "MODEL_CALL_INVALID"}
     if response is None:
         return {**base, "diagnostic": "MODEL_JSON_INVALID"}
-    label = response.get("label")
-    reason = response.get("reason")
-    ids = response.get("source_ids")
     schema_issues = _model_schema_issues(response, len(spans))
+    first_schema_issues = list(schema_issues)
+    schema_retry: dict | None = None
+    # Only formatting errors are recoverable. Never repair a fabricated or
+    # out-of-range source ID by clipping it to a valid one.
+    recoverable = {"INVALID_REASON", "TOO_MANY_SOURCE_IDS"}
+    if schema_issues and set(schema_issues) <= recoverable:
+        retry_messages = [
+            {"role": "system", "content": (
+                "Correggi soltanto il FORMATO della verifica. Riesamina la "
+                "frase e le stesse fonti; non dare automaticamente ragione "
+                "alla precedente risposta. Rispondi con un solo JSON valido, "
+                "senza Markdown. reason: 1-2 frasi, massimo 250 caratteri. "
+                "source_ids: lista di massimo 3 ID distinti presenti, "
+                "non creare ID. Scegli UNVERIFIED se le prove non bastano."
+            )},
+            {"role": "user", "content": (
+                'JSON: {"label":"SUPPORTED|CONTRADICTED|UNVERIFIED",'
+                '"source_ids":[1],"reason":"spiegazione breve"}. '
+                f"Errori del primo tentativo: {', '.join(schema_issues)}. "
+                f"FRASE: {claim.text}\\nFONTI: "
+                + json.dumps(
+                    [{"id": row["id"], "text": row["quote"]} for row in spans],
+                    ensure_ascii=False,
+                )
+            )},
+        ]
+        retry: dict | None = None
+        try:
+            retry = _json_object(chat(retry_messages))
+        except (ValueError, TypeError, KeyError, IndexError):
+            pass
+        retry_issues = (
+            _model_schema_issues(retry, len(spans))
+            if retry is not None else ["RETRY_JSON_INVALID"]
+        )
+        schema_retry = {
+            "attempted": True,
+            "recovered": not retry_issues,
+            "initial_errors": first_schema_issues,
+            "retry_errors": retry_issues,
+        }
+        if not retry_issues:
+            response = retry
+            schema_issues = []
     if schema_issues:
         return {
             **base, "diagnostic": "MODEL_SCHEMA_INVALID",
             "model_schema_errors": schema_issues,
             "model_response_fields": sorted(str(key) for key in response),
+            "schema_retry": schema_retry,
         }
+    label = response.get("label")
+    reason = response.get("reason")
+    ids = response.get("source_ids")
     chosen = [spans[i - 1] for i in ids]
     quotes = [
         {k: row[k] for k in ("source", "page", "block", "quote")}
@@ -316,6 +361,7 @@ def review_with_source_ids(
         **base, "model_label": label,
         "rationale": reason.strip(), "quotes": quotes,
         "used_span_ids": ids,
+        "schema_retry": schema_retry,
     }
     if label == "UNVERIFIED":
         return {**details, "diagnostic": "VALID_ABSTENTION"}
