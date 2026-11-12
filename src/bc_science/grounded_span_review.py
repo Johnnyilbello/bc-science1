@@ -14,9 +14,9 @@ from .autonomous_claim_audit import (
     CandidateClaim,
     _adjudicate_reported_contradiction,
     _json_object,
+    _matched_proof_token,
     _proof_completeness,
     _proof_words,
-    _matched_proof_token,
 )
 from .evidence_engine import OriginalEvidence, validate_original_quote
 
