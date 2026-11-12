@@ -778,12 +778,18 @@ def courses_auto_audit_claims(
     output_dir: Annotated[
         Path | None, typer.Option("--output-dir", help="Nuovo report isolato"),
     ] = None,
+    resume: Annotated[
+        bool, typer.Option("--resume", help="Riprendi un audit parziale identico"),
+    ] = False,
 ) -> None:
     """Esamina le affermazioni con un modello Ollama locale configurabile."""
+    import hashlib
     from datetime import datetime, timezone
     from urllib.parse import urlsplit
 
+    from .audit_checkpoint import AuditCheckpoint
     from .evidence_engine import OriginalEvidence
+    from .ollama_client import OllamaError
     from .scientific_patch_drafts import _allowed_documents
 
     if edition not in {"Completa", "Essenziale", "Anteprima"}:
@@ -797,6 +803,9 @@ def courses_auto_audit_claims(
         raise typer.Exit(2)
     if edition == "Anteprima" and preview_dir is None:
         console.print("[red]Anteprima richiede --preview-dir.[/]")
+        raise typer.Exit(2)
+    if resume and output_dir is None:
+        console.print("[red]--resume richiede --output-dir del checkpoint precedente.[/]")
         raise typer.Exit(2)
 
     config = _config()
@@ -839,6 +848,45 @@ def courses_auto_audit_claims(
             raise ValueError("Riassunto non disponibile per questa edizione")
         document = source.read_text(encoding="utf-8")
 
+        if output_dir is None:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+            output_dir = app_home() / "reports" / "autonomous-claims" / stamp
+        target = output_dir.expanduser().resolve()
+        sources = root.expanduser().resolve()
+        live = (app_home() / "outputs").resolve()
+        preview = preview_dir.expanduser().resolve() if preview_dir else None
+        if (
+            target == sources or target.is_relative_to(sources)
+            or sources.is_relative_to(target)
+            or target == live or target.is_relative_to(live)
+            or live.is_relative_to(target)
+            or (preview is not None and (
+                target == preview or target.is_relative_to(preview)
+                or preview.is_relative_to(target)
+            ))
+        ):
+            raise ValueError("La destinazione deve essere esterna a fonti e output live")
+
+        checkpoint = AuditCheckpoint(
+            target, {
+                "root": str(sources), "subject": subject, "chapter": chapter,
+                "edition": edition, "source_path": str(source.resolve()),
+                "document_sha256": hashlib.sha256(
+                    document.encode("utf-8")
+                ).hexdigest(),
+                "preview_dir": str(preview) if preview else None,
+                "model": model, "evidence_mode": evidence_mode,
+                "max_claims": max_claims,
+                "num_ctx": min(config.num_ctx, 8192),
+                "num_predict": 500, "temperature": 0.0,
+            }, resume=resume,
+        )
+        if checkpoint.claims:
+            console.print(
+                f"[cyan]Ripresa sicura: {len(checkpoint.claims)} "
+                f"affermazioni già completate.[/]"
+            )
+
         def retrieve(claim: str) -> list[OriginalEvidence]:
             source_report = inspect_original_evidence(
                 scan, chapter,
@@ -865,35 +913,32 @@ def courses_auto_audit_claims(
         def progress(index: int, total: int, state: str) -> None:
             console.print(f"[dim]{index}/{total} · {state}[/]")
 
-        report = run_claim_audit(
-            document, chapter, max_claims=max_claims,
-            find_evidence=retrieve, chat=query, progress=progress,
-            evidence_mode=evidence_mode,
-        )
+        try:
+            report = run_claim_audit(
+                document, chapter, max_claims=max_claims,
+                find_evidence=retrieve, chat=query, progress=progress,
+                evidence_mode=evidence_mode,
+                prior_claims=checkpoint.claims,
+                on_verdict=checkpoint.store,
+            )
+        except OllamaError as exc:
+            console.print(
+                f"[red]Ollama ha interrotto l'audit: {exc}[/]"
+            )
+            console.print(
+                f"[yellow]Risultati parziali salvati: "
+                f"{len(checkpoint.claims)}/{max_claims}[/]"
+            )
+            console.print(
+                f"[cyan]Riprendere con --resume --output-dir {target} "
+                "dopo aver risolto il problema del modello locale.[/]"
+            )
+            raise typer.Exit(2) from exc
         report.update({
             "subject": subject, "edition": edition, "source_path": str(source),
             "model": model, "source_kind": "original_course_cache",
             "independent_scientific_verification": False,
         })
-        if output_dir is None:
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
-            output_dir = app_home() / "reports" / "autonomous-claims" / stamp
-        target = output_dir.expanduser().resolve()
-        sources = root.expanduser().resolve()
-        live = (app_home() / "outputs").resolve()
-        preview = preview_dir.expanduser().resolve() if preview_dir else None
-        if (
-            target == sources or target.is_relative_to(sources)
-            or sources.is_relative_to(target)
-            or target == live or target.is_relative_to(live)
-            or live.is_relative_to(target)
-            or (preview is not None and (
-                target == preview or target.is_relative_to(preview)
-                or preview.is_relative_to(target)
-            ))
-        ):
-            raise ValueError("La destinazione deve essere esterna a fonti e output live")
-        target.mkdir(parents=True, exist_ok=False)
         (target / "report.json").write_text(
             json.dumps(report, ensure_ascii=True, indent=2) + "\n",
             encoding="utf-8",
@@ -942,6 +987,7 @@ def courses_auto_audit_claims(
                 "",
             ])
         (target / "report.md").write_text("\n".join(lines), encoding="utf-8")
+        checkpoint.finish()
     except (OSError, ValueError, TypeError, KeyError) as exc:
         console.print(f"[red]Audit autonomo non completato: {exc}[/]")
         raise typer.Exit(2) from exc
