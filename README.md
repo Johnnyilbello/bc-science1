@@ -188,6 +188,32 @@ Valutare questa versione confrontando gli stessi 12 casi e controllando
 anche le false conferme: un minor numero di `PROVISIONALLY_SUPPORTED`
 può essere un miglioramento quando le prove non bastano.
 
+## V8.3 — recupero controllato di risposte JSON malformate
+
+Nei report V8.2, un giudizio Qwen è stato respinto per
+`INVALID_REASON` e MiniCPM per `TOO_MANY_SOURCE_IDS`: si tratta
+di errori dello schema, non di una contraddizione scientifica.
+
+V8.3 consente **una sola nuova chiamata locale** per queste due
+categorie esatte. Il modello riceve gli stessi passaggi originali e
+deve scegliere da zero, senza riutilizzare automaticamente il primo
+giudizio. Gli ID non vengono tagliati o alterati dal programma;
+ID inesistenti, duplicati, non interi o campi mancanti **non**
+possono attivare il recupero.
+
+Se il secondo JSON è ancora scorretto, il risultato resta
+`MODEL_SCHEMA_INVALID` / `UNVERIFIED`. Se il formato è valido,
+il percorso scientifico resta identico a V8.2: prove originali,
+copertura lessicale e ulteriore controllo semantico per ogni possibile
+`SUPPORTED`. Nessun giudizio diventa certificazione e nessun
+riassunto viene cambiato.
+
+Ogni report include `schema_retry` con `attempted`, `recovered`,
+`initial_errors` e `retry_errors`. Il recupero non migliora
+necessariamente la precisione scientifica; consente soltanto di
+distinguere l'errore di formato dal giudizio sui contenuti. Il tempo
+di esecuzione può aumentare per i casi che richiedono il nuovo tentativo.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
