@@ -242,6 +242,35 @@ Prima del merge verificare CI, rivedere tutte le affermazioni dei
 report V8.4 e misurare falsi positivi e falsi negativi su un set
 annotato che includa anche materie diverse dalla Fisiologia.
 
+## V8.5 — audit recuperabile dopo un errore Ollama
+
+Il confronto V8.4 si è fermato alla richiesta 8/12 con `HTTP 500`
+da Ollama locale, dopo aver completato 7 affermazioni. Questo è
+un errore del **servizio di inferenza**, non una prova scientifica.
+Le esecuzioni precedenti scrivevano il report soltanto al termine.
+
+Ora `courses auto-audit-claims` salva **atomicamente** ogni
+verdetto completo in `audit-checkpoint.json`, all'interno della
+cartella isolata di `--output-dir`. In caso di errore Ollama, l'audit
+termina senza fabbricare un `UNVERIFIED` e senza generare un report
+finale. Vengono mantenuti i risultati fino all'ultima affermazione
+completata. Non modifica i riassunti.
+
+Dopo aver risolto il guasto Ollama, **rieseguire lo stesso comando**
+con la **stessa** cartella `--output-dir` e il parametro `--resume`:
+l'audit ricarica solo affermazioni già completate che corrispondono
+esattamente a documento, SHA256, materia, capitolo, modello,
+edizione, modalità prove e parametri rilevanti. Le affermazioni
+non ancora completate vengono ricalcolate con lo stesso modello.
+Una cartella già completata e un checkpoint non coerente vengono
+rifiutati; non esistono correzioni né merge automatici.
+
+Una sessione V8.4 interrotta **prima di questa modifica** non ha
+un checkpoint V8.5: deve essere avviata una nuova sessione dopo
+aver verificato la stabilità di Ollama. Un errore HTTP 500 può
+dipendere da memoria, processo del modello o altro problema interno;
+il checkpoint non cura il server e non certifica i verdetti.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,

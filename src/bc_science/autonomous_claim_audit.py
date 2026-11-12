@@ -777,6 +777,8 @@ def run_claim_audit(
     chat: Callable[[list[dict[str, str]]], str],
     progress: Callable[[int, int, str], None] | None = None,
     evidence_mode: str = "legacy",
+    prior_claims: list[dict] | None = None,
+    on_verdict: Callable[[int, int, dict], None] | None = None,
 ) -> dict:
     """Small read-only pilot; no implicit publication or self-certification."""
     if evidence_mode not in {"legacy", "spans"}:
@@ -785,8 +787,14 @@ def run_claim_audit(
         from .grounded_span_review import review_with_source_ids
 
     claims = extract_claim_candidates(document, chapter, limit=max_claims)
-    outcomes = []
-    for index, claim in enumerate(claims, 1):
+    restored = list(prior_claims) if prior_claims is not None else []
+    if len(restored) > len(claims):
+        raise ValueError("Checkpoint con più affermazioni del campione corrente")
+    for index, previous in enumerate(restored):
+        if not isinstance(previous, dict) or previous.get("claim") != claims[index].to_dict():
+            raise ValueError("Checkpoint incoerente: affermazioni modificate")
+    outcomes = restored
+    for index, claim in enumerate(claims[len(restored):], len(restored) + 1):
         try:
             evidence = find_evidence(claim.text)
         except (ValueError, OSError):
@@ -796,6 +804,8 @@ def run_claim_audit(
         else:
             verdict = verify_claim_with_evidence(claim, evidence, chat)
         outcomes.append(verdict)
+        if on_verdict is not None:
+            on_verdict(index, len(claims), verdict)
         if progress is not None:
             progress(index, len(claims), verdict["status"])
     return {
