@@ -355,3 +355,82 @@ def test_v82_invalid_second_pass_fails_closed():
     assert len(calls) == 2
     assert verdict["status"] == "UNVERIFIED"
     assert verdict["support_challenge"]["diagnostic"] == "CHALLENGE_JSON_INVALID"
+
+
+def test_v83_schema_retry_recovers_only_format_and_still_requires_proof():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        if len(calls) == 1:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1], "reason": "",
+            })
+        if len(calls) == 2:
+            return json.dumps({
+                "label": "SUPPORTED", "source_ids": [1],
+                "reason": "La fonte indica soggetto e misura.",
+            })
+        return json.dumps({
+            "assessment": "PARTIAL",
+            "reason": "La relazione tra soggetto e misura non e sufficiente.",
+            "missing_parts": ["contesto di misurazione"],
+            "evidence_ids": [1],
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 3
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "SECOND_PASS_NOT_CONFIRMED"
+    assert verdict["schema_retry"]["attempted"]
+    assert verdict["schema_retry"]["recovered"]
+    assert verdict["schema_retry"]["initial_errors"] == ["INVALID_REASON"]
+
+
+def test_v83_too_many_source_ids_can_retry_without_truncating():
+    claim = _claim("Fisica", "Il metallo Alfa fonde a 200 gradi.")
+    original = _source(
+        "Il metallo Alfa fonde a 200 gradi. "
+        "Il metallo Alfa fonde a 220 gradi. "
+        "Il metallo Alfa fonde a 230 gradi. "
+        "Il metallo Alfa fonde a 240 gradi."
+    )
+    assert len(evidence_spans(claim, [original])) >= 4
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "UNVERIFIED",
+            "source_ids": [1, 2, 3, 4] if len(calls) == 1 else [],
+            "reason": "La prova originale non consente una conclusione.",
+        })
+
+    verdict = review_with_source_ids(claim, [original], chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "VALID_ABSTENTION"
+    assert verdict["schema_retry"]["recovered"] is True
+    assert "TOO_MANY_SOURCE_IDS" in verdict["schema_retry"]["initial_errors"]
+
+
+def test_v83_failed_retry_keeps_invalid_schema_and_no_auto_approval():
+    claim = _claim("Fisica", "Il corpo Alfa misura 200 centimetri.")
+    evidence = [_source("Il corpo Alfa misura 200 centimetri.")]
+    calls = []
+
+    def chat(_messages):
+        calls.append(1)
+        return json.dumps({
+            "label": "SUPPORTED", "source_ids": [1], "reason": "",
+        })
+
+    verdict = review_with_source_ids(claim, evidence, chat)
+    assert len(calls) == 2
+    assert verdict["status"] == "UNVERIFIED"
+    assert verdict["diagnostic"] == "MODEL_SCHEMA_INVALID"
+    assert verdict["schema_retry"]["attempted"]
+    assert verdict["schema_retry"]["recovered"] is False
+    assert "INVALID_REASON" in verdict["schema_retry"]["retry_errors"]
