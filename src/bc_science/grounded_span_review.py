@@ -317,7 +317,7 @@ def review_with_source_ids(
                 'JSON: {"label":"SUPPORTED|CONTRADICTED|UNVERIFIED",'
                 '"source_ids":[1],"reason":"spiegazione breve"}. '
                 f"Errori del primo tentativo: {', '.join(schema_issues)}. "
-                f"FRASE: {claim.text}\\nFONTI: "
+                f"FRASE: {claim.text}\nFONTI: "
                 + json.dumps(
                     [{"id": row["id"], "text": row["quote"]} for row in spans],
                     ensure_ascii=False,
