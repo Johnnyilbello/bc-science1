@@ -162,6 +162,32 @@ sempre con una nuova `--output-dir`; valutare anche quali candidati
 siano realmente completi e se eventuali supporti siano scientificamente
 giustificati, non soltanto il numero di etichette positive.
 
+## V8.2 — supporto provvisorio con doppio controllo locale
+
+Nei report V8.1 di Fisiologia, entrambi i modelli hanno talvolta
+assegnato `PROVISIONALLY_SUPPORTED` con citazioni incomplete e una
+motivazione che ammetteva la mancanza di prove. Per questo, quando il
+primo modello indica `SUPPORTED` e supera il controllo lessicale,
+V8.2 richiede **un secondo giudizio semantico locale** sulle citazioni
+già selezionate, con identificativi di fonte e parti mancanti.
+
+Una risposta incompleta, invalida, contraddittoria o un dubbio esplicito
+nella motivazione iniziale mantengono `UNVERIFIED`. Il secondo giudizio
+proviene dallo **stesso modello**; non costituisce una verifica
+scientifica indipendente e non autorizza correzioni/pubblicazioni.
+Un esito positivo resta soltanto `PROVISIONALLY_SUPPORTED`.
+
+Il report espone `support_challenge`, `lexical_coverage_passed`
+e `model_schema_errors` per rendere diagnosticabili i blocchi
+(soprattutto `MODEL_SCHEMA_INVALID`). Le vecchie diagnostiche V7/V8.1
+non vengono retroattivamente modificate. Il secondo passaggio usa
+un'ulteriore chiamata al modello locale solo sulle possibili conferme,
+per cui può aumentare il tempo dell'audit.
+
+Valutare questa versione confrontando gli stessi 12 casi e controllando
+anche le false conferme: un minor numero di `PROVISIONALLY_SUPPORTED`
+può essere un miglioramento quando le prove non bastano.
+
 ## Esito A/B V5 e recupero prudente delle prove
 
 Due report Markdown dello stesso capitolo di Anatomia, 12 frasi ciascuno,
