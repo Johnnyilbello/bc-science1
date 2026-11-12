@@ -141,7 +141,7 @@ _EXPLICIT_EVIDENCE_DOUBT = re.compile(
 def _model_schema_issues(response: dict, span_count: int) -> list[str]:
     """Expose precise failure classes without trusting malformed model fields."""
     issues: list[str] = []
-    if response.get("label") not in _LABELS:
+    if not isinstance(response.get("label"), str) or response["label"] not in _LABELS:
         issues.append("INVALID_LABEL")
     reason = response.get("reason")
     if not isinstance(reason, str) or not 4 <= len(reason.strip()) <= 700:
